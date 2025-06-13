@@ -4,37 +4,92 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>에일리언 마피아 게임</title>
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
     <style>
-        /* 기본적인 화면 스타일링 */
-        body, html {
-            margin: 0;
-            padding: 0;
-            width: 100%;
-            height: 100%;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            background-color: #1a1a2e;
-            color: #e0e0e0;
-            font-family: 'Malgun Gothic', sans-serif;
-        }
-
-        #root {
-            text-align: center;
-        }
-
-        h1 {
-            font-size: 2.5em;
-            color: #00d1ff;
-        }
+        body, html { margin: 0; padding: 0; width: 100%; height: 100%; display: flex; justify-content: center; align-items: center; background-color: #1a1a2e; color: #e0e0e0; font-family: 'Malgun Gothic', sans-serif; }
+        #root { display: flex; flex-direction: column; gap: 30px; }
+        .container { text-align: center; background-color: #2a2a4e; padding: 40px; border-radius: 15px; box-shadow: 0 0 20px rgba(0, 209, 255, 0.2); min-width: 350px; }
+        h1, h2 { color: #00d1ff; }
+        h1 { font-size: 2.5em; margin-bottom: 30px; }
+        h2 { font-size: 1.8em; margin-bottom: 20px; }
+        input { width: 80%; padding: 15px; margin-bottom: 20px; border-radius: 8px; border: 2px solid #00d1ff; background-color: #1a1a2e; color: #e0e0e0; font-size: 1.2em; }
+        button { width: 90%; padding: 15px; border-radius: 8px; border: none; background-color: #00d1ff; color: #1a1a2e; font-size: 1.4em; font-weight: bold; cursor: pointer; transition: background-color 0.3s; }
+        button:hover { background-color: #8affff; }
+        .admin-button { background-color: #ff4757; color: white; }
+        .admin-button:hover { background-color: #ff6b81; }
+        ul { list-style: none; padding: 0; }
+        li { background-color: #1a1a2e; margin: 10px 0; padding: 15px; border-radius: 8px; font-size: 1.2em;}
     </style>
 </head>
 <body>
-
     <div id="root">
-        <h1>에일리언 마피아 게임</h1>
-        <p>게임 로딩 중...</p>
+        <div id="player-container" class="container">
+            <h2>플레이어로 참가</h2>
+            <input type="text" id="name-input" placeholder="이름을 입력하세요">
+            <input type="text" id="code-input" placeholder="초대 코드">
+            <button id="join-button">게임 참가</button>
+        </div>
+        <div id="admin-container" class="container">
+            <h2>관리자 모드</h2>
+            <button id="admin-button" class="admin-button">관리자 페이지로 이동</button>
+        </div>
     </div>
+    <script>
+        const socket = io('http://localhost:3001');
+        const rootDiv = document.getElementById('root');
+        const playerContainer = document.getElementById('player-container');
+        const adminContainer = document.getElementById('admin-container');
 
+        socket.on('connect', () => { console.log('서버에 성공적으로 연결되었습니다.'); });
+
+        socket.on('updateRoom', (players) => {
+            showLobby(players);
+        });
+
+        socket.on('roleAssigned', (data) => {
+            showRoleScreen(data.role);
+        });
+
+        function showLobby(players) {
+            playerContainer.innerHTML = ''; 
+            adminContainer.style.display = 'none';
+            const title = document.createElement('h2');
+            title.textContent = '대기실';
+            const playerList = document.createElement('ul');
+            players.forEach(player => {
+                const playerItem = document.createElement('li');
+                playerItem.textContent = player.name;
+                playerList.appendChild(playerItem);
+            });
+            playerContainer.appendChild(title);
+            playerContainer.appendChild(playerList);
+        }
+
+        function showRoleScreen(role) {
+            playerContainer.innerHTML = '';
+            adminContainer.style.display = 'none';
+            const title = document.createElement('h2');
+            title.textContent = '당신의 역할은...';
+            const roleName = document.createElement('h1');
+            roleName.textContent = role;
+            roleName.style.color = '#ff4757';
+            const description = document.createElement('p');
+            description.textContent = '이제부터 당신은 이 역할에 충실해야 합니다.';
+            playerContainer.appendChild(title);
+            playerContainer.appendChild(roleName);
+            playerContainer.appendChild(description);
+        }
+
+        rootDiv.addEventListener('click', function(event) {
+            if (event.target.id === 'join-button') {
+                const nameInput = document.getElementById('name-input');
+                const codeInput = document.getElementById('code-input');
+                socket.emit('joinGame', { name: nameInput.value, code: codeInput.value });
+            }
+            if (event.target.id === 'admin-button') {
+                window.location.href = '/admin';
+            }
+        });
+    </script>
 </body>
 </html>
