@@ -1,13 +1,32 @@
 <!DOCTYPE html>
 <html lang="ko">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>에일리언 마피아 게임</title>
     <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
     <link rel="stylesheet" href="style.css">
-    <style> .timer { font-size: 4em; color: #ffc107; } </style>
+    <style>
+        .timer {
+            font-size: 4em;
+            color: #ffc107;
+        }
+
+        .target-btn {
+            width: 100%;
+            margin: 5px 0;
+            background-color: #ff4757;
+            color: white;
+            font-size: 1.2em;
+        }
+
+        .target-btn:hover {
+            background-color: #ff6b81;
+        }
+    </style>
 </head>
+
 <body>
     <div id="root">
         <div id="player-container" class="container">
@@ -27,39 +46,47 @@
         const playerContainer = document.getElementById('player-container');
         const adminContainer = document.getElementById('admin-container');
 
-        // --- 생존 상태를 기억할 변수 추가 ---
         let amIAlive = true;
 
         socket.on('connect', () => { console.log('서버에 성공적으로 연결되었습니다.'); });
 
-        socket.on('updateRoom', (players) => {
-            // --- 사망했다면, 대기실 업데이트를 무시합니다 ---
-            if (!amIAlive) return; 
-            
-            showLobby(players);
+        socket.on('updateRoom', (room) => {
+            if (!amIAlive) return;
+            showLobby(room);
         });
 
         socket.on('roleAssigned', (data) => {
+            if (!amIAlive) return;
             showRoleScreen(data.role, data.description);
         });
 
-        // --- 사망 시, 상태를 변경합니다 ---
         socket.on('youAreDead', () => {
             amIAlive = false;
             showDeathScreen();
         });
 
+        // --- '밤' 단계 처리를 위해 수정된 부분 ---
         socket.on('phaseChange', (data) => {
-            if (!amIAlive) return; // 죽으면 다른 단계로 넘어가지 않음
+            if (!amIAlive) return;
 
             if (data.phase === 'meeting') {
                 showMeetingScreen(data.day);
+            } else if (data.phase === 'night_alien_action') {
+                // 에일리언이 아닌 일반 플레이어에게는 '밤' 화면만 보여줍니다.
+                showNightScreen();
             }
+        });
+
+        // --- 에일리언에게만 오는 특별 이벤트 핸들러 추가 ---
+        socket.on('alienAction', (data) => {
+            if (!amIAlive) return;
+            console.log('에일리언 활동 신호를 받았습니다.', data);
+            showAlienActionScreen(data.otherAliens, data.targets);
         });
 
         socket.on('timerUpdate', (data) => {
             if (!amIAlive) return;
-            
+
             const timerDisplay = document.getElementById('timer-display');
             if (timerDisplay) {
                 const timeLeft = data.timeLeft;
@@ -75,22 +102,73 @@
             }
         });
 
-        function showLobby(players) {
+        // 이 함수 전체를 찾아서 교체해주세요
+        function showLobby(room) {
             playerContainer.innerHTML = '';
             adminContainer.style.display = 'none';
-            const title = document.createElement('h2');
-            title.textContent = '대기실';
-            const playerList = document.createElement('ul');
-            players.forEach(player => {
-                const playerItem = document.createElement('li');
-                playerItem.textContent = player.name;
-                if (player.status === 'dead') {
-                    playerItem.classList.add('dead');
+
+            const me = room.players.find(p => p.id === socket.id);
+
+            // 관리자가 아직 '게임 시작'을 누르지 않아서 모둠 수가 정해지지 않은 경우
+            if (!room.groupCount) {
+                const title = document.createElement('h2');
+                title.textContent = '대기실';
+                const description = document.createElement('p');
+                description.textContent = '관리자가 게임 설정을 준비 중입니다. 잠시만 기다려주세요...';
+                playerContainer.appendChild(title);
+                playerContainer.appendChild(description);
+                return; // 여기서 함수 종료
+            }
+
+            // 관리자가 게임을 시작했고, 내가 모둠을 선택해야 하는 경우
+            if (me && !me.group) {
+                const title = document.createElement('h2');
+                title.textContent = '모둠을 선택하세요';
+                playerContainer.appendChild(title);
+
+                const groupButtonContainer = document.createElement('div');
+                for (let i = 1; i <= room.groupCount; i++) {
+                    const button = document.createElement('button');
+                    button.textContent = `${i}모둠`;
+                    button.className = 'group-select-btn';
+                    button.dataset.groupNumber = i;
+                    button.style.margin = '5px';
+                    groupButtonContainer.appendChild(button);
                 }
-                playerList.appendChild(playerItem);
-            });
-            playerContainer.appendChild(title);
-            playerContainer.appendChild(playerList);
+                playerContainer.appendChild(groupButtonContainer);
+
+            } else { // 내가 모둠을 선택한 후 다른 플레이어를 기다리는 경우
+                const title = document.createElement('h2');
+                title.textContent = '대기실';
+                playerContainer.appendChild(title);
+
+                const playerList = document.createElement('ul');
+                for (let i = 1; i <= room.groupCount; i++) {
+                    const groupHeader = document.createElement('h4');
+                    groupHeader.style.color = '#00d1ff';
+                    groupHeader.style.borderBottom = '1px solid #00d1ff';
+                    groupHeader.style.paddingBottom = '5px';
+                    groupHeader.textContent = `${i}모둠`;
+                    playerList.appendChild(groupHeader);
+
+                    const groupPlayers = room.players.filter(p => p.group === i);
+                    if (groupPlayers.length === 0) {
+                        const noPlayerItem = document.createElement('li');
+                        noPlayerItem.textContent = '(아직 없음)';
+                        noPlayerItem.style.fontStyle = 'italic';
+                        noPlayerItem.style.opacity = '0.7';
+                        playerList.appendChild(noPlayerItem);
+                    } else {
+                        groupPlayers.forEach(player => {
+                            const playerItem = document.createElement('li');
+                            playerItem.textContent = player.name;
+                            if (player.status === 'dead') playerItem.classList.add('dead');
+                            playerList.appendChild(playerItem);
+                        });
+                    }
+                }
+                playerContainer.appendChild(playerList);
+            }
         }
 
         function showRoleScreen(role, description) {
@@ -118,27 +196,63 @@
             const timerDisplay = document.createElement('h1');
             timerDisplay.className = 'timer';
             timerDisplay.id = 'timer-display';
-            timerDisplay.textContent = '02:00';
+            timerDisplay.textContent = '02:00'; // 기본 표시 시간
             playerContainer.appendChild(title);
             playerContainer.appendChild(description);
             playerContainer.appendChild(timerDisplay);
         }
-        
-        function showDeathScreen() {
+
+        // --- 화면 표시 함수들 추가 ---
+        function showNightScreen() {
             playerContainer.innerHTML = '';
             adminContainer.style.display = 'none';
-
-            const title = document.createElement('h1');
-            title.textContent = '당신은 사망하였습니다';
-            title.style.color = '#dc3545'; 
-
+            const title = document.createElement('h2');
+            title.textContent = '밤이 되었습니다.';
             const description = document.createElement('p');
-            description.textContent = '조용히 사망자 구역으로 이동해주세요.';
-            
+            description.textContent = '모든 플레이어는 눈을 감아주세요. 에일리언은 활동을 시작합니다.';
             playerContainer.appendChild(title);
             playerContainer.appendChild(description);
         }
 
+        function showAlienActionScreen(otherAliens, targets) {
+            playerContainer.innerHTML = '';
+            adminContainer.style.display = 'none';
+            const title = document.createElement('h2');
+            title.textContent = '오늘 밤의 사냥감을 선택하세요.';
+
+            const comrades = document.createElement('p');
+            comrades.textContent = otherAliens.length > 0 ? `(동료 에일리언: ${otherAliens.join(', ')})` : '(동료 에일리언 없음)';
+
+            const targetList = document.createElement('ul');
+            targets.forEach(target => {
+                const li = document.createElement('li');
+                const button = document.createElement('button');
+                button.textContent = target.name;
+                button.className = 'target-btn'; // 클래스 추가
+                button.dataset.targetId = target.id; // 데이터 속성 추가
+                li.appendChild(button);
+                targetList.appendChild(li);
+            });
+
+            playerContainer.appendChild(title);
+            playerContainer.appendChild(comrades);
+            playerContainer.appendChild(targetList);
+        }
+
+        function showDeathScreen() {
+            playerContainer.innerHTML = '';
+            adminContainer.style.display = 'none';
+            const title = document.createElement('h1');
+            title.textContent = '당신은 사망하였습니다';
+            title.style.color = '#dc3545';
+            const description = document.createElement('p');
+            description.textContent = '조용히 사망자 구역으로 이동해주세요.';
+            playerContainer.appendChild(title);
+            playerContainer.appendChild(description);
+        }
+
+        // --- 클릭 이벤트 리스너 수정 ---
+        // 이 함수 전체를 찾아서 교체하세요
         rootDiv.addEventListener('click', function (event) {
             if (event.target.id === 'join-button') {
                 const nameInput = document.getElementById('name-input');
@@ -152,7 +266,23 @@
             if (event.target.id === 'admin-button') {
                 window.location.href = '/admin';
             }
+
+            // 모둠 선택 버튼 클릭 처리 (새로 추가)
+            if (event.target.classList.contains('group-select-btn')) {
+                const groupNumber = parseInt(event.target.dataset.groupNumber, 10);
+                socket.emit('selectGroup', { groupNumber: groupNumber });
+            }
+
+            // 사냥감 선택 버튼 클릭 처리
+            if (event.target.classList.contains('target-btn')) {
+                const targetId = event.target.dataset.targetId;
+                const targetName = event.target.textContent;
+                socket.emit('nightAction', { targetId: targetId });
+                playerContainer.innerHTML = `<h2>${targetName}님을 선택했습니다.</h2><p>다른 플레이어들의 선택을 기다립니다...</p>`;
+            }
         });
+
     </script>
 </body>
+
 </html>

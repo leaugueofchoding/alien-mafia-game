@@ -62,7 +62,7 @@ app.get('/admin', (req, res) => { res.sendFile(path.join(__dirname, '../client/p
 
 // Socket.IO 연결 처리
 io.on('connection', (socket) => {
-  
+
   // 관리자 페이지 연결
   socket.on('adminConnect', () => {
     socket.join(ADMIN_ROOM);
@@ -78,19 +78,23 @@ io.on('connection', (socket) => {
     }
     const newPlayer = { id: socket.id, name: name, status: 'alive' };
     gameRooms[code].players.push(newPlayer);
-    io.to(code).emit('updateRoom', gameRooms[code].players);
+    io.to(code).emit('updateRoom', gameRooms[code]);
     io.to(ADMIN_ROOM).emit('updateAdmin', { rooms: gameRooms, presets: PRESETS });
   });
 
   // 게임 시작
+  // 이 부분을 찾아서 교체하세요
   socket.on('startGame', (data) => {
-    const { code, settings, presetId } = data;
+    // groupCount를 데이터에서 받아옵니다.
+    const { code, settings, presetId, groupCount } = data;
     const room = gameRooms[code];
     if (!room || room.status === 'playing') return;
 
-    console.log(`[${code}] 방 게임 시작 요청`);
+    // 방 정보에 groupCount를 저장합니다.
+    room.groupCount = groupCount;
+
+    console.log(`[${code}] 방 게임 시작 요청. 모둠 수: ${groupCount}`);
     console.log('역할 설정:', settings);
-    console.log('선택된 프리셋:', presetId);
 
     if (PRESETS[presetId]) {
       room.missions = PRESETS[presetId].missions;
@@ -111,11 +115,41 @@ io.on('connection', (socket) => {
     room.status = 'playing';
     room.phase = 'role_reveal';
 
+    // 중요: 이제 플레이어들에게 '방 전체 정보'를 보냅니다.
+    io.to(code).emit('updateRoom', room);
     io.to(ADMIN_ROOM).emit('updateAdmin', { rooms: gameRooms, presets: PRESETS });
 
     players.forEach(player => {
       io.to(player.id).emit('roleAssigned', { role: player.role, description: player.description });
     });
+  });
+
+  // 이 코드 블록 전체를 새로 추가하세요
+  socket.on('selectGroup', (data) => {
+    const { groupNumber } = data;
+    let roomCode = '';
+    let player = null;
+
+    // 이 플레이어가 속한 방과 플레이어 객체를 찾습니다.
+    for (const code in gameRooms) {
+      const p = gameRooms[code].players.find(p => p.id === socket.id);
+      if (p) {
+        roomCode = code;
+        player = p;
+        break;
+      }
+    }
+
+    if (player && roomCode) {
+      // 플레이어 정보에 그룹 번호를 기록합니다.
+      player.group = groupNumber;
+      console.log(`[${roomCode}] 방의 ${player.name}님이 ${groupNumber}모둠을 선택했습니다.`);
+
+      const room = gameRooms[roomCode];
+      // 변경된 방 정보를 모든 사람에게 다시 전송합니다.
+      io.to(roomCode).emit('updateRoom', room);
+      io.to(ADMIN_ROOM).emit('updateAdmin', { rooms: gameRooms, presets: PRESETS });
+    }
   });
 
   // 다음 단계 진행
@@ -147,7 +181,7 @@ io.on('connection', (socket) => {
     } else {
       io.to(code).emit('phaseChange', { phase: room.phase, day: room.day });
     }
-    
+
     io.to(ADMIN_ROOM).emit('updateAdmin', { rooms: gameRooms, presets: PRESETS });
   });
 
@@ -181,17 +215,43 @@ io.on('connection', (socket) => {
     if (player) {
       player.status = 'dead';
       console.log(`[${roomCode}] 방의 ${player.name}님이 사망 처리되었습니다.`);
-      
+
       io.to(playerId).emit('youAreDead');
       io.to(roomCode).emit('updateRoom', room.players);
       io.to(ADMIN_ROOM).emit('updateAdmin', { rooms: gameRooms, presets: PRESETS });
     }
   });
 
+  // 에일리언의 밤 활동 결과 수신
+  socket.on('nightAction', (data) => {
+    const { targetId } = data;
+
+    // 이 socket(에일리언)이 어느 방에 있는지 찾기
+    let roomCode = '';
+    for (const code in gameRooms) {
+      if (gameRooms[code].players.some(p => p.id === socket.id)) {
+        roomCode = code;
+        break;
+      }
+    }
+
+    if (roomCode) {
+      const room = gameRooms[roomCode];
+      const alien = room.players.find(p => p.id === socket.id);
+      const target = room.players.find(p => p.id === targetId);
+
+      // 아직 서버에서는 콘솔에 로그만 남깁니다.
+      console.log(`[${roomCode}] 방의 에일리언(${alien.name})이 ${target.name}님을 사냥감으로 선택했습니다.`);
+
+      // 여기에 나중에 실제 사망 처리 로직이 들어갑니다.
+      room.nightlyTarget = targetId; // 일단 선택된 대상을 기록만 해둡니다.
+    }
+  });
+
   // 디버그용 게임 시작 (올바른 위치로 이동)
   socket.on('debugStartGame', () => {
     console.log(`'${socket.id}' 클라이언트로부터 디버그용 테스트 게임 시작 요청을 받았습니다.`);
-    
+
     const roomCode = 'test-' + Math.random().toString(36).substring(7);
     const dummyPlayers = [
       { id: 'bot1', name: '플레이어1', status: 'alive' },

@@ -140,9 +140,9 @@
 
         function getDefaultRoleCounts(playerCount) {
             const defaults = {
-                '에일리언 여왕': 1, '에일리언': 1, '에일리언 알': 1, '함장': 1,
-                '엔지니어': 1, '의사': 4, '군인': 1, '초능력자': 1,
-                '수다쟁이': 1, '뚱이': 1, '신의 사도': 1
+                '에일리언 여왕': 1, '에일리언': 1, '에일리언 알': 0, '함장': 1,
+                '엔지니어': 1, '의사': 0, '군인': 0, '초능력자': 0,
+                '수다쟁이': 0, '뚱이': 0, '신의 사도': 0
             };
             return defaults;
         }
@@ -155,6 +155,7 @@
             renderAdminView();
         });
 
+        // admin.html 파일의 이 함수 전체를 찾아서 교체해주세요.
         function renderAdminView() {
             roomsContainer.innerHTML = '';
             if (Object.keys(gameRoomsState).length === 0) {
@@ -179,19 +180,25 @@
                 contentDiv.className = 'room-content';
                 const playerColumn = document.createElement('div');
                 playerColumn.className = 'column';
-                playerColumn.innerHTML = '<h3>참가자 목록</h3>';
                 const settingsColumn = document.createElement('div');
                 settingsColumn.className = 'column';
 
                 if (roomData.status === 'playing') {
-                    // --- 게임 시작 후 UI ---
+                    // --- 게임 시작 후 UI (UI 통합 버전) ---
+                    playerColumn.innerHTML = '<h3>참가자 현황</h3>';
                     const playerList = document.createElement('ul');
                     roomData.players.forEach(player => {
                         const playerItem = document.createElement('li');
-                        const playerNameSpan = document.createElement('span');
-                        playerNameSpan.textContent = player.name;
-                        playerItem.appendChild(playerNameSpan);
-                        if (player.status === 'dead') { playerItem.classList.add('dead'); }
+
+                        const playerInfoSpan = document.createElement('span');
+                        // 이름, 모둠, 역할을 한 줄에 표시합니다.
+                        playerInfoSpan.textContent = `${player.name} (${player.group || '?'}모둠) - ${player.role || '역할 미정'}`;
+                        playerItem.appendChild(playerInfoSpan);
+
+                        if (player.status === 'dead') {
+                            playerItem.classList.add('dead');
+                        }
+
                         const elimButton = document.createElement('button');
                         elimButton.textContent = '사망 처리';
                         elimButton.className = 'eliminate-btn';
@@ -202,36 +209,63 @@
                     });
                     playerColumn.appendChild(playerList);
 
-                    settingsColumn.innerHTML = '<h3>역할 배정 결과</h3>';
-                    const assignedList = document.createElement('ul');
-                    roomData.players.forEach(player => {
-                        const item = document.createElement('li');
-                        item.textContent = `${player.name}: ${player.role}`;
-                        if (player.status === 'dead') { item.classList.add('dead'); }
-                        assignedList.appendChild(item);
-                    });
-                    settingsColumn.appendChild(assignedList);
+                    // 오른쪽 컬럼에는 게임 진행 버튼들을 위치시킵니다.
+                    settingsColumn.innerHTML = '<h3>게임 진행</h3>';
+                    const phaseInfo = document.createElement('div');
+                    phaseInfo.className = 'phase-info';
+                    phaseInfo.textContent = `현재 상태: ${roomData.day}일차 ${roomData.phase}`;
+                    settingsColumn.appendChild(phaseInfo);
+
+                    // 여기에 다음 단계 버튼 등이 추가됩니다.
 
                 } else {
                     // --- 게임 시작 전 (대기실) UI ---
+                    playerColumn.innerHTML = '<h3>참가자 현황</h3>';
                     const playerList = document.createElement('ul');
-                    roomData.players.forEach(player => {
-                        const playerItem = document.createElement('li');
-                        const playerNameSpan = document.createElement('span');
-                        playerNameSpan.textContent = player.name;
-                        playerItem.appendChild(playerNameSpan);
-                        if (player.status === 'dead') { playerItem.classList.add('dead'); }
-                        const elimButton = document.createElement('button');
-                        elimButton.textContent = '사망 처리';
-                        elimButton.className = 'eliminate-btn';
-                        elimButton.dataset.playerId = player.id;
-                        elimButton.disabled = (player.status === 'dead');
-                        playerItem.appendChild(elimButton);
-                        playerList.appendChild(playerItem);
-                    });
+                    if (roomData.groupCount && roomData.groupCount > 0) {
+                        for (let i = 1; i <= roomData.groupCount; i++) {
+                            const groupHeader = document.createElement('h4');
+                            groupHeader.style.cssText = 'margin-top: 10px; margin-bottom: 5px;';
+                            groupHeader.textContent = `${i}모둠`;
+                            playerList.appendChild(groupHeader);
+                            const groupPlayers = roomData.players.filter(p => p.group === i);
+                            if (groupPlayers.length === 0) {
+                                const noPlayerItem = document.createElement('li');
+                                noPlayerItem.textContent = '(아직 없음)';
+                                playerList.appendChild(noPlayerItem);
+                            } else {
+                                groupPlayers.forEach(player => {
+                                    const playerItem = document.createElement('li');
+                                    playerItem.textContent = player.name;
+                                    playerList.appendChild(playerItem);
+                                });
+                            }
+                        }
+                    } else {
+                        roomData.players.forEach(player => {
+                            const playerItem = document.createElement('li');
+                            playerItem.textContent = `${player.name} (모둠 선택 대기중)`;
+                            playerList.appendChild(playerItem);
+                        });
+                    }
                     playerColumn.appendChild(playerList);
 
-                    settingsColumn.innerHTML = '<h3>역할 인원 설정</h3>';
+                    settingsColumn.innerHTML = '<h3>게임 설정</h3>';
+                    const groupSettingsDiv = document.createElement('div');
+                    groupSettingsDiv.className = 'group-settings';
+                    groupSettingsDiv.innerHTML = '<h4>모둠 수 설정</h4>';
+                    const groupCountInput = document.createElement('input');
+                    groupCountInput.type = 'number';
+                    groupCountInput.className = 'group-count-input';
+                    groupCountInput.id = `group-count-${code}`;
+                    groupCountInput.value = roomData.groupCount || 4;
+                    groupCountInput.min = 2;
+                    groupSettingsDiv.appendChild(groupCountInput);
+                    settingsColumn.appendChild(groupSettingsDiv);
+
+                    const roleSettingsDiv = document.createElement('div');
+                    roleSettingsDiv.className = 'role-settings';
+                    roleSettingsDiv.innerHTML = '<h4>역할 인원 설정</h4>';
                     const defaultCounts = getDefaultRoleCounts(roomData.players.length);
                     ALL_ROLES.forEach(roleName => {
                         const itemDiv = document.createElement('div');
@@ -248,72 +282,19 @@
                         controlsDiv.appendChild(countInput);
                         itemDiv.appendChild(nameSpan);
                         itemDiv.appendChild(controlsDiv);
-                        settingsColumn.appendChild(itemDiv);
+                        roleSettingsDiv.appendChild(itemDiv);
                     });
+                    settingsColumn.appendChild(roleSettingsDiv);
+
+                    const startButton = document.createElement('button');
+                    startButton.className = 'start-game-btn';
+                    startButton.textContent = '게임 시작';
+                    settingsColumn.appendChild(startButton);
                 }
 
                 contentDiv.appendChild(playerColumn);
                 contentDiv.appendChild(settingsColumn);
                 roomDiv.appendChild(contentDiv);
-
-                // --- 대기실/게임상태에 따라 다른 하단 UI 추가 ---
-                if (roomData.status !== 'playing') {
-                    const presetDiv = document.createElement('div');
-                    presetDiv.className = 'preset-settings';
-                    presetDiv.innerHTML = '<h3>문제 꾸러미 선택</h3>';
-                    const presetSelect = document.createElement('select');
-                    presetSelect.className = 'preset-select';
-                    const defaultOption = document.createElement('option');
-                    defaultOption.value = "";
-                    defaultOption.textContent = "--- 프리셋 선택 ---";
-                    presetSelect.appendChild(defaultOption);
-                    for (const presetId in presetsState) {
-                        const option = document.createElement('option');
-                        option.value = presetId;
-                        option.textContent = presetsState[presetId].name;
-                        presetSelect.appendChild(option);
-                    }
-                    presetDiv.appendChild(presetSelect);
-                    roomDiv.appendChild(presetDiv);
-
-                    const summaryDiv = document.createElement('div');
-                    summaryDiv.className = 'role-summary';
-                    summaryDiv.textContent = `설정된 역할 합계: 0 / 총 플레이어: ${roomData.players.length}`;
-                    roomDiv.appendChild(summaryDiv);
-
-                    const startButton = document.createElement('button');
-                    startButton.className = 'start-game-btn';
-                    startButton.textContent = '게임 시작';
-                    roomDiv.appendChild(startButton);
-                } else {
-                    const phaseInfo = document.createElement('div');
-                    phaseInfo.className = 'phase-info';
-                    phaseInfo.textContent = `현재 상태: ${roomData.day}일차 ${roomData.phase}`;
-                    roomDiv.appendChild(phaseInfo);
-
-                    if (roomData.phase === 'meeting') {
-                        const timerButton = document.createElement('button');
-                        timerButton.textContent = '2분 타이머 시작';
-                        timerButton.className = 'timer-btn';
-                        timerButton.dataset.code = code;
-                        roomDiv.appendChild(timerButton);
-                        const nextPhaseButton = document.createElement('button');
-                        nextPhaseButton.textContent = '밤으로 이동 (에일리언 활동)';
-                        nextPhaseButton.className = 'next-phase-btn';
-                        nextPhaseButton.dataset.code = code;
-                        nextPhaseButton.dataset.phase = 'night_alien_action';
-                        nextPhaseButton.dataset.day = roomData.day;
-                        roomDiv.appendChild(nextPhaseButton);
-                    } else { // 'role_reveal'
-                        const nextPhaseButton = document.createElement('button');
-                        nextPhaseButton.textContent = `다음 단계 (1일차 회의 시작)`;
-                        nextPhaseButton.className = 'next-phase-btn';
-                        nextPhaseButton.dataset.code = code;
-                        nextPhaseButton.dataset.phase = 'meeting';
-                        nextPhaseButton.dataset.day = 1;
-                        roomDiv.appendChild(nextPhaseButton);
-                    }
-                }
                 roomsContainer.appendChild(roomDiv);
             }
         }
@@ -326,24 +307,51 @@
 
             if (target.classList.contains('start-game-btn')) {
                 const players = gameRoomsState[roomCode].players;
-                if (players.length < MIN_PLAYERS) { alert(`최소 인원(${MIN_PLAYERS}명)이 모이지 않아 시작할 수 없습니다.`); return; }
+                if (players.length < MIN_PLAYERS) {
+                    alert(`최소 인원(${MIN_PLAYERS}명)이 모이지 않아 시작할 수 없습니다.`);
+                    return;
+                }
+
+                // '모둠 수' 입력값 가져오기
+                const groupCountInput = roomDiv.querySelector(`#group-count-${roomCode}`);
+                const groupCount = parseInt(groupCountInput.value, 10);
+                if (!groupCount || groupCount < 2) {
+                    alert('모둠 수는 2 이상이어야 합니다.');
+                    return;
+                }
+
+                // 역할 설정값 가져오기
                 const roleSettings = {};
                 let totalRoles = 0;
-                const roleItems = roomDiv.querySelectorAll('.role-item');
-                roleItems.forEach(item => {
-                    const roleName = item.querySelector('span').textContent;
-                    const roleCount = parseInt(item.querySelector('input').value, 10);
-                    if (roleCount > 0) { roleSettings[roleName] = roleCount; }
+                const roleItems = roomDiv.querySelectorAll('.role-controls input');
+                roleItems.forEach(input => {
+                    const roleName = input.dataset.role;
+                    const roleCount = parseInt(input.value, 10);
+                    if (roleCount > 0) {
+                        roleSettings[roleName] = roleCount;
+                    }
                     totalRoles += roleCount;
                 });
-                if (totalRoles !== players.length) { alert('설정된 역할의 합계가 총 플레이어 수와 일치하지 않습니다.'); return; }
-                const selectedPreset = roomDiv.querySelector('.preset-select').value;
-                if (!selectedPreset) { alert('문제 꾸러미(프리셋)를 선택해주세요.'); return; }
-                socket.emit('startGame', { code: roomCode, settings: roleSettings, presetId: selectedPreset });
+
+                if (totalRoles !== players.length) {
+                    alert('설정된 역할의 합계가 총 플레이어 수와 일치하지 않습니다.');
+                    return;
+                }
+
+                // 서버로 groupCount를 함께 전송
+                socket.emit('startGame', {
+                    code: roomCode,
+                    settings: roleSettings,
+                    groupCount: groupCount
+                });
+
             } else if (target.classList.contains('eliminate-btn')) {
                 const playerId = target.dataset.playerId;
                 if (confirm('정말로 이 플레이어를 사망 처리하시겠습니까?')) {
-                    socket.emit('eliminatePlayer', { roomCode, playerId });
+                    socket.emit('eliminatePlayer', {
+                        roomCode,
+                        playerId
+                    });
                 }
             } else if (target.classList.contains('next-phase-btn')) {
                 const { code, phase, day } = target.dataset;
