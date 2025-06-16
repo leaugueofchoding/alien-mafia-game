@@ -71,7 +71,7 @@ io.on('connection', (socket) => {
     if (!gameRooms[code]) {
       gameRooms[code] = { players: [], status: 'waiting', day: 0, phase: 'lobby' };
     }
-    const newPlayer = { id: socket.id, name: name };
+    const newPlayer = { id: socket.id, name: name, status: 'alive' };
     gameRooms[code].players.push(newPlayer);
     io.to(code).emit('updateRoom', gameRooms[code].players);
     io.to(ADMIN_ROOM).emit('updateAdmin', { rooms: gameRooms, presets: PRESETS });
