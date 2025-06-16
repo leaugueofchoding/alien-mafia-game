@@ -55,16 +55,21 @@ function shuffle(array) {
   return array;
 }
 
+// 정적 파일 제공 및 라우팅 설정
 app.use(express.static(path.join(__dirname, '../client/public')));
 app.get('/', (req, res) => { res.sendFile(path.join(__dirname, '../client/public', 'index.html')); });
 app.get('/admin', (req, res) => { res.sendFile(path.join(__dirname, '../client/public', 'admin.html')); });
 
+// Socket.IO 연결 처리
 io.on('connection', (socket) => {
+  
+  // 관리자 페이지 연결
   socket.on('adminConnect', () => {
     socket.join(ADMIN_ROOM);
     socket.emit('updateAdmin', { rooms: gameRooms, presets: PRESETS });
   });
 
+  // 게임방 참가
   socket.on('joinGame', (data) => {
     const { name, code } = data;
     socket.join(code);
@@ -77,6 +82,7 @@ io.on('connection', (socket) => {
     io.to(ADMIN_ROOM).emit('updateAdmin', { rooms: gameRooms, presets: PRESETS });
   });
 
+  // 게임 시작
   socket.on('startGame', (data) => {
     const { code, settings, presetId } = data;
     const room = gameRooms[code];
@@ -112,6 +118,7 @@ io.on('connection', (socket) => {
     });
   });
 
+  // 다음 단계 진행
   socket.on('nextPhase', (data) => {
     const { code, phase, day } = data;
     const room = gameRooms[code];
@@ -119,22 +126,103 @@ io.on('connection', (socket) => {
 
     room.phase = phase;
     room.day = parseInt(day, 10);
+    console.log(`[${code}] 방, ${day}일차 ${phase} 단계 시작.`);
 
-    io.to(code).emit('phaseChange', { phase: room.phase, day: room.day });
+    const livingPlayers = room.players.filter(p => p.status === 'alive');
+
+    if (phase === 'night_alien_action') {
+      const aliens = livingPlayers.filter(p => p.role === '에일리언 여왕' || p.role === '에일리언');
+      const alienIds = aliens.map(p => p.id);
+
+      livingPlayers.forEach(player => {
+        io.to(player.id).emit('phaseChange', { phase: room.phase, day: room.day });
+      });
+
+      const targets = livingPlayers.filter(p => !alienIds.includes(p.id));
+      aliens.forEach(alien => {
+        const otherAliens = aliens.filter(a => a.id !== alien.id).map(a => a.name);
+        io.to(alien.id).emit('alienAction', { otherAliens, targets });
+      });
+
+    } else {
+      io.to(code).emit('phaseChange', { phase: room.phase, day: room.day });
+    }
+    
     io.to(ADMIN_ROOM).emit('updateAdmin', { rooms: gameRooms, presets: PRESETS });
-    console.log(`[${code}] 방, ${day}일차 ${phase} 시작을 관리자가 지시했습니다.`);
   });
 
-  // --- 이 부분을 추가합니다 ---
+  // 회의 타이머 시작
   socket.on('startMeetingTimer', (roomCode) => {
-    console.log(`[${roomCode}] 방의 회의 타이머를 시작합니다.`);
-    // 모든 플레이어에게 120초 타이머 시작 신호를 보냅니다.
-    io.to(roomCode).emit('startTimer', 120);
+    const room = gameRooms[roomCode];
+    if (!room || room.timerInterval) return;
+
+    console.log(`[${roomCode}] 방의 회의 타이머를 서버에서 시작합니다.`);
+    room.timeLeft = 120;
+
+    room.timerInterval = setInterval(() => {
+      io.to(roomCode).emit('timerUpdate', { timeLeft: room.timeLeft });
+      room.timeLeft--;
+
+      if (room.timeLeft < 0) {
+        clearInterval(room.timerInterval);
+        room.timerInterval = null;
+        console.log(`[${roomCode}] 방의 타이머가 종료되었습니다.`);
+      }
+    }, 1000);
   });
 
-  socket.on('disconnect', () => { /* ... */ });
-});
+  // 플레이어 사망 처리
+  socket.on('eliminatePlayer', (data) => {
+    const { roomCode, playerId } = data;
+    const room = gameRooms[roomCode];
+    if (!room) return;
 
+    const player = room.players.find(p => p.id === playerId);
+    if (player) {
+      player.status = 'dead';
+      console.log(`[${roomCode}] 방의 ${player.name}님이 사망 처리되었습니다.`);
+      
+      io.to(playerId).emit('youAreDead');
+      io.to(roomCode).emit('updateRoom', room.players);
+      io.to(ADMIN_ROOM).emit('updateAdmin', { rooms: gameRooms, presets: PRESETS });
+    }
+  });
+
+  // 디버그용 게임 시작 (올바른 위치로 이동)
+  socket.on('debugStartGame', () => {
+    console.log(`'${socket.id}' 클라이언트로부터 디버그용 테스트 게임 시작 요청을 받았습니다.`);
+    
+    const roomCode = 'test-' + Math.random().toString(36).substring(7);
+    const dummyPlayers = [
+      { id: 'bot1', name: '플레이어1', status: 'alive' },
+      { id: 'bot2', name: '플레이어2', status: 'alive' },
+      { id: 'bot3', name: '플레이어3', status: 'alive' },
+      { id: 'bot4', name: '플레이어4', status: 'alive' }
+    ];
+    gameRooms[roomCode] = { players: dummyPlayers, status: 'waiting', day: 0, phase: 'lobby' };
+
+    const room = gameRooms[roomCode];
+    const roles = shuffle(['에일리언 여왕', '의사', '군인', '엔지니어']);
+    room.players.forEach((player, index) => {
+      player.role = roles[index];
+      player.description = ROLE_DESCRIPTIONS[roles[index]] || '';
+    });
+
+    room.status = 'playing';
+    room.phase = 'role_reveal';
+    io.to(ADMIN_ROOM).emit('updateAdmin', { rooms: gameRooms, presets: PRESETS });
+    console.log(`[${roomCode}] 테스트 방이 생성되고 게임이 시작되었습니다.`);
+  });
+
+  // 연결 종료 처리
+  socket.on('disconnect', () => {
+    console.log(`유저 접속이 끊어졌습니다: ${socket.id}`);
+    // 여기에 접속 종료 시 플레이어를 방에서 제거하는 로직을 추가할 수 있습니다.
+  });
+
+}); // io.on('connection', ...) 블록의 끝
+
+// 서버 실행
 server.listen(PORT, () => {
   console.log(`서버가 ${PORT}번 포트에서 실행 중입니다.`);
 });

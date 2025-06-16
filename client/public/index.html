@@ -26,40 +26,52 @@
         const rootDiv = document.getElementById('root');
         const playerContainer = document.getElementById('player-container');
         const adminContainer = document.getElementById('admin-container');
-        let timerInterval = null;
+
+        // --- 생존 상태를 기억할 변수 추가 ---
+        let amIAlive = true;
 
         socket.on('connect', () => { console.log('서버에 성공적으로 연결되었습니다.'); });
 
         socket.on('updateRoom', (players) => {
+            // --- 사망했다면, 대기실 업데이트를 무시합니다 ---
+            if (!amIAlive) return; 
+            
             showLobby(players);
         });
 
-        // --- 이 부분을 수정합니다 (data.description 추가) ---
         socket.on('roleAssigned', (data) => {
             showRoleScreen(data.role, data.description);
         });
 
+        // --- 사망 시, 상태를 변경합니다 ---
+        socket.on('youAreDead', () => {
+            amIAlive = false;
+            showDeathScreen();
+        });
+
         socket.on('phaseChange', (data) => {
+            if (!amIAlive) return; // 죽으면 다른 단계로 넘어가지 않음
+
             if (data.phase === 'meeting') {
                 showMeetingScreen(data.day);
             }
         });
 
-        socket.on('startTimer', (duration) => {
-            if (timerInterval) { clearInterval(timerInterval); }
+        socket.on('timerUpdate', (data) => {
+            if (!amIAlive) return;
+            
             const timerDisplay = document.getElementById('timer-display');
             if (timerDisplay) {
-                let timeLeft = duration;
-                timerInterval = setInterval(() => {
-                    const minutes = Math.floor(timeLeft / 60);
-                    let seconds = timeLeft % 60;
-                    seconds = seconds < 10 ? '0' + seconds : seconds;
+                const timeLeft = data.timeLeft;
+                const minutes = Math.floor(timeLeft / 60);
+                let seconds = timeLeft % 60;
+                seconds = seconds < 10 ? '0' + seconds : seconds;
+
+                if (timeLeft >= 0) {
                     timerDisplay.textContent = minutes + ":" + seconds;
-                    if (--timeLeft < 0) {
-                        clearInterval(timerInterval);
-                        timerDisplay.textContent = "회의 종료!";
-                    }
-                }, 1000);
+                } else {
+                    timerDisplay.textContent = "회의 종료!";
+                }
             }
         });
 
@@ -72,7 +84,6 @@
             players.forEach(player => {
                 const playerItem = document.createElement('li');
                 playerItem.textContent = player.name;
-                // 사망자 표시 로직 추가
                 if (player.status === 'dead') {
                     playerItem.classList.add('dead');
                 }
@@ -82,7 +93,6 @@
             playerContainer.appendChild(playerList);
         }
 
-        // --- 이 함수를 수정합니다 (description 파라미터 추가 및 사용) ---
         function showRoleScreen(role, description) {
             playerContainer.innerHTML = '';
             adminContainer.style.display = 'none';
@@ -92,7 +102,6 @@
             roleName.textContent = role;
             roleName.style.color = '#ff4757';
             const descP = document.createElement('p');
-            // 고정된 문구 대신 서버에서 받은 설명(description)을 표시합니다.
             descP.textContent = description;
             playerContainer.appendChild(title);
             playerContainer.appendChild(roleName);
@@ -114,12 +123,27 @@
             playerContainer.appendChild(description);
             playerContainer.appendChild(timerDisplay);
         }
+        
+        function showDeathScreen() {
+            playerContainer.innerHTML = '';
+            adminContainer.style.display = 'none';
 
-        rootDiv.addEventListener('click', function(event) {
+            const title = document.createElement('h1');
+            title.textContent = '당신은 사망하였습니다';
+            title.style.color = '#dc3545'; 
+
+            const description = document.createElement('p');
+            description.textContent = '조용히 사망자 구역으로 이동해주세요.';
+            
+            playerContainer.appendChild(title);
+            playerContainer.appendChild(description);
+        }
+
+        rootDiv.addEventListener('click', function (event) {
             if (event.target.id === 'join-button') {
                 const nameInput = document.getElementById('name-input');
                 const codeInput = document.getElementById('code-input');
-                if(nameInput.value.trim() === '' || codeInput.value.trim() === '') {
+                if (nameInput.value.trim() === '' || codeInput.value.trim() === '') {
                     alert('이름과 초대 코드를 모두 입력해주세요.');
                     return;
                 }
