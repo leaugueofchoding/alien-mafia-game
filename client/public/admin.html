@@ -184,21 +184,19 @@
                 settingsColumn.className = 'column';
 
                 if (roomData.status === 'playing') {
-                    // --- 게임 시작 후 UI (UI 통합 버전) ---
+                    // --- 게임 시작 후 UI ---
                     playerColumn.innerHTML = '<h3>참가자 현황</h3>';
                     const playerList = document.createElement('ul');
                     roomData.players.forEach(player => {
                         const playerItem = document.createElement('li');
-
                         const playerInfoSpan = document.createElement('span');
-                        // 이름, 모둠, 역할을 한 줄에 표시합니다.
-                        playerInfoSpan.textContent = `${player.name} (${player.group || '?'}모둠) - ${player.role || '역할 미정'}`;
+                        // 모둠 정보는 2일차부터 표시되므로, 없으면 표시하지 않습니다.
+                        const groupInfo = player.group ? `(${player.group}모둠)` : '';
+                        playerInfoSpan.textContent = `${player.name} ${groupInfo} - ${player.role || '역할 미정'}`;
                         playerItem.appendChild(playerInfoSpan);
-
                         if (player.status === 'dead') {
                             playerItem.classList.add('dead');
                         }
-
                         const elimButton = document.createElement('button');
                         elimButton.textContent = '사망 처리';
                         elimButton.className = 'eliminate-btn';
@@ -209,56 +207,58 @@
                     });
                     playerColumn.appendChild(playerList);
 
-                    // 오른쪽 컬럼에는 게임 진행 버튼들을 위치시킵니다.
+                    // 오른쪽 컬럼: 게임 진행 상태와 버튼
                     settingsColumn.innerHTML = '<h3>게임 진행</h3>';
                     const phaseInfo = document.createElement('div');
                     phaseInfo.className = 'phase-info';
                     phaseInfo.textContent = `현재 상태: ${roomData.day}일차 ${roomData.phase}`;
                     settingsColumn.appendChild(phaseInfo);
 
-                    // 여기에 다음 단계 버튼 등이 추가됩니다.
+                    // ★★★ 누락되었던 게임 진행 버튼 로직 (완전한 버전) ★★★
+                    if (roomData.phase === 'role_reveal') {
+                        const nextPhaseButton = document.createElement('button');
+                        nextPhaseButton.textContent = `다음 단계 (1일차 회의 시작)`;
+                        nextPhaseButton.className = 'next-phase-btn';
+                        nextPhaseButton.dataset.code = code;
+                        nextPhaseButton.dataset.phase = 'meeting';
+                        nextPhaseButton.dataset.day = 1;
+                        settingsColumn.appendChild(nextPhaseButton);
+                    } else if (roomData.phase === 'meeting') {
+                        const timerButton = document.createElement('button');
+                        timerButton.textContent = '2분 타이머 시작';
+                        timerButton.className = 'timer-btn';
+                        timerButton.dataset.code = code;
+                        settingsColumn.appendChild(timerButton);
+
+                        const nextPhaseButton = document.createElement('button');
+                        nextPhaseButton.textContent = '밤으로 이동 (에일리언 활동)';
+                        nextPhaseButton.className = 'next-phase-btn';
+                        nextPhaseButton.dataset.code = code;
+                        nextPhaseButton.dataset.phase = 'night_alien_action';
+                        nextPhaseButton.dataset.day = roomData.day;
+                        settingsColumn.appendChild(nextPhaseButton);
+                    }
 
                 } else {
                     // --- 게임 시작 전 (대기실) UI ---
-                    playerColumn.innerHTML = '<h3>참가자 현황</h3>';
+                    playerColumn.innerHTML = '<h3>참가자 목록</h3>';
                     const playerList = document.createElement('ul');
-                    if (roomData.groupCount && roomData.groupCount > 0) {
-                        for (let i = 1; i <= roomData.groupCount; i++) {
-                            const groupHeader = document.createElement('h4');
-                            groupHeader.style.cssText = 'margin-top: 10px; margin-bottom: 5px;';
-                            groupHeader.textContent = `${i}모둠`;
-                            playerList.appendChild(groupHeader);
-                            const groupPlayers = roomData.players.filter(p => p.group === i);
-                            if (groupPlayers.length === 0) {
-                                const noPlayerItem = document.createElement('li');
-                                noPlayerItem.textContent = '(아직 없음)';
-                                playerList.appendChild(noPlayerItem);
-                            } else {
-                                groupPlayers.forEach(player => {
-                                    const playerItem = document.createElement('li');
-                                    playerItem.textContent = player.name;
-                                    playerList.appendChild(playerItem);
-                                });
-                            }
-                        }
-                    } else {
-                        roomData.players.forEach(player => {
-                            const playerItem = document.createElement('li');
-                            playerItem.textContent = `${player.name} (모둠 선택 대기중)`;
-                            playerList.appendChild(playerItem);
-                        });
-                    }
+                    roomData.players.forEach(player => {
+                        const playerItem = document.createElement('li');
+                        playerItem.textContent = player.name;
+                        playerList.appendChild(playerItem);
+                    });
                     playerColumn.appendChild(playerList);
 
                     settingsColumn.innerHTML = '<h3>게임 설정</h3>';
                     const groupSettingsDiv = document.createElement('div');
                     groupSettingsDiv.className = 'group-settings';
-                    groupSettingsDiv.innerHTML = '<h4>모둠 수 설정</h4>';
+                    groupSettingsDiv.innerHTML = '<h4>모둠 수 설정 (2일차부터 사용)</h4>';
                     const groupCountInput = document.createElement('input');
                     groupCountInput.type = 'number';
                     groupCountInput.className = 'group-count-input';
                     groupCountInput.id = `group-count-${code}`;
-                    groupCountInput.value = roomData.groupCount || 4;
+                    groupCountInput.value = 4;
                     groupCountInput.min = 2;
                     groupSettingsDiv.appendChild(groupCountInput);
                     settingsColumn.appendChild(groupSettingsDiv);

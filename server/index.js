@@ -83,23 +83,18 @@ io.on('connection', (socket) => {
   });
 
   // 게임 시작
-  // 이 부분을 찾아서 교체하세요
+  /// 이 함수 전체를 찾아서 아래 코드로 교체해주세요.
   socket.on('startGame', (data) => {
-    // groupCount를 데이터에서 받아옵니다.
-    const { code, settings, presetId, groupCount } = data;
+    // admin.html에서 보낸 groupCount를 정상적으로 수신합니다.
+    const { code, settings, groupCount } = data;
     const room = gameRooms[code];
     if (!room || room.status === 'playing') return;
 
-    // 방 정보에 groupCount를 저장합니다.
+    // '모둠 수'를 나중에 사용하기 위해 방 정보에 저장만 해둡니다.
     room.groupCount = groupCount;
+    console.log(`[${code}] 방 게임 시작. 설정된 모둠 수: ${groupCount}`);
 
-    console.log(`[${code}] 방 게임 시작 요청. 모둠 수: ${groupCount}`);
-    console.log('역할 설정:', settings);
-
-    if (PRESETS[presetId]) {
-      room.missions = PRESETS[presetId].missions;
-    }
-
+    // 역할 배정 로직은 그대로 유지합니다.
     const roles = [];
     for (const roleName in settings) {
       for (let i = 0; i < settings[roleName]; i++) { roles.push(roleName); }
@@ -110,15 +105,17 @@ io.on('connection', (socket) => {
     players.forEach((player, index) => {
       player.role = shuffledRoles[index];
       player.description = ROLE_DESCRIPTIONS[shuffledRoles[index]] || '';
+      // 1일차에는 player.group을 설정하지 않습니다.
     });
 
+    // 게임 상태를 'playing'으로, 첫 단계를 'role_reveal'로 설정합니다.
     room.status = 'playing';
     room.phase = 'role_reveal';
 
-    // 중요: 이제 플레이어들에게 '방 전체 정보'를 보냅니다.
-    io.to(code).emit('updateRoom', room);
+    // 관리자 화면을 업데이트합니다.
     io.to(ADMIN_ROOM).emit('updateAdmin', { rooms: gameRooms, presets: PRESETS });
 
+    // 각 플레이어에게 역할을 전송합니다.
     players.forEach(player => {
       io.to(player.id).emit('roleAssigned', { role: player.role, description: player.description });
     });
