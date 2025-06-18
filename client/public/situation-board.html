@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>게임 상황판</title>
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+    <link rel="stylesheet" href="style.css">
+    <style>
+        body {
+            background-color: #1a1a2e;
+            color: #e0e0e0;
+            justify-content: center;
+            align-items: center;
+            font-family: sans-serif;
+        }
+        #board {
+            text-align: center;
+            width: 90%;
+            max-width: 800px;
+        }
+        h1 {
+            font-size: 4em;
+            color: #00d1ff;
+            margin-bottom: 0.2em;
+        }
+        h2 {
+            font-size: 2.5em;
+            color: #e0e0e0;
+            margin-top: 1.5em;
+            border-bottom: 2px solid #00d1ff;
+            padding-bottom: 10px;
+        }
+        ul {
+            width: 100%;
+            margin: 0 auto;
+            padding: 0;
+            list-style: none;
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 15px;
+        }
+        li {
+            background-color: #2a2a4e;
+            padding: 15px 25px;
+            border-radius: 8px;
+            font-size: 1.5em;
+            font-weight: bold;
+        }
+        li.dead {
+            text-decoration: line-through;
+            background-color: #333;
+            color: #888;
+        }
+    </style>
+</head>
+<body>
+    <div id="board">
+        <h1>게임 상황판</h1>
+        <p>방 코드를 주소창에 입력하여 접속해주세요. 예: /situation-board.html?code=1234</p>
+    </div>
+
+    <script>
+        const socket = io('http://localhost:3001');
+        const boardDiv = document.getElementById('board');
+
+        // 페이지가 로드되면, URL에서 방 코드를 가져와 서버에 접속합니다.
+        document.addEventListener('DOMContentLoaded', () => {
+            const urlParams = new URLSearchParams(window.location.search);
+            const roomCode = urlParams.get('code');
+
+            if (roomCode) {
+                socket.emit('boardConnect', { roomCode: roomCode });
+                boardDiv.innerHTML = '<h1>게임 정보를 기다리는 중...</h1>';
+            }
+        });
+
+        // 서버로부터 게임 상태 업데이트를 받습니다.
+        socket.on('boardUpdate', (room) => {
+            renderBoard(room);
+        });
+
+        // 화면을 그리는 함수
+        function renderBoard(room) {
+            boardDiv.innerHTML = ''; // 화면을 깨끗하게 지웁니다.
+
+            const phaseTitle = document.createElement('h1');
+            phaseTitle.textContent = `${room.day}일차 - ${room.phase}`;
+            
+            const playerListTitle = document.createElement('h2');
+            playerListTitle.textContent = '생존자 목록';
+            
+            const playerList = document.createElement('ul');
+            const livingPlayers = room.players.filter(p => p.status === 'alive');
+            
+            livingPlayers.forEach(player => {
+                const playerItem = document.createElement('li');
+                // 2일차부터 모둠 정보가 있다면 표시합니다.
+                const groupInfo = player.group ? `(${player.group}모둠)` : '';
+                playerItem.textContent = `${player.name} ${groupInfo}`;
+                playerList.appendChild(playerItem);
+            });
+
+            boardDiv.appendChild(phaseTitle);
+            boardDiv.appendChild(playerListTitle);
+            boardDiv.appendChild(playerList);
+        }
+    </script>
+</body>
+</html>

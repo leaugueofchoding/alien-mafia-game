@@ -24,6 +24,12 @@
         .target-btn:hover {
             background-color: #ff6b81;
         }
+
+        .target-btn.pre-selected {
+            background-color: #eccc68;
+            color: #2f3542;
+            border: 2px solid #ff4757;
+        }
     </style>
 </head>
 
@@ -50,50 +56,89 @@
 
         socket.on('connect', () => { console.log('서버에 성공적으로 연결되었습니다.'); });
 
+        // ★★★ 화면 제어 로직 통합 ★★★
+        // 이제 updateRoom 이벤트가 모든 화면 전환을 담당합니다.
         socket.on('updateRoom', (room) => {
             if (!amIAlive) return;
-            showLobby(room);
+
+            const me = room.players.find(p => p.id === socket.id);
+            if (!me) { // 방에 내가 없으면 초기 화면 표시
+                playerContainer.style.display = 'block';
+                adminContainer.style.display = 'block';
+                return;
+            }
+
+            // 게임 상태에 따라 적절한 화면을 렌더링
+            if (room.status === 'playing') {
+                switch (room.phase) {
+                    case 'role_reveal':
+                        showRoleScreen(me.role, me.description);
+                        break;
+                    case 'meeting':
+                        showMeetingScreen(room.day);
+                        break;
+                    case 'night_alien_action':
+                        showNightScreen();
+                        // 에일리언인 경우, 별도 이벤트(alienAction)가 와서 화면을 덮어씌웁니다.
+                        break;
+                    default:
+                        showLobby(room); // 혹시 모를 예외상황엔 로비 화면으로
+                }
+            } else { // 'waiting' 상태일 때
+                showLobby(room);
+            }
         });
 
-        socket.on('roleAssigned', (data) => {
-            if (!amIAlive) return;
-            showRoleScreen(data.role, data.description);
-        });
+        // 이제 phaseChange는 사용되지 않으므로 삭제하거나 주석 처리합니다.
+        // socket.on('phaseChange', (data) => { ... });
+
+        // 역할 배정 이벤트는 이제 사용하지 않습니다. updateRoom이 처리합니다.
+        // socket.on('roleAssigned', (data) => { ... });
 
         socket.on('youAreDead', () => {
             amIAlive = false;
             showDeathScreen();
         });
 
-        // --- '밤' 단계 처리를 위해 수정된 부분 ---
-        socket.on('phaseChange', (data) => {
-            if (!amIAlive) return;
-
-            if (data.phase === 'meeting') {
-                showMeetingScreen(data.day);
-            } else if (data.phase === 'night_alien_action') {
-                // 에일리언이 아닌 일반 플레이어에게는 '밤' 화면만 보여줍니다.
-                showNightScreen();
-            }
+        socket.on('youAreAlive', () => {
+            amIAlive = true;
+            alert('당신은 부활했습니다! 게임에 다시 참여합니다.');
+            // 부활 시에는 서버가 broadcastUpdates를 호출하므로,
+            // 자동으로 updateRoom 이벤트가 와서 화면을 갱신해줍니다.
         });
 
-        // --- 에일리언에게만 오는 특별 이벤트 핸들러 추가 ---
+        socket.on('gameOver', (data) => {
+            showGameOverScreen(data);
+        });
+
+        // 파일 하단의 다른 show... 함수들 근처에 추가하세요.
+        function showGameOverScreen(data) {
+            playerContainer.innerHTML = '';
+            adminContainer.style.display = 'none';
+            playerContainer.style.display = 'block';
+            const title = document.createElement('h1');
+            title.className = 'game-over-title';
+            title.textContent = `${data.winner}의 승리!`;
+            const reason = document.createElement('p');
+            reason.className = 'game-over-reason';
+            reason.textContent = data.reason;
+            playerContainer.appendChild(title);
+            playerContainer.appendChild(reason);
+        }
+
         socket.on('alienAction', (data) => {
             if (!amIAlive) return;
-            console.log('에일리언 활동 신호를 받았습니다.', data);
             showAlienActionScreen(data.otherAliens, data.targets);
         });
 
         socket.on('timerUpdate', (data) => {
             if (!amIAlive) return;
-
             const timerDisplay = document.getElementById('timer-display');
             if (timerDisplay) {
                 const timeLeft = data.timeLeft;
                 const minutes = Math.floor(timeLeft / 60);
                 let seconds = timeLeft % 60;
                 seconds = seconds < 10 ? '0' + seconds : seconds;
-
                 if (timeLeft >= 0) {
                     timerDisplay.textContent = minutes + ":" + seconds;
                 } else {
@@ -102,14 +147,26 @@
             }
         });
 
-        // 이 함수 전체를 찾아서 교체해주세요
-        // 이 함수 전체를 찾아서 아래 코드로 교체해주세요.
+        socket.on('nightSelectionUpdate', (data) => {
+            if (!amIAlive) return;
+            const selections = data.selections;
+            const allSelectedTargetIds = new Set(Object.values(selections));
+            const allTargetButtons = document.querySelectorAll('.target-btn');
+            allTargetButtons.forEach(btn => {
+                if (allSelectedTargetIds.has(btn.dataset.targetId)) {
+                    btn.classList.add('pre-selected');
+                } else {
+                    btn.classList.remove('pre-selected');
+                }
+            });
+        });
+
         function showLobby(room) {
             playerContainer.innerHTML = '';
             adminContainer.style.display = 'none';
+            playerContainer.style.display = 'block';
             const title = document.createElement('h2');
             title.textContent = '대기실';
-
             const playerList = document.createElement('ul');
             room.players.forEach(player => {
                 const playerItem = document.createElement('li');
@@ -119,7 +176,6 @@
                 }
                 playerList.appendChild(playerItem);
             });
-
             playerContainer.appendChild(title);
             playerContainer.appendChild(playerList);
         }
@@ -127,6 +183,7 @@
         function showRoleScreen(role, description) {
             playerContainer.innerHTML = '';
             adminContainer.style.display = 'none';
+            playerContainer.style.display = 'block';
             const title = document.createElement('h2');
             title.textContent = '당신의 역할은...';
             const roleName = document.createElement('h1');
@@ -142,6 +199,7 @@
         function showMeetingScreen(day) {
             playerContainer.innerHTML = '';
             adminContainer.style.display = 'none';
+            playerContainer.style.display = 'block';
             const title = document.createElement('h2');
             title.textContent = `${day}일차 낮: 회의 시간`;
             const description = document.createElement('p');
@@ -149,16 +207,16 @@
             const timerDisplay = document.createElement('h1');
             timerDisplay.className = 'timer';
             timerDisplay.id = 'timer-display';
-            timerDisplay.textContent = '02:00'; // 기본 표시 시간
+            timerDisplay.textContent = '02:00';
             playerContainer.appendChild(title);
             playerContainer.appendChild(description);
             playerContainer.appendChild(timerDisplay);
         }
 
-        // --- 화면 표시 함수들 추가 ---
         function showNightScreen() {
             playerContainer.innerHTML = '';
             adminContainer.style.display = 'none';
+            playerContainer.style.display = 'block';
             const title = document.createElement('h2');
             title.textContent = '밤이 되었습니다.';
             const description = document.createElement('p');
@@ -170,23 +228,21 @@
         function showAlienActionScreen(otherAliens, targets) {
             playerContainer.innerHTML = '';
             adminContainer.style.display = 'none';
+            playerContainer.style.display = 'block';
             const title = document.createElement('h2');
             title.textContent = '오늘 밤의 사냥감을 선택하세요.';
-
             const comrades = document.createElement('p');
             comrades.textContent = otherAliens.length > 0 ? `(동료 에일리언: ${otherAliens.join(', ')})` : '(동료 에일리언 없음)';
-
             const targetList = document.createElement('ul');
             targets.forEach(target => {
                 const li = document.createElement('li');
                 const button = document.createElement('button');
                 button.textContent = target.name;
-                button.className = 'target-btn'; // 클래스 추가
-                button.dataset.targetId = target.id; // 데이터 속성 추가
+                button.className = 'target-btn';
+                button.dataset.targetId = target.id;
                 li.appendChild(button);
                 targetList.appendChild(li);
             });
-
             playerContainer.appendChild(title);
             playerContainer.appendChild(comrades);
             playerContainer.appendChild(targetList);
@@ -195,6 +251,7 @@
         function showDeathScreen() {
             playerContainer.innerHTML = '';
             adminContainer.style.display = 'none';
+            playerContainer.style.display = 'block';
             const title = document.createElement('h1');
             title.textContent = '당신은 사망하였습니다';
             title.style.color = '#dc3545';
@@ -204,8 +261,6 @@
             playerContainer.appendChild(description);
         }
 
-        // --- 클릭 이벤트 리스너 수정 ---
-        // 이 함수 전체를 찾아서 교체하세요
         rootDiv.addEventListener('click', function (event) {
             if (event.target.id === 'join-button') {
                 const nameInput = document.getElementById('name-input');
@@ -216,25 +271,20 @@
                 }
                 socket.emit('joinGame', { name: nameInput.value, code: codeInput.value });
             }
+
             if (event.target.id === 'admin-button') {
                 window.location.href = '/admin';
             }
 
-            // 모둠 선택 버튼 클릭 처리 (새로 추가)
-            if (event.target.classList.contains('group-select-btn')) {
-                const groupNumber = parseInt(event.target.dataset.groupNumber, 10);
-                socket.emit('selectGroup', { groupNumber: groupNumber });
-            }
-
-            // 사냥감 선택 버튼 클릭 처리
             if (event.target.classList.contains('target-btn')) {
                 const targetId = event.target.dataset.targetId;
-                const targetName = event.target.textContent;
-                socket.emit('nightAction', { targetId: targetId });
-                playerContainer.innerHTML = `<h2>${targetName}님을 선택했습니다.</h2><p>다른 플레이어들의 선택을 기다립니다...</p>`;
+                if (event.target.classList.contains('pre-selected')) {
+                    socket.emit('nightAction', { targetId: null });
+                } else {
+                    socket.emit('nightAction', { targetId: targetId });
+                }
             }
         });
-
     </script>
 </body>
 

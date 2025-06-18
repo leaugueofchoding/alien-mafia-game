@@ -75,3 +75,18 @@ li.dead {
 }
 
 .timer { font-size: 4em; color: #ffc107; }
+
+/* 에일리언 사냥감 선택 */
+.target-btn.pre-selected {
+    border: 4px solid #feca57 !important; /* 테두리를 더 두껍게 하고, !important를 추가해 최우선 적용 */
+    box-shadow: 0 0 15px #feca57;
+}
+
+#confirm-kill-btn {
+    margin-top: 20px;
+    background-color: #4cd137;
+}
+#confirm-kill-btn:disabled {
+    background-color: #6c757d;
+    cursor: not-allowed;
+}
