@@ -448,15 +448,46 @@ io.on('connection', (socket) => {
     }
   });
 
+  socket.on('triggerQueenRampage', (data) => {
+    const { code } = data;
+    const room = gameRooms[code];
+    if (!room || room.pendingAction !== 'queen_rampage') return;
+
+    console.log(`[${code}] 관리자가 여왕의 만찬을 시작시켰습니다.`);
+
+    // 살아있는 에일리언 여왕을 찾음
+    const queen = room.players.find(p => p.role === '에일리언 여왕' && p.status === 'alive');
+    if (queen) {
+      // 사냥할 대상 (살아있는 비-에일리언) 목록을 찾음
+      const allAlienIds = room.players.filter(p => p.role.includes('에일리언')).map(p => p.id);
+      const targets = room.players.filter(p => p.status === 'alive' && !allAlienIds.includes(p.id));
+
+      // 여왕에게만 4명을 사냥하라는 특별 지령을 내림
+      io.to(queen.id).emit('queenRampageAction', { targets });
+    }
+
+    // 대기 상태 해제
+    delete room.pendingAction;
+    broadcastUpdates(code);
+  });
+
   // ★★★ 엔지니어 선택 결과 처리 (기능은 다음 단계에서 구현) ★★★
   socket.on('engineerChoseToFight', () => {
-    // TODO: '여왕의 만찬' 시나리오 진행 로직 구현
     let roomCode = '';
     for (const code in gameRooms) {
       if (gameRooms[code].players.some(p => p.id === socket.id)) { roomCode = code; break; }
     }
-    console.log(`[${roomCode}] 방의 엔지니어가 계속 싸우는 것을 선택했습니다.`);
-    // 나중에 여기에 화면 전환 로직이 들어갑니다.
+    if (!roomCode) return;
+
+    console.log(`[${roomCode}] 방의 엔지니어가 계속 싸우는 것을 선택했습니다. 여왕의 만찬을 준비합니다.`);
+    const room = gameRooms[roomCode];
+
+    // ★ '여왕의 만찬'이 대기 중임을 상태에 기록
+    room.pendingAction = 'queen_rampage';
+
+    // 모든 플레이어에게 만찬 시작 공지
+    io.to(roomCode).emit('feastAnnounced');
+    broadcastUpdates(roomCode); // 관리자 페이지 UI 갱신을 위해 호출
   });
 
   socket.on('engineerChoseEscape', () => {

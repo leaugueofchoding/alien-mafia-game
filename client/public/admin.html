@@ -273,6 +273,19 @@
                     phaseInfo.textContent = (roomData.status === 'game_over') ? '게임 종료' : `현재 상태: ${roomData.day}일차 ${roomData.phase}`;
                     settingsColumn.appendChild(phaseInfo);
 
+                    if (roomData.pendingAction === 'queen_rampage') {
+                        const rampageBtn = document.createElement('button');
+                        rampageBtn.className = 'trigger-alien-action-btn'; // 보라색 버튼 재사용
+                        rampageBtn.dataset.code = code;
+                        rampageBtn.textContent = '여왕의 만찬 시작';
+                        rampageBtn.addEventListener('click', () => {
+                            socket.emit('triggerQueenRampage', { code });
+                            rampageBtn.textContent = '여왕 활동 중...';
+                            rampageBtn.disabled = true;
+                        });
+                        settingsColumn.appendChild(rampageBtn);
+                    }
+
                     if (roomData.status === 'playing') {
                         if (roomData.phase === 'role_reveal') {
                             const btn = document.createElement('button');
