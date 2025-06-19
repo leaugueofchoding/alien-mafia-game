@@ -61,6 +61,11 @@
             text-decoration: line-through;
         }
 
+        .role-info {
+            font-weight: normal;
+            color: #007bff;
+        }
+
         .eliminate-btn,
         .revive-btn {
             padding: 5px 10px;
@@ -73,18 +78,19 @@
 
         .eliminate-btn {
             background-color: #dc3545;
-            /* 빨간색 계열 */
         }
 
         .revive-btn {
             background-color: #28a745;
-            /* 초록색 계열 */
         }
 
         .start-game-btn,
         .next-phase-btn,
         .timer-btn,
-        .trigger-alien-action-btn {
+        .trigger-alien-action-btn,
+        .resolve-night-btn,
+        .trigger-crew-action-btn,
+        .end-night-btn {
             width: 100%;
             padding: 10px;
             color: white;
@@ -109,8 +115,21 @@
         }
 
         .trigger-alien-action-btn {
+            background-color: #6f42c1;
+        }
+
+        .resolve-night-btn {
+            background-color: #fd7e14;
+        }
+
+        .trigger-crew-action-btn {
+            background-color: #20c997;
+        }
+
+        .end-night-btn {
             background-color: #6c757d;
         }
+
 
         .role-settings,
         .preset-settings {
@@ -165,7 +184,6 @@
         const socket = io('http://localhost:3001');
         const roomsContainer = document.getElementById('game-rooms-container');
         const ALL_ROLES = ['에일리언 여왕', '에일리언', '에일리언 알', '함장', '엔지니어', '의사', '초능력자', '수다쟁이', '뚱이', '신의 사도', '군인'];
-        const MIN_PLAYERS = 4;
         let gameRoomsState = {};
         let presetsState = {};
 
@@ -207,13 +225,14 @@
                 roomDiv.appendChild(headerDiv);
 
                 const contentDiv = document.createElement('div');
-                contentDiv.className = 'room-content';
-                const playerColumn = document.createElement('div');
-                playerColumn.className = 'column';
-                const settingsColumn = document.createElement('div');
-                settingsColumn.className = 'column';
+                contentDiv.style.display = 'flex';
+                contentDiv.style.gap = '20px';
 
-                // --- 게임 시작 후 또는 종료 후 화면 ---
+                const playerColumn = document.createElement('div');
+                playerColumn.style.flex = 1;
+                const settingsColumn = document.createElement('div');
+                settingsColumn.style.flex = 1;
+
                 if (roomData.status === 'playing' || roomData.status === 'game_over') {
                     const livingPlayers = roomData.players.filter(p => p.status === 'alive').length;
                     playerColumn.innerHTML = `<h3>참가자 현황 (${livingPlayers}/${roomData.players.length})</h3>`;
@@ -221,7 +240,14 @@
                     roomData.players.forEach(player => {
                         const playerItem = document.createElement('li');
                         const playerInfoSpan = document.createElement('span');
-                        playerInfoSpan.textContent = `${player.name} - ${player.role || '역할 미정'}`;
+
+                        let roleInfo = '';
+                        // 함장 또는 군인일 경우 남은 총알 표시
+                        if ((player.role === '함장' || player.role === '군인') && typeof player.bullets !== 'undefined') {
+                            roleInfo = `<span class="role-info">(총알: ${player.bullets})</span>`;
+                        }
+
+                        playerInfoSpan.innerHTML = `${player.name} - ${player.role || '역할 미정'} ${roleInfo}`;
                         playerItem.appendChild(playerInfoSpan);
 
                         if (player.status === 'dead') {
@@ -245,11 +271,9 @@
                     settingsColumn.innerHTML = '<h3>게임 진행</h3>';
                     const phaseInfo = document.createElement('div');
                     phaseInfo.className = 'phase-info';
-                    // 게임 종료 시 '게임 종료' 텍스트 표시
                     phaseInfo.textContent = (roomData.status === 'game_over') ? '게임 종료' : `현재 상태: ${roomData.day}일차 ${roomData.phase}`;
                     settingsColumn.appendChild(phaseInfo);
 
-                    // ★★★ 모든 버튼 로직을 여기에 정리 ★★★
                     if (roomData.status === 'playing') {
                         if (roomData.phase === 'role_reveal') {
                             const btn = document.createElement('button');
@@ -272,7 +296,6 @@
                     }
 
                 } else {
-                    // --- 게임 시작 전 (대기실) UI ---
                     playerColumn.innerHTML = '<h3>참가자 목록</h3>';
                     const playerList = document.createElement('ul');
                     roomData.players.forEach(player => {
@@ -330,58 +353,64 @@
             }
         }
 
-        // ★★★ 기존 addEventListener 함수를 찾아, 아래 코드로 전체를 교체해주세요. ★★★
+        roomsContainer.addEventListener('click', (event) => {
+            const target = event.target;
+            const roomDiv = target.closest('.room');
+            if (!roomDiv) return;
+            const roomCode = roomDiv.dataset.code;
+            const classList = target.classList;
 
-roomsContainer.addEventListener('click', (event) => {
-    const target = event.target;
-    const roomDiv = target.closest('.room');
-    if (!roomDiv) return;
-    const roomCode = roomDiv.dataset.code;
-    const classList = target.classList;
+            if (classList.contains('start-game-btn')) {
+                const players = gameRoomsState[roomCode].players;
+                if (players.length < 4) { alert(`최소 인원(4명)이 모이지 않아 시작할 수 없습니다.`); return; }
+                const roleSettings = {};
+                let totalRoles = 0;
+                const roleItems = roomDiv.querySelectorAll('.role-controls input');
+                roleItems.forEach(input => {
+                    const roleName = input.dataset.role;
+                    const roleCount = parseInt(input.value, 10);
+                    if (roleCount > 0) roleSettings[roleName] = roleCount;
+                    totalRoles += roleCount;
+                });
+                if (totalRoles > 0 && totalRoles !== players.length) {
+                    alert('설정된 역할의 합계가 총 플레이어 수와 일치하지 않습니다.');
+                    return;
+                }
+                const groupCountInput = document.getElementById(`group-count-${roomCode}`);
+                socket.emit('startGame', {
+                    code: roomCode,
+                    settings: roleSettings,
+                    groupCount: parseInt(groupCountInput.value, 10) || 4
+                });
 
-    if (classList.contains('start-game-btn')) {
-        const players = gameRoomsState[roomCode].players;
-        if (players.length < 4) { alert(`최소 인원(4명)이 모이지 않아 시작할 수 없습니다.`); return; }
-        const roleSettings = {};
-        let totalRoles = 0;
-        const roleItems = roomDiv.querySelectorAll('.role-controls input');
-        roleItems.forEach(input => {
-            const roleName = input.dataset.role;
-            const roleCount = parseInt(input.value, 10);
-            if (roleCount > 0) roleSettings[roleName] = roleCount;
-            totalRoles += roleCount;
+            } else if (classList.contains('eliminate-btn')) {
+                if (confirm('정말로 이 플레이어를 사망 처리하시겠습니까?')) {
+                    socket.emit('eliminatePlayer', { roomCode, playerId: target.dataset.playerId });
+                }
+            } else if (classList.contains('revive-btn')) {
+                if (confirm('정말로 이 처리를 취소하고 플레이어를 부활시키겠습니까?')) {
+                    socket.emit('revivePlayer', { roomCode, playerId: target.dataset.playerId });
+                }
+            } else if (classList.contains('next-phase-btn')) {
+                socket.emit('nextPhase', { code: roomCode, phase: target.dataset.phase, day: target.dataset.day });
+            } else if (classList.contains('timer-btn')) {
+                socket.emit('startMeetingTimer', roomCode);
+                target.textContent = '타이머 작동 중...';
+                target.disabled = true;
+            } else if (classList.contains('trigger-alien-action-btn')) {
+                socket.emit('triggerAlienAction', { code: roomCode });
+                target.textContent = '에일리언 활동 중...';
+                target.disabled = true;
+            } else if (classList.contains('resolve-night-btn')) {
+                socket.emit('resolveNightActions', { code: roomCode });
+            } else if (classList.contains('trigger-crew-action-btn')) {
+                socket.emit('triggerCrewAction', { code: roomCode });
+                target.textContent = '탐사대 활동 중...';
+                target.disabled = true;
+            } else if (classList.contains('end-night-btn')) {
+                socket.emit('endNightAndStartMeeting', { code: roomCode });
+            }
         });
-        if (totalRoles !== players.length) { alert('설정된 역할의 합계가 총 플레이어 수와 일치하지 않습니다.'); return; }
-        socket.emit('startGame', { code: roomCode, settings: roleSettings, groupCount: 4 });
-
-    } else if (classList.contains('eliminate-btn')) {
-        if (confirm('정말로 이 플레이어를 사망 처리하시겠습니까?')) {
-            socket.emit('eliminatePlayer', { roomCode, playerId: target.dataset.playerId });
-        }
-    } else if (classList.contains('revive-btn')) {
-        if (confirm('정말로 이 처리를 취소하고 플레이어를 부활시키겠습니까?')) {
-            socket.emit('revivePlayer', { roomCode, playerId: target.dataset.playerId });
-        }
-    } else if (classList.contains('next-phase-btn')) {
-        socket.emit('nextPhase', { code: roomCode, phase: target.dataset.phase, day: target.dataset.day });
-    } else if (classList.contains('timer-btn')) {
-        socket.emit('startMeetingTimer', roomCode);
-        target.textContent = '타이머 작동 중...';
-        target.disabled = true;
-    } else if (classList.contains('trigger-alien-action-btn')) {
-        socket.emit('triggerAlienAction', { code: roomCode });
-        target.textContent = '에일리언 활동 중...';
-        target.disabled = true;
-    } else if (classList.contains('resolve-night-btn')) {
-        socket.emit('resolveNightActions', { code: roomCode });
-    } else if (classList.contains('trigger-crew-action-btn')) {
-        socket.emit('triggerCrewAction', { code: roomCode });
-        target.textContent = '탐사대 활동 중...';
-        target.disabled = true;
-    } else if (classList.contains('end-night-btn')) {
-        socket.emit('endNightAndStartMeeting', { code: roomCode });
-    }
-});
         const debugButton = document.getElementById('debug-start-btn');
         if (debugButton) {
             debugButton.addEventListener('click', () => {
@@ -389,7 +418,6 @@ roomsContainer.addEventListener('click', (event) => {
                 socket.emit('debugStartGame');
             });
         }
-
     </script>
 </body>
 
