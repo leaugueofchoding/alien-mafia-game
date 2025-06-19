@@ -32,6 +32,7 @@
         const adminContainer = document.getElementById('admin-container');
 
         let amIAlive = true;
+        let isEngineerChoiceActive = false; // 엔지니어 선택 화면 활성화 여부 플래그
 
         // --- 화면 렌더링 함수들 ---
 
@@ -122,7 +123,7 @@
             } else if (me.role === '일반 승객') {
                 abilityContent = `<h4>당신은 선량한 일반 승객입니다.</h4>`;
             }
-            
+
             // 2. 상황판 탭 내용
             const rolesInGame = [...new Set(room.players.map(p => p.role))].sort(); // 역할 이름으로 정렬
             const roleSummary = rolesInGame.map(role => {
@@ -158,11 +159,34 @@
             // '대기실' 탭 내용은 별도 함수로 렌더링하여 재사용성 높임
             showLobby(room, playerContainer.querySelector('#lobby-content'));
         }
+        // 엔지니어 선택 화면 생성 함수 및 이벤트 리스너
+        function showEngineerChoiceScreen() {
+            clearContainer();
+            playerContainer.innerHTML = `
+                <h2>함장이 사망했습니다.</h2>
+                <p>탐사대의 리더로서 중대한 결정을 내려야 합니다. 비상탈출 절차를 시작하시겠습니까, 아니면 이 자리에서 계속 싸우시겠습니까?</p>
+                <div style="margin-top: 30px; display: flex; gap: 20px; justify-content: center;">
+                    <button data-choice="fight" style="width: 45%; background-color: #dc3545;">계속 싸운다</button>
+                    <button data-choice="escape" style="width: 45%; background-color: #28a745;">비상탈출 가동</button>
+                </div>
+                <p style="font-size: 0.9em; margin-top: 20px;">('계속 싸운다'를 선택하면 '여왕의 만찬'이 시작될 수 있습니다.)</p>
+            `;
+        }
+
+        // ★★★ 엔지니어 선택지 표시 이벤트 리스너 ★★★
+        socket.on('captainDiedChoice', () => {
+            console.log("[Debug] 'captainDiedChoice' 이벤트를 클라이언트에서 수신했습니다!");
+            if (amIAlive) {
+                isEngineerChoiceActive = true; // ★ 안전장치 활성화
+                showEngineerChoiceScreen();
+            }
+        });
 
         // --- Socket 이벤트 핸들러 ---
         socket.on('connect', () => console.log('서버에 성공적으로 연결되었습니다.'));
 
         socket.on('updateRoom', (room) => {
+            if (isEngineerChoiceActive) return; // ★ 안전장치가 켜져있으면 화면 덮어쓰기 방지
             if (!amIAlive || room.status === 'game_over') return;
             const me = room.players.find(p => p.id === socket.id);
             if (!me) { showInitialScreen(); return; }
@@ -219,6 +243,7 @@
         rootDiv.addEventListener('click', function (event) {
             const target = event.target;
 
+            // 참가 버튼
             if (target.id === 'join-button') {
                 const nameInput = document.getElementById('name-input');
                 const codeInput = document.getElementById('code-input');
@@ -227,8 +252,10 @@
                 } else { alert('이름과 초대 코드를 모두 입력해주세요.'); }
             }
 
+            // 관리자 페이지 이동
             if (target.id === 'admin-button') { window.location.href = '/admin'; }
 
+            // 탭 전환
             if (target.classList.contains('tab-link')) {
                 const tabName = target.dataset.tab;
                 playerContainer.querySelectorAll('.tab-link').forEach(btn => btn.classList.remove('active'));
@@ -237,6 +264,20 @@
                 playerContainer.querySelector(`#${tabName}-content`).classList.add('active');
             }
 
+            // ★★★ 엔지니어 선택 버튼 처리 로직 추가 ★★★
+            if (target.dataset.choice) {
+                if (target.dataset.choice === 'fight') {
+                    if (confirm("'계속 싸운다'를 선택하면 큰 위험이 따를 수 있습니다. 정말 선택하시겠습니까?")) {
+                        socket.emit('engineerChoseToFight');
+                    }
+                } else if (target.dataset.choice === 'escape') {
+                    if (confirm("비상탈출을 시작하면 돌이킬 수 없습니다. 정말 가동하시겠습니까?")) {
+                        socket.emit('engineerChoseEscape');
+                    }
+                }
+            }
+
+            // 능력 사용 버튼 (target-btn)
             if (target.classList.contains('target-btn')) {
                 const abilityType = target.dataset.ability;
                 const targetId = target.dataset.targetId;

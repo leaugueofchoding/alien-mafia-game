@@ -103,9 +103,19 @@ function eliminatePlayer(roomCode, playerId) {
   const room = gameRooms[roomCode];
   if (!room) return false;
   const player = room.players.find(p => p.id === playerId);
+
   if (player && player.status !== 'dead') {
     player.status = 'dead';
     io.to(playerId).emit('youAreDead');
+
+    // ★★★ 함장 사망 감지 및 엔지니어에게 이벤트 전송 로직 ★★★
+    if (player.role === '함장') {
+      const engineer = room.players.find(p => p.role === '엔지니어' && p.status === 'alive');
+      if (engineer) {
+        // 살아있는 엔지니어에게만 선택 이벤트를 보냄
+        io.to(engineer.id).emit('captainDiedChoice');
+      }
+    }
     return true;
   }
   return false;
@@ -242,10 +252,10 @@ io.on('connection', (socket) => {
 
   socket.on('eliminatePlayer', (data) => {
     const { roomCode, playerId } = data;
+    // eliminatePlayer 함수가 true를 반환하는지 (즉, 실제로 사망 처리가 되었는지) 확인
     if (eliminatePlayer(roomCode, playerId)) {
-      if (!checkWinConditions(roomCode)) {
-        broadcastUpdates(roomCode);
-      }
+      // 승리 조건 확인은 아침에만 하므로, 여기서는 상태 업데이트만 전파합니다.
+      broadcastUpdates(roomCode);
     }
   });
 
@@ -369,6 +379,27 @@ io.on('connection', (socket) => {
         broadcastUpdates(roomCode);
       }
     }
+  });
+
+  // ★★★ 엔지니어 선택 결과 처리 (기능은 다음 단계에서 구현) ★★★
+  socket.on('engineerChoseToFight', () => {
+    // TODO: '여왕의 만찬' 시나리오 진행 로직 구현
+    let roomCode = '';
+    for (const code in gameRooms) {
+      if (gameRooms[code].players.some(p => p.id === socket.id)) { roomCode = code; break; }
+    }
+    console.log(`[${roomCode}] 방의 엔지니어가 계속 싸우는 것을 선택했습니다.`);
+    // 나중에 여기에 화면 전환 로직이 들어갑니다.
+  });
+
+  socket.on('engineerChoseEscape', () => {
+    // TODO: '비상탈출' 시나리오 진행 로직 구현
+    let roomCode = '';
+    for (const code in gameRooms) {
+      if (gameRooms[code].players.some(p => p.id === socket.id)) { roomCode = code; break; }
+    }
+    console.log(`[${roomCode}] 방의 엔지니어가 비상탈출을 선택했습니다.`);
+    // 나중에 여기에 화면 전환 로직이 들어갑니다.
   });
 
   socket.on('endNightAndStartMeeting', (data) => {
