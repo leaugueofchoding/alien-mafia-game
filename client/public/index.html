@@ -160,25 +160,38 @@
             showLobby(room, playerContainer.querySelector('#lobby-content'));
         }
         // 엔지니어 선택 화면 생성 함수 및 이벤트 리스너
-        function showEngineerChoiceScreen() {
+        function showEngineerChoiceScreen(isEngineer) {
             clearContainer();
+            // isEngineer 값에 따라 버튼의 활성화/비활성화 상태를 결정
+            const fightButton = isEngineer
+                ? `<button data-choice="fight" style="width: 45%; background-color: #dc3545;">계속 싸운다</button>`
+                : `<button style="width: 45%; background-color: #6c757d; cursor: not-allowed;" disabled>계속 싸운다</button>`;
+
+            const escapeButton = isEngineer
+                ? `<button data-choice="escape" style="width: 45%; background-color: #28a745;">비상탈출 가동</button>`
+                : `<button style="width: 45%; background-color: #6c757d; cursor: not-allowed;" disabled>비상탈출 가동</button>`;
+
+            const notice = isEngineer
+                ? `('계속 싸운다'를 선택하면 '여왕의 만찬'이 시작될 수 있습니다.)`
+                : `엔지니어가 중대한 결정을 내리고 있습니다.`;
+
             playerContainer.innerHTML = `
                 <h2>함장이 사망했습니다.</h2>
-                <p>탐사대의 리더로서 중대한 결정을 내려야 합니다. 비상탈출 절차를 시작하시겠습니까, 아니면 이 자리에서 계속 싸우시겠습니까?</p>
+                <p>탐사대의 운명을 결정할 선택의 시간입니다. 엔지니어는 결정을 내려주세요.</p>
                 <div style="margin-top: 30px; display: flex; gap: 20px; justify-content: center;">
-                    <button data-choice="fight" style="width: 45%; background-color: #dc3545;">계속 싸운다</button>
-                    <button data-choice="escape" style="width: 45%; background-color: #28a745;">비상탈출 가동</button>
+                    ${fightButton}
+                    ${escapeButton}
                 </div>
-                <p style="font-size: 0.9em; margin-top: 20px;">('계속 싸운다'를 선택하면 '여왕의 만찬'이 시작될 수 있습니다.)</p>
+                <p style="font-size: 0.9em; margin-top: 20px;">${notice}</p>
             `;
         }
 
         // ★★★ 엔지니어 선택지 표시 이벤트 리스너 ★★★
-        socket.on('captainDiedChoice', () => {
-            console.log("[Debug] 'captainDiedChoice' 이벤트를 클라이언트에서 수신했습니다!");
+        socket.on('captainDiedChoice', (data) => {
+            console.log(`[Debug] 'captainDiedChoice' 수신. Is Engineer: ${data.isEngineer}`);
             if (amIAlive) {
-                isEngineerChoiceActive = true; // ★ 안전장치 활성화
-                showEngineerChoiceScreen();
+                isEngineerChoiceActive = true;
+                showEngineerChoiceScreen(data.isEngineer); // isEngineer 정보를 함수에 전달
             }
         });
 
@@ -266,6 +279,7 @@
 
             // ★★★ 엔지니어 선택 버튼 처리 로직 추가 ★★★
             if (target.dataset.choice) {
+                isEngineerChoiceActive = false; // ★ 어떤 선택을 하든 안전장치 해제
                 if (target.dataset.choice === 'fight') {
                     if (confirm("'계속 싸운다'를 선택하면 큰 위험이 따를 수 있습니다. 정말 선택하시겠습니까?")) {
                         socket.emit('engineerChoseToFight');

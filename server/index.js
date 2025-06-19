@@ -100,6 +100,7 @@ function checkWinConditions(roomCode) {
 }
 
 function eliminatePlayer(roomCode, playerId) {
+  console.log(`[Debug 1] eliminatePlayer 함수가 플레이어(ID: ${playerId})에 대해 호출되었습니다.`);
   const room = gameRooms[roomCode];
   if (!room) return false;
   const player = room.players.find(p => p.id === playerId);
@@ -108,12 +109,20 @@ function eliminatePlayer(roomCode, playerId) {
     player.status = 'dead';
     io.to(playerId).emit('youAreDead');
 
-    // ★★★ 함장 사망 감지 및 엔지니어에게 이벤트 전송 로직 ★★★
     if (player.role === '함장') {
+      console.log(`[Debug 2] 사망자는 '함장'(${player.name})입니다. 살아있는 엔지니어를 찾습니다.`);
       const engineer = room.players.find(p => p.role === '엔지니어' && p.status === 'alive');
+
       if (engineer) {
-        // 살아있는 엔지니어에게만 선택 이벤트를 보냄
-        io.to(engineer.id).emit('captainDiedChoice');
+        console.log(`[Debug 3] 살아있는 엔지니어 '${engineer.name}'를 찾았습니다. 모든 생존자에게 이벤트를 전송합니다.`);
+        // 모든 생존자에게 각자 엔지니어 여부를 담아 이벤트를 전송
+        room.players.forEach(p => {
+          if (p.status === 'alive') {
+            io.to(p.id).emit('captainDiedChoice', { isEngineer: p.id === engineer.id });
+          }
+        });
+      } else {
+        console.log(`[Debug 5] 살아있는 엔지니어를 찾지 못했습니다.`);
       }
     }
     return true;
