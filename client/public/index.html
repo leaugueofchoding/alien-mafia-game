@@ -19,7 +19,6 @@
                 <button id="join-button">게임 참가</button>
             </div>
         </div>
-
         <div id="admin-container" class="container">
             <h2>관리자 모드</h2>
             <button id="admin-button" class="admin-button">관리자 페이지로 이동</button>
@@ -30,13 +29,12 @@
         const socket = io('http://localhost:3001');
         const rootDiv = document.getElementById('root');
         const playerContainer = document.getElementById('player-container');
-        const initialScreen = document.getElementById('initial-screen');
         const adminContainer = document.getElementById('admin-container');
 
         let amIAlive = true;
 
         // --- 화면 렌더링 함수들 ---
-        
+
         function clearContainer() {
             playerContainer.innerHTML = '';
             adminContainer.style.display = 'none';
@@ -55,16 +53,18 @@
             adminContainer.style.display = 'block';
         }
 
-        function showLobby(room) {
-            clearContainer();
-            const playerList = room.players.map(player => 
-                `<li class="${player.status}">${player.name}</li>`
-            ).join('');
-            playerContainer.innerHTML = `
-                <h2>대기실</h2>
+        function showLobby(room, container) {
+            const targetContainer = container || playerContainer;
+            const playerList = room.players.map(player => {
+                // 추후 '수다쟁이' 등에 의해 역할이 공개될 경우를 대비한 데이터 구조
+                const revealedRole = player.revealedRole ? ` (${player.revealedRole})` : '';
+                return `<li class="${player.status === 'dead' ? 'dead' : ''}">${player.name}${revealedRole}</li>`;
+            }).join('');
+            targetContainer.innerHTML = `
+                <h2>참가자 목록</h2>
                 <ul>${playerList}</ul>`;
         }
-        
+
         function showRoleScreen(role, description) {
             clearContainer();
             playerContainer.innerHTML = `
@@ -72,7 +72,7 @@
                 <h1 style="color: #ff4757;">${role}</h1>
                 <p>${description}</p>`;
         }
-        
+
         function showMeetingScreen(day) {
             clearContainer();
             playerContainer.innerHTML = `
@@ -87,7 +87,7 @@
                 <h2>밤이 되었습니다.</h2>
                 <p>모든 플레이어는 눈을 감아주세요. 에일리언이 활동을 시작합니다.</p>`;
         }
-        
+
         function showDeathScreen() {
             clearContainer();
             playerContainer.innerHTML = `
@@ -102,108 +102,100 @@
                 <p class="game-over-reason">${data.reason}</p>`;
         }
 
-        // --- ★★★ 새로운 탭 기반 탐사대 활동 화면 ★★★ ---
         function showCrewActionScreen(room) {
             clearContainer();
             const me = room.players.find(p => p.id === socket.id);
             if (!me) return;
-            
-            // 능력 탭 내용 결정
+
+            // --- 각 탭의 내용물(HTML) 생성 ---
+
+            // 1. 능력 탭 내용
             let abilityContent = `<h4>사용할 수 있는 능력이 없습니다.</h4>`;
             if (me.role === '함장' && me.bullets > 0) {
                 const targets = room.players.filter(p => p.status === 'alive' && p.id !== me.id);
-                abilityContent = `
-                    <h4>즉결 처분할 대상을 선택하세요.</h4>
-                    <p>(남은 총알: ${me.bullets}발)</p>
-                    <ul>${targets.map(t => `<li><button class="target-btn" data-ability="captain" data-target-id="${t.id}">${t.name}</button></li>`).join('')}</ul>`;
+                abilityContent = `<h4>즉결 처분할 대상을 선택하세요. <span style="font-weight:normal;">(남은 총알: ${me.bullets}발)</span></h4>
+                                  <ul>${targets.map(t => `<li><button class="target-btn" data-ability="captain" data-target-id="${t.id}">${t.name}</button></li>`).join('')}</ul>`;
             } else if (me.role === '군인' && me.bullets > 0) {
-                 const targets = room.players.filter(p => p.status === 'alive' && p.id !== me.id);
-                abilityContent = `
-                    <h4>저격할 대상을 선택하세요.</h4>
-                    <p>(남은 총알: ${me.bullets}발)</p>
-                    <ul>${targets.map(t => `<li><button class="target-btn" data-ability="soldier" data-target-id="${t.id}">${t.name}</button></li>`).join('')}</ul>`;
+                const targets = room.players.filter(p => p.status === 'alive' && p.id !== me.id);
+                abilityContent = `<h4>저격할 대상을 선택하세요. <span style="font-weight:normal;">(남은 총알: ${me.bullets}발)</span></h4>
+                                  <ul>${targets.map(t => `<li><button class="target-btn" data-ability="soldier" data-target-id="${t.id}">${t.name}</button></li>`).join('')}</ul>`;
             } else if (me.role === '일반 승객') {
                 abilityContent = `<h4>당신은 선량한 일반 승객입니다.</h4>`;
             }
+            
+            // 2. 상황판 탭 내용
+            const rolesInGame = [...new Set(room.players.map(p => p.role))].sort(); // 역할 이름으로 정렬
+            const roleSummary = rolesInGame.map(role => {
+                const total = room.players.filter(p => p.role === role).length;
+                const alive = room.players.filter(p => p.role === role && p.status === 'alive').length;
+                return `<tr><td>${role}</td><td>${alive} / ${total}</td></tr>`;
+            }).join('');
+            const situationBoardContent = `
+                <h4>직업별 생존 현황</h4>
+                <table class="summary-table">
+                    <thead><tr><th>직업</th><th>생존/총원</th></tr></thead>
+                    <tbody>${roleSummary}</tbody>
+                </table>`;
 
+            // --- 최종 HTML 구조 렌더링 ---
             playerContainer.innerHTML = `
                 <h2>${room.day}일차 밤: 탐사대 활동</h2>
                 <div class="tab-container">
                     <button class="tab-link active" data-tab="ability">내 능력</button>
+                    <button class="tab-link" data-tab="lobby">대기실</button>
+                    <button class="tab-link" data-tab="situation">상황판</button>
                     <button class="tab-link" data-tab="mission">내 미션</button>
-                    <button class="tab-link" data-tab="camouflage">위장 화면</button>
+                    <button class="tab-link" data-tab="camouflage">위장 화면</button> 
                 </div>
                 <div class="content-container">
                     <div id="ability-content" class="tab-content active">${abilityContent}</div>
+                    <div id="lobby-content" class="tab-content"></div>
+                    <div id="situation-content" class="tab-content">${situationBoardContent}</div>
                     <div id="mission-content" class="tab-content"><h4>미션 기능은 준비 중입니다.</h4></div>
                     <div id="camouflage-content" class="tab-content"><h4>초능력 사용 중... (위장 화면)</h4><p>이 화면을 다른 사람에게 보여주어 당신의 정체를 숨기세요.</p></div>
                 </div>
             `;
+            // '대기실' 탭 내용은 별도 함수로 렌더링하여 재사용성 높임
+            showLobby(room, playerContainer.querySelector('#lobby-content'));
         }
-
 
         // --- Socket 이벤트 핸들러 ---
         socket.on('connect', () => console.log('서버에 성공적으로 연결되었습니다.'));
 
         socket.on('updateRoom', (room) => {
             if (!amIAlive || room.status === 'game_over') return;
-
             const me = room.players.find(p => p.id === socket.id);
-            if (!me) {
+            if (!me) { showInitialScreen(); return; }
+
+            if (room.status === 'playing' && room.phase === 'night_crew_action') {
+                showCrewActionScreen(room);
+            } else if (room.status === 'playing') {
+                switch (room.phase) {
+                    case 'role_reveal': showRoleScreen(me.role, me.description); break;
+                    case 'meeting': showMeetingScreen(room.day); break;
+                    case 'night_alien_action': showAlienNightScreen(); break;
+                    default: showLobby(room, playerContainer); break;
+                }
+            } else if (room.status === 'waiting') {
+                showLobby(room, playerContainer);
+            } else {
                 showInitialScreen();
-                return;
-            }
-
-            switch (room.status) {
-                case 'waiting':
-                    showLobby(room);
-                    break;
-                case 'playing':
-                    switch (room.phase) {
-                        case 'role_reveal':
-                            showRoleScreen(me.role, me.description);
-                            break;
-                        case 'meeting':
-                            showMeetingScreen(room.day);
-                            break;
-                        case 'night_alien_action':
-                            // 에일리언은 별도 alienAction 이벤트로 처리
-                            showAlienNightScreen();
-                            break;
-                        case 'night_crew_action':
-                            showCrewActionScreen(room);
-                            break;
-                        default:
-                            showLobby(room);
-                    }
-                    break;
-                default:
-                    showInitialScreen();
             }
         });
 
-        socket.on('youAreDead', () => {
-            amIAlive = false;
-            showDeathScreen();
-        });
-
-        socket.on('youAreAlive', () => {
-            amIAlive = true;
-            alert('당신은 부활했습니다! 게임에 다시 참여합니다.');
-        });
-
+        socket.on('youAreDead', () => { amIAlive = false; showDeathScreen(); });
+        socket.on('youAreAlive', () => { amIAlive = true; alert('당신은 부활했습니다!'); });
         socket.on('gameOver', (data) => showGameOverScreen(data));
 
         socket.on('alienAction', (data) => {
             if (!amIAlive || data.targets.length === 0) return;
             clearContainer();
             const targetButtons = data.targets.map(target => `<li><button class="target-btn" data-ability="alien" data-target-id="${target.id}">${target.name}</button></li>`).join('');
-            playerContainer.innerHTML = `
-                <h2>오늘 밤의 사냥감을 선택하세요.</h2>
+            playerContainer.innerHTML = `<h2>오늘 밤의 사냥감을 선택하세요.</h2>
                 <p>${data.otherAliens.length > 0 ? `(동료 에일리언: ${data.otherAliens.join(', ')})` : '(동료 에일리언 없음)'}</p>
                 <ul>${targetButtons}</ul>`;
         });
-        
+
         socket.on('nightSelectionUpdate', (data) => {
             if (!amIAlive) return;
             const allSelectedTargetIds = new Set(Object.values(data.selections));
@@ -223,62 +215,49 @@
             }
         });
 
-
         // --- 전역 클릭 이벤트 리스너 ---
         rootDiv.addEventListener('click', function (event) {
             const target = event.target;
 
-            // 참가 버튼
             if (target.id === 'join-button') {
                 const nameInput = document.getElementById('name-input');
                 const codeInput = document.getElementById('code-input');
                 if (nameInput.value.trim() && codeInput.value.trim()) {
                     socket.emit('joinGame', { name: nameInput.value, code: codeInput.value });
-                } else {
-                    alert('이름과 초대 코드를 모두 입력해주세요.');
-                }
-            }
-            
-            // 관리자 페이지 이동
-            if (target.id === 'admin-button') {
-                window.location.href = '/admin';
+                } else { alert('이름과 초대 코드를 모두 입력해주세요.'); }
             }
 
-            // 탭 전환
+            if (target.id === 'admin-button') { window.location.href = '/admin'; }
+
             if (target.classList.contains('tab-link')) {
                 const tabName = target.dataset.tab;
-                // 모든 탭 버튼과 콘텐츠에서 active 클래스 제거
                 playerContainer.querySelectorAll('.tab-link').forEach(btn => btn.classList.remove('active'));
                 playerContainer.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
-                // 클릭한 탭과 해당 콘텐츠에 active 클래스 추가
                 target.classList.add('active');
                 playerContainer.querySelector(`#${tabName}-content`).classList.add('active');
             }
-            
-            // 능력 사용 버튼 (target-btn)
+
             if (target.classList.contains('target-btn')) {
                 const abilityType = target.dataset.ability;
                 const targetId = target.dataset.targetId;
+                const targetName = target.textContent;
 
-                switch (abilityType) {
-                    case 'alien':
-                        socket.emit('nightAction', {
-                            targetId: target.classList.contains('pre-selected') ? null : targetId
-                        });
-                        break;
-                    case 'soldier':
-                        if (confirm(`${target.textContent}님을 저격하시겠습니까?`)) {
+                if (confirm(`${targetName}님을 대상으로 능력을 사용하시겠습니까?`)) {
+                    switch (abilityType) {
+                        case 'alien':
+                            socket.emit('nightAction', { targetId: target.classList.contains('pre-selected') ? null : targetId });
+                            break;
+                        case 'soldier':
                             socket.emit('useSoldierAbility', { targetId });
-                        }
-                        break;
-                    case 'captain':
-                        if (confirm(`${target.textContent}님을 즉결 처분하시겠습니까?`)) {
+                            break;
+                        case 'captain':
                             socket.emit('useCaptainAbility', { targetId });
-                        }
-                        break;
+                            break;
+                    }
                 }
             }
         });
     </script>
 </body>
+
 </html>
