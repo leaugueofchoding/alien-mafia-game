@@ -44,7 +44,8 @@ const ENDING_MESSAGES = {
     reason: '끈질긴 추적과 희생 끝에, 마침내 모든 에일리언을 제거하고 탐사선을 지켜냈습니다!'
   },
 
-  alien_win_assassinate: { winner: '에일리언', reason: '탐사대의 핵심 인물인 함장과 엔지니어를 모두 제거하는 데 성공했습니다!' 
+  alien_win_assassinate: {
+    winner: '에일리언', reason: '탐사대의 핵심 인물인 함장과 엔지니어를 모두 제거하는 데 성공했습니다!'
 
   },
 };
@@ -68,43 +69,43 @@ function broadcastUpdates(roomCode) {
 
 // ★★★ 기존 checkWinConditions 함수를 모두 지우고, 이 코드로 교체해주세요. ★★★
 function checkWinConditions(roomCode) {
-    const room = gameRooms[roomCode];
-    if (!room || room.status !== 'playing') return false;
+  const room = gameRooms[roomCode];
+  if (!room || room.status !== 'playing') return false;
 
-    let endingType = null;
+  let endingType = null;
 
-    // 에일리언 승리 조건: 함장과 엔지니어가 모두 사망
-    const captain = room.players.find(p => p.role === '함장');
-    const engineer = room.players.find(p => p.role === '엔지니어');
-    if (captain && captain.status === 'dead' && engineer && engineer.status === 'dead') {
-        endingType = 'alien_win_assassinate';
+  // 에일리언 승리 조건: 함장과 엔지니어가 모두 사망
+  const captain = room.players.find(p => p.role === '함장');
+  const engineer = room.players.find(p => p.role === '엔지니어');
+  if (captain && captain.status === 'dead' && engineer && engineer.status === 'dead') {
+    endingType = 'alien_win_assassinate';
+  }
+
+  // 탐사대 승리 조건: 살아있는 에일리언이 없음
+  // (위의 에일리언 승리 조건이 아닐 경우에만 체크)
+  if (!endingType) {
+    const totalLivingAliens = room.players.filter(p => p.role.includes('에일리언') && p.status === 'alive');
+    if (totalLivingAliens.length === 0) {
+      const totalLivingCrew = room.players.filter(p => !p.role.includes('에일리언') && p.status === 'alive');
+      if (totalLivingCrew.length > 0) {
+        endingType = 'crew_win_eliminate';
+      }
     }
+  }
 
-    // 탐사대 승리 조건: 살아있는 에일리언이 없음
-    // (위의 에일리언 승리 조건이 아닐 경우에만 체크)
-    if (!endingType) {
-        const totalLivingAliens = room.players.filter(p => p.role.includes('에일리언') && p.status === 'alive');
-        if (totalLivingAliens.length === 0) {
-            const totalLivingCrew = room.players.filter(p => !p.role.includes('에일리언') && p.status === 'alive');
-            if (totalLivingCrew.length > 0) {
-                endingType = 'crew_win_eliminate';
-            }
-        }
+  if (endingType) {
+    const ending = ENDING_MESSAGES[endingType];
+    if (!ending) { // 혹시 모를 오류 방지
+      console.error(`오류: 엔딩 메시지를 찾을 수 없습니다 - ${endingType}`);
+      return false;
     }
+    room.status = 'game_over';
+    io.to(roomCode).emit('gameOver', { winner: ending.winner, reason: ending.reason });
+    io.to(ADMIN_ROOM).emit('updateAdmin', { rooms: gameRooms });
+    return true;
+  }
 
-    if (endingType) {
-        const ending = ENDING_MESSAGES[endingType];
-        if (!ending) { // 혹시 모를 오류 방지
-            console.error(`오류: 엔딩 메시지를 찾을 수 없습니다 - ${endingType}`);
-            return false;
-        }
-        room.status = 'game_over';
-        io.to(roomCode).emit('gameOver', { winner: ending.winner, reason: ending.reason });
-        io.to(ADMIN_ROOM).emit('updateAdmin', { rooms: gameRooms });
-        return true;
-    }
-
-    return false;
+  return false;
 }
 
 app.use(express.static(path.join(__dirname, '../client/public')));
@@ -310,7 +311,7 @@ io.on('connection', (socket) => {
 
   // 군인 및 탐사대 활동 관련 기능 추가
 
-  socket.on('triggerSoldierAction', (data) => {
+  socket.on('triggerCrewAction', (data) => {
     const { code } = data;
     const room = gameRooms[code];
     if (!room) return;
@@ -322,21 +323,31 @@ io.on('connection', (socket) => {
     }
   });
 
+  // useSoldierAbility 리스너를 찾아 이 코드로 교체하세요.
   socket.on('useSoldierAbility', (data) => {
-    const { roomCode, targetId } = data;
-    const room = gameRooms[roomCode];
-    const soldier = room.players.find(p => p.id === socket.id);
-
-    if (room && soldier && soldier.role === '군인' && !soldier.abilityUsed) {
-      soldier.abilityUsed = true;
-      const playerToEliminate = room.players.find(p => p.id === targetId);
-      if (playerToEliminate) {
-        playerToEliminate.status = 'dead';
-        io.to(targetId).emit('youAreDead');
+    const { targetId } = data;
+    const selectorId = socket.id;
+    let roomCode = '';
+    // 이 플레이어가 속한 방을 찾습니다.
+    for (const code in gameRooms) {
+      if (gameRooms[code].players.some(p => p.id === selectorId)) {
+        roomCode = code;
+        break;
       }
+    }
 
-      if (!checkWinConditions(roomCode)) {
-        broadcastUpdates(roomCode);
+    if (roomCode) {
+      const room = gameRooms[roomCode];
+      const soldier = room.players.find(p => p.id === socket.id);
+      if (room && soldier && soldier.role === '군인' && !soldier.abilityUsed) {
+        soldier.abilityUsed = true;
+        if (eliminatePlayer(roomCode, targetId)) {
+          if (!checkWinConditions(roomCode)) {
+            broadcastUpdates(roomCode);
+          }
+        }
+        // 능력 사용 후에는 일반 밤 화면으로 되돌려줍니다.
+        io.to(selectorId).emit('updateRoom', room);
       }
     }
   });

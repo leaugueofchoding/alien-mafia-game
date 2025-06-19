@@ -131,6 +131,11 @@
             showAlienActionScreen(data.otherAliens, data.targets);
         });
 
+        // 군인 능력 사용 리스너
+        socket.on('soldierAction', (data) => {
+            if (amIAlive) showSoldierActionScreen(data.targets);
+        });
+
         socket.on('timerUpdate', (data) => {
             if (!amIAlive) return;
             const timerDisplay = document.getElementById('timer-display');
@@ -147,17 +152,15 @@
             }
         });
 
+        // 기존 nightSelectionUpdate 리스너를 찾아 아래 코드로 교체하세요.
         socket.on('nightSelectionUpdate', (data) => {
             if (!amIAlive) return;
             const selections = data.selections;
             const allSelectedTargetIds = new Set(Object.values(selections));
-            const allTargetButtons = document.querySelectorAll('.target-btn');
-            allTargetButtons.forEach(btn => {
-                if (allSelectedTargetIds.has(btn.dataset.targetId)) {
-                    btn.classList.add('pre-selected');
-                } else {
-                    btn.classList.remove('pre-selected');
-                }
+
+            document.querySelectorAll('.target-btn').forEach(btn => {
+                // 버튼의 타겟 ID가 선택된 ID 목록에 포함되어 있는지 여부에 따라 클래스를 추가/제거합니다.
+                btn.classList.toggle('pre-selected', allSelectedTargetIds.has(btn.dataset.targetId));
             });
         });
 
@@ -248,6 +251,14 @@
             playerContainer.appendChild(targetList);
         }
 
+        // 군인 능력 탐사대 활동 함수
+        function showSoldierActionScreen(targets) {
+            playerContainer.innerHTML = `
+        <h2>저격할 대상을 선택하세요.</h2>
+        <p>(단 한 번만 사용할 수 있습니다.)</p>
+        <ul>${targets.map(t => `<li><button class="target-btn" data-target-id="${t.id}">${t.name}</button></li>`).join('')}</ul>`;
+        }
+
         function showDeathScreen() {
             playerContainer.innerHTML = '';
             adminContainer.style.display = 'none';
@@ -261,8 +272,10 @@
             playerContainer.appendChild(description);
         }
 
+        // 기존 rootDiv.addEventListener의 내용을 모두 이 코드로 교체하세요.
         rootDiv.addEventListener('click', function (event) {
-            if (event.target.id === 'join-button') {
+            const target = event.target;
+            if (target.id === 'join-button') {
                 const nameInput = document.getElementById('name-input');
                 const codeInput = document.getElementById('code-input');
                 if (nameInput.value.trim() === '' || codeInput.value.trim() === '') {
@@ -272,16 +285,22 @@
                 socket.emit('joinGame', { name: nameInput.value, code: codeInput.value });
             }
 
-            if (event.target.id === 'admin-button') {
+            if (target.id === 'admin-button') {
                 window.location.href = '/admin';
             }
 
-            if (event.target.classList.contains('target-btn')) {
-                const targetId = event.target.dataset.targetId;
-                if (event.target.classList.contains('pre-selected')) {
-                    socket.emit('nightAction', { targetId: null });
-                } else {
-                    socket.emit('nightAction', { targetId: targetId });
+            if (target.classList.contains('target-btn')) {
+                const targetId = target.dataset.targetId;
+                const title = playerContainer.querySelector('h2').textContent;
+
+                if (title.includes('사냥감')) { // 에일리언의 사냥 화면일 경우
+                    socket.emit('nightAction', {
+                        targetId: target.classList.contains('pre-selected') ? null : targetId
+                    });
+                } else if (title.includes('저격')) { // 군인의 저격 화면일 경우
+                    if (confirm(`${target.textContent}님을 저격하시겠습니까?`)) {
+                        socket.emit('useSoldierAbility', { targetId });
+                    }
                 }
             }
         });
