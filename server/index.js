@@ -68,14 +68,32 @@ function checkWinConditions(roomCode) {
   if (!room || room.status !== 'playing') return false;
 
   let endingType = null;
+  let detailLog = '';
 
-  // 1. 탐사대 승리 조건: 에일리언 여왕 사망
   const alienQueen = room.players.find(p => p.role === '에일리언 여왕');
   if (alienQueen && alienQueen.status === 'dead') {
     endingType = 'crew_win_queen_eliminated';
+    const captain = room.players.find(p => p.role === '함장');
+    const soldier = room.players.find(p => p.role === '군인');
+
+    // ★★★ 추가된 디버깅 로그 ★★★
+    console.log(`[Debug 6] checkWinConditions: 여왕의 사망 원인 값 - '${alienQueen.causeOfDeath}'`);
+
+    switch (alienQueen.causeOfDeath) {
+      case 'captain_shot':
+        detailLog = `${captain ? captain.name : '함장'}이(가) 에일리언 여왕을 즉결처분으로 사살했습니다.`;
+        break;
+      case 'soldier_shot':
+        detailLog = `${soldier ? soldier.name : '군인'}이(가) 에일리언 여왕을 사살하는데 성공했습니다.`;
+        break;
+      case 'ejected':
+        detailLog = `탐사대의 예리한 감각과 추론으로 에일리언 여왕을 방출했습니다.`;
+        break;
+      default:
+        detailLog = `에일리언 여왕이 제거되었습니다.`;
+    }
   }
 
-  // 2. 에일리언 승리 조건: 함장과 엔지니어 모두 사망 (여왕이 살아있을 때)
   if (!endingType) {
     const captain = room.players.find(p => p.role === '함장');
     const engineer = room.players.find(p => p.role === '엔지니어');
@@ -91,7 +109,7 @@ function checkWinConditions(roomCode) {
       return false;
     }
     room.status = 'game_over';
-    io.to(roomCode).emit('gameOver', { winner: ending.winner, reason: ending.reason });
+    io.to(roomCode).emit('gameOver', { winner: ending.winner, reason: ending.reason, detailLog: detailLog });
     io.to(ADMIN_ROOM).emit('updateAdmin', { rooms: gameRooms });
     return true;
   }
@@ -99,23 +117,22 @@ function checkWinConditions(roomCode) {
   return false;
 }
 
-function eliminatePlayer(roomCode, playerId) {
-  console.log(`[Debug 1] eliminatePlayer 함수가 플레이어(ID: ${playerId})에 대해 호출되었습니다.`);
+function eliminatePlayer(roomCode, playerId, cause = 'unknown') {
+  console.log(`[Debug 1] eliminatePlayer 함수가 플레이어(ID: ${playerId})에 대해 호출되었습니다. 원인: ${cause}`);
   const room = gameRooms[roomCode];
   if (!room) return false;
   const player = room.players.find(p => p.id === playerId);
 
   if (player && player.status !== 'dead') {
     player.status = 'dead';
+    player.causeOfDeath = cause; // ★ 사망 원인 기록
     io.to(playerId).emit('youAreDead');
 
     if (player.role === '함장') {
       console.log(`[Debug 2] 사망자는 '함장'(${player.name})입니다. 살아있는 엔지니어를 찾습니다.`);
       const engineer = room.players.find(p => p.role === '엔지니어' && p.status === 'alive');
-
       if (engineer) {
         console.log(`[Debug 3] 살아있는 엔지니어 '${engineer.name}'를 찾았습니다. 모든 생존자에게 이벤트를 전송합니다.`);
-        // 모든 생존자에게 각자 엔지니어 여부를 담아 이벤트를 전송
         room.players.forEach(p => {
           if (p.status === 'alive') {
             io.to(p.id).emit('captainDiedChoice', { isEngineer: p.id === engineer.id });
@@ -170,7 +187,6 @@ io.on('connection', (socket) => {
       for (let i = 0; i < settings[roleName]; i++) { roles.push(roleName); }
     }
     const players = room.players;
-    while (roles.length < players.length) { roles.push('일반 승객'); }
     const shuffledRoles = shuffle(roles);
     players.forEach((player, index) => {
       player.role = shuffledRoles[index];
@@ -224,22 +240,28 @@ io.on('connection', (socket) => {
     const room = gameRooms[code];
     if (!room) return;
     const livingPlayers = room.players.filter(p => p.status === 'alive');
-    // ★★★ 에일리언 여왕 능력 수정: 일반 포식 기능 제외 ★★★
-    const aliens = livingPlayers.filter(p => p.role === '에일리언'); // 일반 에일리언만 선택
-    const alienIds = livingPlayers.filter(p => p.role.includes('에일리언')).map(p => p.id); // 동료 확인용
-    const targets = livingPlayers.filter(p => !alienIds.includes(p.id));
+    const allAlienRoles = livingPlayers.filter(p => p.role.includes('에일리언'));
+    const allAlienIds = allAlienRoles.map(p => p.id);
+    const targets = livingPlayers.filter(p => !allAlienIds.includes(p.id));
 
-    // 일반 에일리언에게만 포식 행동 요청
-    aliens.forEach(alien => {
-      const otherAliens = livingPlayers.filter(p => p.role.includes('에일리언') && p.id !== alien.id).map(a => a.name);
+    // 일반 에일리언에게 포식 행동 요청
+    const normalAliens = allAlienRoles.filter(p => p.role === '에일리언');
+    normalAliens.forEach(alien => {
+      const otherAliens = allAlienRoles.filter(a => a.id !== alien.id).map(a => a.name);
       io.to(alien.id).emit('alienAction', { otherAliens, targets });
     });
 
-    // 에일리언 여왕에게는 밤 알림만 전달 (나중에 [사냥] 능력 추가 시 여기에 로직 추가)
-    const queen = livingPlayers.find(p => p.role === '에일리언 여왕');
+    // 에일리언 여왕에게 능력 사용 여부에 따라 다른 이벤트 전송
+    const queen = allAlienRoles.find(p => p.role === '에일리언 여왕');
     if (queen) {
-      const otherAliens = livingPlayers.filter(p => p.role.includes('에일리언') && p.id !== queen.id).map(a => a.name);
-      io.to(queen.id).emit('alienAction', { otherAliens, targets: [] }); // targets는 빈 배열로 보내 행동을 막음
+      const otherAliens = allAlienRoles.filter(a => a.id !== queen.id).map(a => a.name);
+      if (!queen.abilityUsed) {
+        // ★ 능력을 사용하지 않았으면 [사냥] 이벤트 전송
+        io.to(queen.id).emit('queenHuntAction', { otherAliens, targets });
+      } else {
+        // 능력을 이미 사용했으면 일반 밤 화면 이벤트 전송
+        io.to(queen.id).emit('alienAction', { otherAliens, targets: [] });
+      }
     }
   });
 
@@ -261,10 +283,12 @@ io.on('connection', (socket) => {
 
   socket.on('eliminatePlayer', (data) => {
     const { roomCode, playerId } = data;
-    // eliminatePlayer 함수가 true를 반환하는지 (즉, 실제로 사망 처리가 되었는지) 확인
-    if (eliminatePlayer(roomCode, playerId)) {
-      // 승리 조건 확인은 아침에만 하므로, 여기서는 상태 업데이트만 전파합니다.
-      broadcastUpdates(roomCode);
+    if (eliminatePlayer(roomCode, playerId, 'ejected')) {
+      // ★ 관리자에 의한 제거는 즉시 승패를 확인합니다.
+      // 만약 게임이 끝나지 않았다면, 그때 상태를 업데이트합니다.
+      if (!checkWinConditions(roomCode)) {
+        broadcastUpdates(roomCode);
+      }
     }
   });
 
@@ -310,18 +334,27 @@ io.on('connection', (socket) => {
     const room = gameRooms[code];
     if (!room || !room.selections) return;
 
-    const targets = [...new Set(Object.values(room.selections))];
+    // 한 명 선택(문자열)과 두 명 선택(배열)을 모두 처리하기 위한 로직
+    const targetsToEliminate = [];
+    for (const selectorId in room.selections) {
+      const selection = room.selections[selectorId];
+      if (Array.isArray(selection)) {
+        targetsToEliminate.push(...selection); // 배열이면 모든 원소를 추가 (여왕의 사냥)
+      } else {
+        targetsToEliminate.push(selection); // 문자열이면 그대로 추가 (일반 포식)
+      }
+    }
 
-    targets.forEach(targetId => {
-      eliminatePlayer(code, targetId);
+    // 중복 제거 후 사망 처리
+    const uniqueTargets = [...new Set(targetsToEliminate)];
+    uniqueTargets.forEach(targetId => {
+      eliminatePlayer(code, targetId, 'alien_kill');
     });
 
-    const gameEnded = checkWinConditions(code);
-
-    if (!gameEnded) {
-      room.phase = 'night_crew_action';
-      broadcastUpdates(code);
-    }
+    // 모든 사망 처리 후, 승리/패배 조건을 확인하지 않고 다음 단계로
+    broadcastUpdates(code);
+    room.phase = 'night_crew_action';
+    broadcastUpdates(code);
   });
 
   // ★★★ 함장/군인 능력 사용 트리거 수정 ★★★
@@ -360,7 +393,7 @@ io.on('connection', (socket) => {
       const soldier = room.players.find(p => p.id === socket.id);
       if (room && soldier && soldier.role === '군인' && soldier.bullets > 0) {
         soldier.bullets--;
-        eliminatePlayer(roomCode, targetId);
+        eliminatePlayer(roomCode, targetId, 'soldier_shot');
 
         // 상태는 즉시 업데이트하되, 게임 종료 여부는 확인하지 않습니다.
         broadcastUpdates(roomCode);
@@ -382,10 +415,35 @@ io.on('connection', (socket) => {
       const captain = room.players.find(p => p.id === socket.id);
       if (room && captain && captain.role === '함장' && captain.bullets > 0) {
         captain.bullets--;
-        eliminatePlayer(roomCode, targetId);
+        eliminatePlayer(roomCode, targetId, 'captain_shot');
 
         // 상태는 즉시 업데이트하되, 게임 종료 여부는 확인하지 않습니다.
         broadcastUpdates(roomCode);
+      }
+    }
+  });
+
+  socket.on('useQueenHunt', (data) => {
+    const { targetIds } = data;
+    const selectorId = socket.id;
+    let roomCode = '';
+    for (const code in gameRooms) {
+      if (gameRooms[code].players.some(p => p.id === selectorId)) { roomCode = code; break; }
+    }
+
+    if (roomCode) {
+      const room = gameRooms[roomCode];
+      const queen = room.players.find(p => p.id === socket.id);
+      if (room && queen && queen.role === '에일리언 여왕' && !queen.abilityUsed && targetIds && targetIds.length === 2) {
+        queen.abilityUsed = true;
+        // 즉시 죽이지 않고, 밤 활동 결과에 선택을 기록
+        room.selections[selectorId] = targetIds;
+
+        // 동료 에일리언들에게 선택 상황 공유
+        const allAliens = room.players.filter(p => p.role.includes('에일리언'));
+        allAliens.forEach(alienPlayer => {
+          io.to(alienPlayer.id).emit('nightSelectionUpdate', { selections: room.selections });
+        });
       }
     }
   });
