@@ -36,66 +36,18 @@ const ROLE_DESCRIPTIONS = {
   '일반 승객': '특별한 능력은 없지만, 투표를 통해 진실을 밝혀내야 합니다.'
 };
 
-// ROLE_DESCRIPTIONS 아래에 이 두 블록을 추가하세요.
+// 엔딩 메세지
 
 const ENDING_MESSAGES = {
   crew_win_eliminate: {
     winner: '탐사대',
     reason: '끈질긴 추적과 희생 끝에, 마침내 모든 에일리언을 제거하고 탐사선을 지켜냈습니다!'
   },
-  alien_win_dominate: {
-    winner: '에일리언',
-    reason: '수적으로 우세해진 에일리언들이 탐사선을 완전히 장악했습니다. 탐사대의 비극을 기억할 생존자는 없습니다.'
-  },
-  doctor_win_cure: {
-    winner: '의학의 승리',
-    reason: '의사들이 에일리언의 공격에서 살아남아, 치명적인 생화학 무기를 개발하는 데 성공했습니다. 인류의 위대한 승리입니다!'
-  },
-  apostle_win_prayer: {
-    winner: '신앙의 증명',
-    reason: '신의 사도의 간절한 기도가 마침내 하늘에 닿았습니다. 성스러운 빛이 함선을 비추자 모든 에일리언이 먼지처럼 사라졌습니다.'
+
+  alien_win_assassinate: { winner: '에일리언', reason: '탐사대의 핵심 인물인 함장과 엔지니어를 모두 제거하는 데 성공했습니다!' 
+
   },
 };
-
-function checkWinConditions(roomCode) {
-  const room = gameRooms[roomCode];
-  if (!room || room.status !== 'playing') return false;
-
-  console.log(`[승리 조건 확인] ${roomCode} 방의 승리 조건을 확인합니다.`);
-
-  const totalLivingPlayers = room.players.filter(p => p.status === 'alive');
-  const totalLivingAliens = totalLivingPlayers.filter(p => p.status === 'alive' && p.role.includes('에일리언'));
-  const totalLivingCrew = totalLivingPlayers.filter(p => p.status === 'alive' && !p.role.includes('에일리언'));
-
-  console.log(`[승리 조건 확인] 살아있는 에일리언: ${totalLivingAliens.length}명, 살아있는 탐사대: ${totalLivingCrew.length}명`);
-
-  let endingType = null;
-
-  const doctors = room.players.filter(p => p.role === '의사');
-  if (room.day >= 4 && doctors.length === 4 && doctors.every(d => d.status === 'alive')) {
-    endingType = 'doctor_win_cure';
-  }
-  const apostle = room.players.find(p => p.role === '신의 사도');
-  if (room.day >= 4 && apostle && apostle.status === 'alive') {
-    endingType = 'apostle_win_prayer';
-  }
-  else if (totalLivingAliens.length === 0 && totalLivingCrew.length > 0) {
-    endingType = 'crew_win_eliminate';
-  }
-  else if (totalLivingAliens.length >= totalLivingCrew.length && totalLivingCrew.length > 0) { // 탐사대원이 1명이라도 있어야 성립
-    endingType = 'alien_win_dominate';
-  }
-
-  if (endingType) {
-    const ending = ENDING_MESSAGES[endingType];
-    console.log(`[게임 종료!] 조건: ${endingType}, 승자: ${ending.winner}`);
-    room.status = 'game_over';
-    io.to(roomCode).emit('gameOver', { winner: ending.winner, reason: ending.reason });
-    io.to(ADMIN_ROOM).emit('updateAdmin', { rooms: gameRooms });
-    return true;
-  }
-  return false;
-}
 
 function shuffle(array) {
   for (let i = array.length - 1; i > 0; i--) {
@@ -114,45 +66,45 @@ function broadcastUpdates(roomCode) {
   }
 }
 
+// ★★★ 기존 checkWinConditions 함수를 모두 지우고, 이 코드로 교체해주세요. ★★★
 function checkWinConditions(roomCode) {
-  const room = gameRooms[roomCode];
-  if (!room || room.status !== 'playing') return false;
+    const room = gameRooms[roomCode];
+    if (!room || room.status !== 'playing') return false;
 
-  const livingPlayers = room.players.filter(p => p.status === 'alive');
-  const livingAliens = livingPlayers.filter(p => p.role.includes('에일리언'));
-  const livingCrew = livingPlayers.filter(p => !p.role.includes('에일리언'));
+    let endingType = null;
 
-  let endingType = null; // 어떤 엔딩인지 식별
+    // 에일리언 승리 조건: 함장과 엔지니어가 모두 사망
+    const captain = room.players.find(p => p.role === '함장');
+    const engineer = room.players.find(p => p.role === '엔지니어');
+    if (captain && captain.status === 'dead' && engineer && engineer.status === 'dead') {
+        endingType = 'alien_win_assassinate';
+    }
 
-  // 조건 1: 의사 4명이 4일차까지 모두 생존 (탐사대 승리)
-  const doctors = room.players.filter(p => p.role === '의사');
-  if (room.day >= 4 && doctors.length === 4 && doctors.every(d => d.status === 'alive')) {
-    endingType = 'doctor_win_cure';
-  }
-  // 조건 2: 신의 사도가 4일차까지 생존 (탐사대 승리)
-  const apostle = room.players.find(p => p.role === '신의 사도');
-  if (room.day >= 4 && apostle && apostle.status === 'alive') {
-    endingType = 'apostle_win_prayer';
-  }
-  // 조건 3: 에일리언이 모두 죽었을 경우 (탐사대 승리)
-  else if (livingAliens.length === 0 && livingCrew.length > 0) {
-    endingType = 'crew_win_eliminate';
-  }
-  // 조건 4: 에일리언 수가 탐사대원 수와 같거나 많아졌을 경우 (에일리언 승리)
-  else if (livingAliens.length >= livingCrew.length) {
-    endingType = 'alien_win_dominate';
-  }
+    // 탐사대 승리 조건: 살아있는 에일리언이 없음
+    // (위의 에일리언 승리 조건이 아닐 경우에만 체크)
+    if (!endingType) {
+        const totalLivingAliens = room.players.filter(p => p.role.includes('에일리언') && p.status === 'alive');
+        if (totalLivingAliens.length === 0) {
+            const totalLivingCrew = room.players.filter(p => !p.role.includes('에일리언') && p.status === 'alive');
+            if (totalLivingCrew.length > 0) {
+                endingType = 'crew_win_eliminate';
+            }
+        }
+    }
 
-  if (endingType) {
-    const ending = ENDING_MESSAGES[endingType];
-    console.log(`[${roomCode}] 게임 종료! 승자: ${ending.winner}`);
-    room.status = 'game_over';
-    io.to(roomCode).emit('gameOver', { winner: ending.winner, reason: ending.reason });
-    io.to(ADMIN_ROOM).emit('updateAdmin', { rooms: gameRooms });
-    return true;
-  }
+    if (endingType) {
+        const ending = ENDING_MESSAGES[endingType];
+        if (!ending) { // 혹시 모를 오류 방지
+            console.error(`오류: 엔딩 메시지를 찾을 수 없습니다 - ${endingType}`);
+            return false;
+        }
+        room.status = 'game_over';
+        io.to(roomCode).emit('gameOver', { winner: ending.winner, reason: ending.reason });
+        io.to(ADMIN_ROOM).emit('updateAdmin', { rooms: gameRooms });
+        return true;
+    }
 
-  return false;
+    return false;
 }
 
 app.use(express.static(path.join(__dirname, '../client/public')));
@@ -200,6 +152,7 @@ io.on('connection', (socket) => {
     players.forEach((player, index) => {
       player.role = shuffledRoles[index];
       player.description = ROLE_DESCRIPTIONS[shuffledRoles[index]] || '';
+      player.abilityUsed = false; // 능력 사용 여부 추적
     });
     room.status = 'playing';
     room.phase = 'role_reveal';
@@ -303,18 +256,6 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('revivePlayer', (data) => {
-    const { roomCode, playerId } = data;
-    const room = gameRooms[roomCode];
-    if (!room) return;
-    const player = room.players.find(p => p.id === playerId);
-    if (player) {
-      player.status = 'alive';
-      io.to(playerId).emit('youAreAlive');
-      broadcastUpdates(roomCode);
-    }
-  });
-
   socket.on('nightAction', (data) => {
     const { targetId } = data;
     const selectorId = socket.id;
@@ -340,16 +281,14 @@ io.on('connection', (socket) => {
     }
   });
 
-  // nightAction 리스너 아래에 이 코드를 추가하세요.
+  // 기존 socket.on('resolveNightActions', ...)를 찾아 아래 코드로 교체하세요.
 
-  // nightAction 리스너 아래에 이 코드를 추가하세요.
   socket.on('resolveNightActions', (data) => {
     const { code } = data;
     const room = gameRooms[code];
     if (!room || !room.selections) return;
 
-    const targets = [...new Set(Object.values(room.selections))]; // 중복된 타겟 제거
-    let gameEnded = false;
+    const targets = [...new Set(Object.values(room.selections))];
 
     targets.forEach(targetId => {
       const player = room.players.find(p => p.id === targetId);
@@ -360,14 +299,56 @@ io.on('connection', (socket) => {
     });
 
     // 모든 사망 처리가 끝난 후, 승리/패배 조건을 한 번만 확인합니다.
-    gameEnded = checkWinConditions(code);
+    const gameEnded = checkWinConditions(code);
 
-    // 밤 동안 게임이 끝나지 않았다면, 다음 날 아침으로 넘어갑니다.
+    // 밤 동안 게임이 끝나지 않았다면, '탐사대 활동' 단계로 넘어갑니다.
     if (!gameEnded) {
-      room.day++;
-      room.phase = 'meeting';
+      room.phase = 'night_crew_action';
       broadcastUpdates(code);
     }
+  });
+
+  // 군인 및 탐사대 활동 관련 기능 추가
+
+  socket.on('triggerSoldierAction', (data) => {
+    const { code } = data;
+    const room = gameRooms[code];
+    if (!room) return;
+
+    const soldier = room.players.find(p => p.role === '군인' && p.status === 'alive' && !p.abilityUsed);
+    if (soldier) {
+      const targets = room.players.filter(p => p.status === 'alive' && p.id !== soldier.id);
+      io.to(soldier.id).emit('soldierAction', { targets });
+    }
+  });
+
+  socket.on('useSoldierAbility', (data) => {
+    const { roomCode, targetId } = data;
+    const room = gameRooms[roomCode];
+    const soldier = room.players.find(p => p.id === socket.id);
+
+    if (room && soldier && soldier.role === '군인' && !soldier.abilityUsed) {
+      soldier.abilityUsed = true;
+      const playerToEliminate = room.players.find(p => p.id === targetId);
+      if (playerToEliminate) {
+        playerToEliminate.status = 'dead';
+        io.to(targetId).emit('youAreDead');
+      }
+
+      if (!checkWinConditions(roomCode)) {
+        broadcastUpdates(roomCode);
+      }
+    }
+  });
+
+  socket.on('endNightAndStartMeeting', (data) => {
+    const { code } = data;
+    const room = gameRooms[code];
+    if (!room) return;
+
+    room.day++;
+    room.phase = 'meeting';
+    broadcastUpdates(code);
   });
 
   socket.on('debugStartGame', () => {
