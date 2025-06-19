@@ -32,10 +32,9 @@
         const adminContainer = document.getElementById('admin-container');
 
         let amIAlive = true;
-        let isEngineerChoiceActive = false; // 엔지니어 선택 화면 활성화 여부 플래그
-        let huntSelections = []; // 여왕의 사냥 선택을 담을 배열
+        let isEngineerChoiceActive = false;
+        let huntSelections = [];
 
-        // --- 화면 렌더링 함수들 ---
         function clearContainer() {
             playerContainer.innerHTML = '';
             adminContainer.style.display = 'none';
@@ -57,7 +56,6 @@
         function showLobby(room, container) {
             const targetContainer = container || playerContainer;
             const playerList = room.players.map(player => {
-                // 추후 '수다쟁이' 등에 의해 역할이 공개될 경우를 대비한 데이터 구조
                 const revealedRole = player.revealedRole ? ` (${player.revealedRole})` : '';
                 return `<li class="${player.status === 'dead' ? 'dead' : ''}">${player.name}${revealedRole}</li>`;
             }).join('');
@@ -82,16 +80,16 @@
                 <h1 class="timer" id="timer-display">02:00</h1>`;
         }
 
-        function showAlienNightScreen() {
+        function showAlienNightScreen(text = "에일리언이 활동을 시작합니다.") {
             clearContainer();
             playerContainer.innerHTML = `
                 <h2>밤이 되었습니다.</h2>
-                <p>모든 플레이어는 눈을 감아주세요. 에일리언이 활동을 시작합니다.</p>`;
+                <p>모든 플레이어는 눈을 감아주세요. ${text}</p>`;
         }
 
         function showQueenHuntScreen(otherAliens, targets) {
             clearContainer();
-            huntSelections = []; // 선택 배열 초기화
+            huntSelections = [];
             const targetButtons = targets.map(target => `<li><button class="target-btn" data-ability="queen_hunt" data-target-id="${target.id}">${target.name}</button></li>`).join('');
             playerContainer.innerHTML = `
                 <h2>[사냥] 대상을 2명 선택하세요.</h2>
@@ -99,6 +97,18 @@
                 <p>${otherAliens.length > 0 ? `(동료 에일리언: ${otherAliens.join(', ')})` : ''}</p>
                 <ul>${targetButtons}</ul>
                 <button id="confirm-hunt-btn" disabled>선택 완료 (0/2)</button>
+            `;
+        }
+        
+        function showQueenRampageScreen(targets) {
+            clearContainer();
+            huntSelections = [];
+            const targetButtons = targets.map(target => `<li><button class="target-btn" data-ability="queen_rampage" data-target-id="${target.id}">${target.name}</button></li>`).join('');
+            playerContainer.innerHTML = `
+                <h2>[여왕의 만찬] 대상을 4명 선택하세요.</h2>
+                <p>(분노에 휩싸여 4명을 공격합니다.)</p>
+                <ul>${targetButtons}</ul>
+                <button id="confirm-rampage-btn" disabled>선택 완료 (0/4)</button>
             `;
         }
 
@@ -111,7 +121,6 @@
 
         function showGameOverScreen(data) {
             clearContainer();
-            // 상세 로그가 있으면 함께 표시
             const detailLogHtml = data.detailLog ? `<p style="font-size: 1.2em; color: #ffc107;">${data.detailLog}</p>` : '';
 
             playerContainer.innerHTML = `
@@ -125,9 +134,6 @@
             const me = room.players.find(p => p.id === socket.id);
             if (!me) return;
 
-            // --- 각 탭의 내용물(HTML) 생성 ---
-
-            // 1. 능력 탭 내용
             let abilityContent = `<h4>사용할 수 있는 능력이 없습니다.</h4>`;
             if (me.role === '함장' && me.bullets > 0) {
                 const targets = room.players.filter(p => p.status === 'alive' && p.id !== me.id);
@@ -141,8 +147,7 @@
                 abilityContent = `<h4>당신은 선량한 일반 승객입니다.</h4>`;
             }
 
-            // 2. 상황판 탭 내용
-            const rolesInGame = [...new Set(room.players.map(p => p.role))].sort(); // 역할 이름으로 정렬
+            const rolesInGame = [...new Set(room.players.map(p => p.role))].sort();
             const roleSummary = rolesInGame.map(role => {
                 const total = room.players.filter(p => p.role === role).length;
                 const alive = room.players.filter(p => p.role === role && p.status === 'alive').length;
@@ -155,7 +160,6 @@
                     <tbody>${roleSummary}</tbody>
                 </table>`;
 
-            // --- 최종 HTML 구조 렌더링 ---
             playerContainer.innerHTML = `
                 <h2>${room.day}일차 밤: 탐사대 활동</h2>
                 <div class="tab-container">
@@ -173,24 +177,18 @@
                     <div id="camouflage-content" class="tab-content"><h4>초능력 사용 중... (위장 화면)</h4><p>이 화면을 다른 사람에게 보여주어 당신의 정체를 숨기세요.</p></div>
                 </div>
             `;
-            // '대기실' 탭 내용은 별도 함수로 렌더링하여 재사용성 높임
             showLobby(room, playerContainer.querySelector('#lobby-content'));
         }
-        // 엔지니어 선택 화면 생성 함수 및 이벤트 리스너
+
         function showEngineerChoiceScreen(isEngineer) {
             clearContainer();
-
-            // isEngineer 값에 따라 버튼에 포함될 data-* 속성을 결정
             const fightButtonAttr = isEngineer ? 'data-choice="fight"' : 'data-fake-button="true"';
             const escapeButtonAttr = isEngineer ? 'data-choice="escape"' : 'data-fake-button="true"';
-
             const fightButton = `<button ${fightButtonAttr} style="width: 45%; background-color: #28a745;">계속 싸운다</button>`;
             const escapeButton = `<button ${escapeButtonAttr} style="width: 45%; background-color: #dc3545;">비상탈출 가동</button>`;
-
             const notice = isEngineer
                 ? `('계속 싸운다' 선택 시 '여왕의 만찬'이, '비상탈출' 선택 시 '인원 분배'의 위기가 찾아올 수 있습니다.)`
                 : `엔지니어가 중대한 결정을 내리고 있습니다.`;
-
             playerContainer.innerHTML = `
                 <h2>함장이 사망했습니다.</h2>
                 <p>탐사대의 운명을 결정할 선택의 시간입니다. 엔지니어는 결정을 내려주세요.</p>
@@ -201,17 +199,24 @@
                 <p style="font-size: 0.9em; margin-top: 20px;">${notice}</p>
             `;
         }
+        
+        function showFeastAnnouncedScreen() {
+            clearContainer();
+            playerContainer.innerHTML = `
+                <h2>여왕의 만찬</h2>
+                <p>엔지니어가 계속 싸우는 것을 선택했습니다.</p>
+                <p style="color: #ff4757; font-weight: bold;">분노한 에일리언 여왕이 광란 상태에 빠졌습니다!</p>
+                <p>잠시 후 관리자가 만찬을 시작합니다...</p>
+            `;
+        }
 
-        // ★★★ 엔지니어 선택지 표시 이벤트 리스너 ★★★
         socket.on('captainDiedChoice', (data) => {
-            console.log(`[Debug] 'captainDiedChoice' 수신. Is Engineer: ${data.isEngineer}`);
             if (amIAlive) {
                 isEngineerChoiceActive = true;
-                showEngineerChoiceScreen(data.isEngineer); // isEngineer 정보를 함수에 전달
+                showEngineerChoiceScreen(data.isEngineer);
             }
         });
 
-        // --- Socket 이벤트 핸들러 ---
         socket.on('connect', () => console.log('서버에 성공적으로 연결되었습니다.'));
 
         socket.on('updateRoom', (room) => {
@@ -219,19 +224,14 @@
             if (!amIAlive || room.status === 'game_over') return;
 
             const me = room.players.find(p => p.id === socket.id);
-
-            // ★★★ 핵심 수정 로직 ★★★
             if (me) {
-                // 방에 내가 존재하면(게임 참가 후), 관리자 버튼을 숨깁니다.
                 adminContainer.style.display = 'none';
             } else {
-                // 방에 내가 없으면(초기 화면), 관리자 버튼을 표시합니다.
                 adminContainer.style.display = 'block';
                 showInitialScreen();
                 return;
             }
 
-            // 화면 그리기 로직은 기존과 동일
             if (room.status === 'playing' && room.phase === 'night_crew_action') {
                 showCrewActionScreen(room);
             } else if (room.status === 'playing') {
@@ -263,8 +263,8 @@
 
         socket.on('nightSelectionUpdate', (data) => {
             if (!amIAlive) return;
-            const allSelectedTargetIds = new Set(Object.values(data.selections));
-            document.querySelectorAll('.target-btn[data-ability="alien"]').forEach(btn => {
+            const allSelectedTargetIds = new Set(Object.values(data.selections).flat());
+            document.querySelectorAll('.target-btn').forEach(btn => {
                 btn.classList.toggle('pre-selected', allSelectedTargetIds.has(btn.dataset.targetId));
             });
         });
@@ -285,28 +285,47 @@
                 showQueenHuntScreen(data.otherAliens, data.targets);
             }
         });
+        
+        socket.on('feastAnnounced', () => {
+            console.log("Feast Announced event received!");
+            if (amIAlive) {
+                isEngineerChoiceActive = false; // ★★★ 여기서 플래그를 해제하여 모든 플레이어의 화면을 갱신합니다.
+                showFeastAnnouncedScreen();
+            }
+        });
 
-        // --- 전역 클릭 이벤트 리스너 ---
+        socket.on('queenRampageAction', (data) => {
+            console.log("Queen Rampage Action event received!");
+            if (amIAlive) {
+                showQueenRampageScreen(data.targets);
+            }
+        });
+
+        socket.on('actionConfirmed', () => {
+             console.log("Action Confirmed event received!");
+            if(amIAlive) {
+                showAlienNightScreen("선택이 완료되었습니다. 다른 에일리언들을 기다립니다.");
+            }
+        });
+
+
         rootDiv.addEventListener('click', function (event) {
             const target = event.target;
 
-            // [복원] 참가 버튼 로직
             if (target.id === 'join-button') {
                 const nameInput = document.getElementById('name-input');
                 const codeInput = document.getElementById('code-input');
                 if (nameInput.value.trim() && codeInput.value.trim()) {
                     socket.emit('joinGame', { name: nameInput.value, code: codeInput.value });
                 } else { alert('이름과 초대 코드를 모두 입력해주세요.'); }
-                return; // 다른 클릭 이벤트와 중복되지 않도록 여기서 종료
+                return;
             }
 
-            // [복원] 관리자 페이지 이동 로직
             if (target.id === 'admin-button') {
                 window.location.href = '/admin';
                 return;
             }
 
-            // [복원] 탭 전환 로직
             if (target.classList.contains('tab-link')) {
                 const tabName = target.dataset.tab;
                 playerContainer.querySelectorAll('.tab-link').forEach(btn => btn.classList.remove('active'));
@@ -316,9 +335,8 @@
                 return;
             }
 
-            // [복원] 엔지니어 선택 버튼 로직
             if (target.dataset.choice) {
-                isEngineerChoiceActive = false;
+                // ★★★ 수정된 부분: 여기서 isEngineerChoiceActive 플래그를 건드리지 않습니다. ★★★
                 if (target.dataset.choice === 'fight') {
                     if (confirm("'계속 싸운다'를 선택하면 큰 위험이 따를 수 있습니다. 정말 선택하시겠습니까?")) {
                         socket.emit('engineerChoseToFight');
@@ -335,7 +353,6 @@
                 return;
             }
 
-            // 여왕의 사냥 확정 버튼 로직
             if (target.id === 'confirm-hunt-btn') {
                 if (huntSelections.length === 2) {
                     socket.emit('useQueenHunt', { targetIds: huntSelections });
@@ -344,14 +361,21 @@
                 }
                 return;
             }
+            
+            if (target.id === 'confirm-rampage-btn') {
+                if (huntSelections.length === 4) {
+                    socket.emit('useQueenRampage', { targetIds: huntSelections });
+                    target.textContent = '선택 완료';
+                    target.disabled = true;
+                }
+                return;
+            }
 
-            // 그 외 능력 사용 대상 선택 버튼 로직
             if (target.classList.contains('target-btn')) {
                 const abilityType = target.dataset.ability;
                 const targetId = target.dataset.targetId;
                 const targetName = target.textContent;
 
-                // 여왕의 사냥감 2명 선택 로직
                 if (abilityType === 'queen_hunt') {
                     const confirmBtn = document.getElementById('confirm-hunt-btn');
                     const index = huntSelections.indexOf(targetId);
@@ -368,8 +392,24 @@
                     confirmBtn.disabled = huntSelections.length !== 2;
                     return;
                 }
+                
+                if (abilityType === 'queen_rampage') {
+                    const confirmBtn = document.getElementById('confirm-rampage-btn');
+                    const index = huntSelections.indexOf(targetId);
+                    if (index > -1) {
+                        huntSelections.splice(index, 1);
+                        target.classList.remove('pre-selected');
+                    } else {
+                        if (huntSelections.length < 4) {
+                            huntSelections.push(targetId);
+                            target.classList.add('pre-selected');
+                        }
+                    }
+                    confirmBtn.textContent = `선택 완료 (${huntSelections.length}/4)`;
+                    confirmBtn.disabled = huntSelections.length !== 4;
+                    return;
+                }
 
-                // 그 외 일반 능력 사용 확인
                 if (confirm(`${targetName}님을 대상으로 능력을 사용하시겠습니까?`)) {
                     switch (abilityType) {
                         case 'alien':
