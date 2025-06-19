@@ -277,14 +277,6 @@
                     phaseInfo.textContent = (roomData.status === 'game_over') ? '게임 종료' : phaseText;
                     settingsColumn.appendChild(phaseInfo);
 
-                    // ★★★ 수정된 부분 ★★★
-                    if (roomData.pendingAction === 'queen_rampage') {
-                        const rampageBtn = document.createElement('button');
-                        rampageBtn.className = 'trigger-rampage-btn'; // 고유 클래스
-                        rampageBtn.textContent = '여왕의 만찬 시작';
-                        settingsColumn.appendChild(rampageBtn);
-                    }
-
                     if (roomData.status === 'playing') {
                         if (roomData.phase === 'role_reveal') {
                             const btn = document.createElement('button');
@@ -294,15 +286,47 @@
                             btn.textContent = '1일차 회의 시작';
                             settingsColumn.appendChild(btn);
                         } else if (roomData.phase === 'meeting') {
-                            settingsColumn.innerHTML += `<button class="timer-btn">2분 타이머 시작</button>`;
-                            settingsColumn.innerHTML += `<button class="next-phase-btn" data-phase="night_alien_action" data-day="${roomData.day}">밤으로 이동</button>`;
-                        } else if (roomData.phase === 'night_alien_action' && !roomData.pendingAction) {
-                            // 만찬 대기중이 아닐 때만 일반 활동 버튼 표시
-                            settingsColumn.innerHTML += `<button class="trigger-alien-action-btn">에일리언 활동 시작</button>`;
-                            settingsColumn.innerHTML += `<button class="resolve-night-btn">밤 활동 결과 적용</button>`;
+                            const timerBtn = document.createElement('button');
+                            timerBtn.className = 'timer-btn';
+                            timerBtn.textContent = '2분 타이머 시작';
+                            settingsColumn.appendChild(timerBtn);
+
+                            const nextBtn = document.createElement('button');
+                            nextBtn.className = 'next-phase-btn';
+                            nextBtn.dataset.phase = 'night_alien_action';
+                            nextBtn.dataset.day = roomData.day;
+                            nextBtn.textContent = '밤으로 이동';
+                            settingsColumn.appendChild(nextBtn);
+
+                        } else if (roomData.phase === 'night_alien_action') {
+                            if (roomData.pendingAction === 'queen_rampage') {
+                                const rampageBtn = document.createElement('button');
+                                rampageBtn.className = 'trigger-rampage-btn';
+                                rampageBtn.textContent = '여왕의 만찬 시작';
+                                settingsColumn.appendChild(rampageBtn);
+
+                            } else if (roomData.selections && Object.keys(roomData.selections).length > 0) {
+                                const resolveBtn = document.createElement('button');
+                                resolveBtn.className = 'resolve-night-btn';
+                                resolveBtn.textContent = '밤 활동 결과 적용';
+                                settingsColumn.appendChild(resolveBtn);
+
+                            } else {
+                                const triggerBtn = document.createElement('button');
+                                triggerBtn.className = 'trigger-alien-action-btn';
+                                triggerBtn.textContent = '에일리언 활동 시작';
+                                settingsColumn.appendChild(triggerBtn);
+                            }
                         } else if (roomData.phase === 'night_crew_action') {
-                            settingsColumn.innerHTML += `<button class="trigger-crew-action-btn">탐사대 활동 시작</button>`;
-                            settingsColumn.innerHTML += `<button class="end-night-btn">활동 종료 및 아침으로</button>`;
+                            const crewBtn = document.createElement('button');
+                            crewBtn.className = 'trigger-crew-action-btn';
+                            crewBtn.textContent = '탐사대 활동 시작';
+                            settingsColumn.appendChild(crewBtn);
+
+                            const endBtn = document.createElement('button');
+                            endBtn.className = 'end-night-btn';
+                            endBtn.textContent = '활동 종료 및 아침으로';
+                            settingsColumn.appendChild(endBtn);
                         }
                     }
 
@@ -408,7 +432,6 @@
                 socket.emit('startMeetingTimer', roomCode);
                 target.textContent = '타이머 작동 중...';
                 target.disabled = true;
-                // ★★★ 수정된 부분: 이벤트 핸들러 분리 ★★★
             } else if (classList.contains('trigger-rampage-btn')) {
                 socket.emit('triggerQueenRampage', { code: roomCode });
                 target.textContent = '여왕 활동 중...';

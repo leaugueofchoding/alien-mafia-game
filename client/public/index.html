@@ -220,7 +220,10 @@
         socket.on('connect', () => console.log('서버에 성공적으로 연결되었습니다.'));
 
         socket.on('updateRoom', (room) => {
-            if (isEngineerChoiceActive) return;
+            if (isEngineerChoiceActive || room.pendingAction === 'queen_rampage') {
+                return;
+            }
+
             if (!amIAlive || room.status === 'game_over') return;
 
             const me = room.players.find(p => p.id === socket.id);
@@ -289,7 +292,7 @@
         socket.on('feastAnnounced', () => {
             console.log("Feast Announced event received!");
             if (amIAlive) {
-                isEngineerChoiceActive = false; // ★★★ 여기서 플래그를 해제하여 모든 플레이어의 화면을 갱신합니다.
+                isEngineerChoiceActive = false;
                 showFeastAnnouncedScreen();
             }
         });
@@ -336,7 +339,6 @@
             }
 
             if (target.dataset.choice) {
-                // ★★★ 수정된 부분: 여기서 isEngineerChoiceActive 플래그를 건드리지 않습니다. ★★★
                 if (target.dataset.choice === 'fight') {
                     if (confirm("'계속 싸운다'를 선택하면 큰 위험이 따를 수 있습니다. 정말 선택하시겠습니까?")) {
                         socket.emit('engineerChoseToFight');
