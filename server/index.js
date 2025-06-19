@@ -108,6 +108,18 @@ function checkWinConditions(roomCode) {
   return false;
 }
 
+function eliminatePlayer(roomCode, playerId) {
+  const room = gameRooms[roomCode];
+  if (!room) return false;
+  const player = room.players.find(p => p.id === playerId);
+  if (player && player.status !== 'dead') {
+    player.status = 'dead';
+    io.to(playerId).emit('youAreDead');
+    return true; // 사망 처리가 성공했음을 반환
+  }
+  return false; // 이미 사망했거나 플레이어가 없음
+}
+
 app.use(express.static(path.join(__dirname, '../client/public')));
 app.get('/', (req, res) => { res.sendFile(path.join(__dirname, '../client/public', 'index.html')); });
 app.get('/admin', (req, res) => { res.sendFile(path.join(__dirname, '../client/public', 'admin.html')); });
@@ -225,20 +237,10 @@ io.on('connection', (socket) => {
     }, 1000);
   });
 
-  // 기존 socket.on('eliminatePlayer', ...) 함수를 찾아 아래 코드로 교체하세요.
-
-  // 기존 socket.on('eliminatePlayer', ...) 함수를 찾아 아래 두 개의 이벤트 리스너로 교체하세요.
-
+  // 사망 처리 리스너 
   socket.on('eliminatePlayer', (data) => {
     const { roomCode, playerId } = data;
-    const room = gameRooms[roomCode];
-    if (!room) return;
-    const player = room.players.find(p => p.id === playerId);
-
-    if (player && player.status !== 'dead') {
-      player.status = 'dead';
-      io.to(playerId).emit('youAreDead');
-
+    if (eliminatePlayer(roomCode, playerId)) {
       if (!checkWinConditions(roomCode)) {
         broadcastUpdates(roomCode);
       }
@@ -323,12 +325,11 @@ io.on('connection', (socket) => {
     }
   });
 
-  // useSoldierAbility 리스너를 찾아 이 코드로 교체하세요.
+  // 기존 socket.on('useSoldierAbility', ...) 를 찾아 아래 코드로 교체하세요.
   socket.on('useSoldierAbility', (data) => {
     const { targetId } = data;
     const selectorId = socket.id;
     let roomCode = '';
-    // 이 플레이어가 속한 방을 찾습니다.
     for (const code in gameRooms) {
       if (gameRooms[code].players.some(p => p.id === selectorId)) {
         roomCode = code;
