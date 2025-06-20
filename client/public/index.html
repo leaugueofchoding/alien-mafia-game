@@ -239,6 +239,8 @@
 
         socket.on('connect', () => console.log('서버에 성공적으로 연결되었습니다.'));
 
+        // index.html의 <script> 태그 안에 있는 socket.on('updateRoom', ...) 핸들러를 아래 코드로 통째로 교체해주세요.
+
         socket.on('updateRoom', (room) => {
             if (!amIAlive || room.status === 'game_over') return;
 
@@ -251,20 +253,30 @@
                 adminContainer.style.display = 'none';
             }
 
-            // --- 상태에 따른 화면 분기 처리 ---
+            // ★★★ 핵심 수정: 특별 이벤트(pendingAction) 우선 처리 ★★★
 
-            // 최우선 순위: '엔지니어의 선택' 또는 '여왕의 만찬' 같은 특별 이벤트 처리
+            // 1. 엔지니어 선택 처리
             if (room.pendingAction === 'engineer_choice') {
                 const isEngineer = me.role === '엔지니어';
                 showEngineerChoiceScreen(isEngineer);
-                return; // 다른 화면을 렌더링하지 않고 종료
-            }
-            if (room.pendingAction === 'queen_rampage' && !room.rampageTriggered) {
-                showFeastAnnouncedScreen();
-                return; // 다른 화면을 렌더링하지 않고 종료
+                return; // 다른 화면 렌더링 방지
             }
 
-            // 일반 게임 단계 처리
+            // 2. 여왕의 만찬 처리
+            if (room.pendingAction === 'queen_rampage') {
+                // 만찬이 시작되면, 여왕을 제외한 모든 플레이어는 공지 화면을 계속 봅니다.
+                if (me.role !== '에일리언 여왕') {
+                    showFeastAnnouncedScreen();
+                }
+                // 여왕은 만찬 시작 전에는 공지 화면을 보다가,
+                // 만찬이 시작되면(rampageTriggered=true), queenRampageAction 이벤트에 의해 능력 사용 화면으로 바뀝니다.
+                else if (!room.rampageTriggered) {
+                    showFeastAnnouncedScreen();
+                }
+                return; // 다른 화면 렌더링 방지
+            }
+
+            // 3. 일반 게임 단계 처리
             if (room.status === 'playing') {
                 switch (room.phase) {
                     case 'role_reveal':
@@ -277,9 +289,9 @@
                         showCrewActionScreen(room);
                         break;
                     case 'night_alien_action':
-                        // 의도적으로 비워둡니다. 
-                        // 'alienAction' 또는 'queenHuntAction' 이벤트가 직접 화면을 그립니다.
-                        // 만약 아무 능력도 없다면 검은 화면을 유지하게 됩니다.
+                        // 이 단계에서는 서버가 보내주는 개별 능력 이벤트('alienAction' 등)가
+                        // 직접 화면을 그리므로, 여기서는 의도적으로 아무것도 하지 않습니다.
+                        // 능력 없는 플레이어는 이전 화면(회의 종료)을 계속 보게 됩니다.
                         break;
                     default:
                         showLobby(room, playerContainer);

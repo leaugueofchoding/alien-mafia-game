@@ -442,6 +442,8 @@
             }
         });
 
+        // admin.html의 <script> 태그 안에 있는 roomsContainer.addEventListener를 아래 코드로 통째로 교체해주세요.
+
         roomsContainer.addEventListener('click', (event) => {
             const target = event.target;
             const roomDiv = target.closest('.room');
@@ -482,11 +484,13 @@
                 }
             } else if (classList.contains('next-phase-btn')) {
                 socket.emit('nextPhase', { code: roomCode, phase: target.dataset.phase, day: target.dataset.day });
-            } else if (classList.contains('timer-btn')) {
+            }
+            // ★★★ 핵심 수정 ★★★
+            // 타이머 버튼 클릭 시, 서버에 이벤트만 보내고 클라이언트 자체적으로 버튼을 변경하지 않습니다.
+            else if (classList.contains('timer-btn')) {
                 socket.emit('startMeetingTimer', roomCode);
-                target.textContent = '타이머 작동 중...';
-                target.disabled = true;
-            } else if (classList.contains('trigger-rampage-btn')) {
+            }
+            else if (classList.contains('trigger-rampage-btn')) {
                 socket.emit('triggerQueenRampage', { code: roomCode });
             } else if (classList.contains('trigger-alien-action-btn')) {
                 socket.emit('triggerAlienAction', { code: roomCode });
@@ -498,14 +502,6 @@
                 socket.emit('endNightAndStartMeeting', { code: roomCode });
             }
         });
-
-        const debugButton = document.getElementById('debug-start-btn');
-        if (debugButton) {
-            debugButton.addEventListener('click', () => {
-                console.log('4인 테스트 게임 시작을 요청합니다.');
-                socket.emit('debugStartGame');
-            });
-        }
     </script>
 </body>
 
