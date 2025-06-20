@@ -14,6 +14,7 @@
             padding-top: 40px;
             background-color: #f4f4f9;
             height: auto;
+            min-height: 100vh;
         }
 
         h1 {
@@ -53,6 +54,15 @@
             padding: 8px 12px;
             border-radius: 4px;
             margin-bottom: 5px;
+        }
+
+        /* 대기실 참가자 li 배경색 명시적 지정 */
+        .room.waiting-room li {
+            background-color: #f8f9fa;
+        }
+
+        .room li:not(.dead) {
+            background-color: #f8f9fa;
         }
 
         .room li.dead {
@@ -100,6 +110,18 @@
             cursor: pointer;
             font-size: 1em;
             margin-top: 15px;
+        }
+
+        .start-game-btn:disabled,
+        .next-phase-btn:disabled,
+        .timer-btn:disabled,
+        .trigger-alien-action-btn:disabled,
+        .trigger-rampage-btn:disabled,
+        .resolve-night-btn:disabled,
+        .trigger-crew-action-btn:disabled,
+        .end-night-btn:disabled {
+            background-color: #6c757d;
+            cursor: not-allowed;
         }
 
         .start-game-btn {
@@ -173,30 +195,29 @@
 
 <body>
     <h1>에일리언 마피아 - 관리자 대시보드</h1>
-    <div
-        style="margin-bottom: 20px; padding: 10px; background-color: #dff9fb; border: 1px solid #c7ecee; text-align: center;">
-        <p style="margin: 0; color: #333; font-weight: bold;">개발자용 테스트 기능</p>
-        <button id="debug-start-btn"
-            style="width: auto; padding: 10px 20px; font-size: 1em; background-color: #5f27cd; color: white;">4인 테스트 게임
-            즉시 시작</button>
-    </div>
     <div id="game-rooms-container"></div>
     <script>
-        const socket = io('http://localhost:3001');
+        const socket = io();
         const roomsContainer = document.getElementById('game-rooms-container');
-        const ALL_ROLES = ['에일리언 여왕', '에일리언', '에일리언 알', '함장', '엔지니어', '의사', '초능력자', '수다쟁이', '뚱이', '신의 사도', '군인', '일반 승객']; let gameRoomsState = {};
+        const ALL_ROLES = ['에일리언 여왕', '에일리언', '에일리언 알', '함장', '엔지니어', '의사', '초능력자', '수다쟁이', '뚱이', '신의 사도', '군인', '일반 승객'];
+        let gameRoomsState = {};
         let presetsState = {};
 
         function getDefaultRoleCounts(playerCount) {
             const defaults = {
-                '에일리언 여왕': 1, '에일리언': 1, '에일리언 알': 0, '함장': 1,
-                '엔지니어': 1, '의사': 0, '군인': 0, '초능력자': 0,
+                '에일리언 여왕': 1, '에일리언': playerCount >= 8 ? 2 : 1, '에일리언 알': 0,
+                '함장': 1, '엔지니어': 1, '의사': 1, '군인': 1, '초능력자': 0,
                 '수다쟁이': 0, '뚱이': 0, '신의 사도': 0
             };
+            const assignedRolesCount = Object.values(defaults).reduce((a, b) => a + b, 0);
+            defaults['일반 승객'] = Math.max(0, playerCount - assignedRolesCount);
             return defaults;
         }
 
-        socket.on('connect', () => { socket.emit('adminConnect'); });
+        socket.on('connect', () => {
+            console.log('관리자 소켓 연결됨');
+            socket.emit('adminConnect');
+        });
 
         socket.on('updateAdmin', (data) => {
             gameRoomsState = data.rooms;
@@ -233,11 +254,18 @@
                 const settingsColumn = document.createElement('div');
                 settingsColumn.style.flex = 1;
 
+                // --- 게임 진행 중 또는 종료 ---
                 if (roomData.status === 'playing' || roomData.status === 'game_over') {
                     const livingPlayers = roomData.players.filter(p => p.status === 'alive').length;
                     playerColumn.innerHTML = `<h3>참가자 현황 (${livingPlayers}/${roomData.players.length})</h3>`;
                     const playerList = document.createElement('ul');
-                    roomData.players.forEach(player => {
+                    const sortedPlayers = [...roomData.players].sort((a, b) => {
+                        if (a.status === 'alive' && b.status !== 'alive') return -1;
+                        if (a.status !== 'alive' && b.status === 'alive') return 1;
+                        return 0;
+                    });
+
+                    sortedPlayers.forEach(player => {
                         const playerItem = document.createElement('li');
                         const playerInfoSpan = document.createElement('span');
 
@@ -252,7 +280,7 @@
                         if (player.status === 'dead') {
                             playerItem.classList.add('dead');
                             const reviveButton = document.createElement('button');
-                            reviveButton.textContent = '처리 취소';
+                            reviveButton.textContent = '부활';
                             reviveButton.className = 'revive-btn';
                             reviveButton.dataset.playerId = player.id;
                             playerItem.appendChild(reviveButton);
@@ -270,6 +298,7 @@
                     settingsColumn.innerHTML = '<h3>게임 진행</h3>';
                     const phaseInfo = document.createElement('div');
                     phaseInfo.className = 'phase-info';
+
                     let phaseText = `현재 상태: ${roomData.day}일차 ${roomData.phase}`;
                     if (roomData.pendingAction === 'queen_rampage') {
                         phaseText += ' (여왕의 만찬 대기중)';
@@ -277,6 +306,7 @@
                     phaseInfo.textContent = (roomData.status === 'game_over') ? '게임 종료' : phaseText;
                     settingsColumn.appendChild(phaseInfo);
 
+                    // [수정] 게임 단계별 버튼 로직
                     if (roomData.status === 'playing') {
                         if (roomData.phase === 'role_reveal') {
                             const btn = document.createElement('button');
@@ -299,23 +329,27 @@
                             settingsColumn.appendChild(nextBtn);
 
                         } else if (roomData.phase === 'night_alien_action') {
-                            if (roomData.pendingAction === 'queen_rampage') {
-                                const rampageBtn = document.createElement('button');
-                                rampageBtn.className = 'trigger-rampage-btn';
-                                rampageBtn.textContent = '여왕의 만찬 시작';
-                                settingsColumn.appendChild(rampageBtn);
+                            const hasSelections = roomData.selections && Object.keys(roomData.selections).length > 0;
 
-                            } else if (roomData.selections && Object.keys(roomData.selections).length > 0) {
+                            if (hasSelections) {
+                                // 선택이 하나라도 있으면 결과 적용 버튼을 보여줌
                                 const resolveBtn = document.createElement('button');
                                 resolveBtn.className = 'resolve-night-btn';
-                                resolveBtn.textContent = '밤 활동 결과 적용';
+                                resolveBtn.textContent = roomData.pendingAction === 'queen_rampage' ? '여왕의 만찬 결과 적용' : '밤 활동 결과 적용';
                                 settingsColumn.appendChild(resolveBtn);
-
                             } else {
-                                const triggerBtn = document.createElement('button');
-                                triggerBtn.className = 'trigger-alien-action-btn';
-                                triggerBtn.textContent = '에일리언 활동 시작';
-                                settingsColumn.appendChild(triggerBtn);
+                                // 선택이 없을 때만 활동 시작 버튼을 보여줌
+                                if (roomData.pendingAction === 'queen_rampage') {
+                                    const rampageBtn = document.createElement('button');
+                                    rampageBtn.className = 'trigger-rampage-btn';
+                                    rampageBtn.textContent = '여왕의 만찬 시작';
+                                    settingsColumn.appendChild(rampageBtn);
+                                } else {
+                                    const triggerBtn = document.createElement('button');
+                                    triggerBtn.className = 'trigger-alien-action-btn';
+                                    triggerBtn.textContent = '에일리언 활동 시작';
+                                    settingsColumn.appendChild(triggerBtn);
+                                }
                             }
                         } else if (roomData.phase === 'night_crew_action') {
                             const crewBtn = document.createElement('button');
@@ -325,61 +359,58 @@
 
                             const endBtn = document.createElement('button');
                             endBtn.className = 'end-night-btn';
-                            endBtn.textContent = '활동 종료 및 아침으로';
+                            endBtn.textContent = `활동 종료 및 ${roomData.day + 1}일차 아침으로`;
                             settingsColumn.appendChild(endBtn);
                         }
                     }
 
-                } else {
-                    playerColumn.innerHTML = '<h3>참가자 목록</h3>';
+                } else { // --- 'waiting' status (대기실) ---
+                    playerColumn.innerHTML = `<h3>참가자 목록 (${roomData.players.length}명)</h3>`;
                     const playerList = document.createElement('ul');
-                    roomData.players.forEach(player => {
+                    playerList.className = 'waiting-room'; // 대기실 전용 클래스
+                    if (roomData.players.length === 0) {
                         const playerItem = document.createElement('li');
-                        playerItem.textContent = player.name;
+                        playerItem.textContent = "참가 대기 중...";
+                        playerItem.style.justifyContent = 'center';
                         playerList.appendChild(playerItem);
-                    });
+                    } else {
+                        roomData.players.forEach(player => {
+                            const playerItem = document.createElement('li');
+                            playerItem.textContent = player.name;
+                            playerList.appendChild(playerItem);
+                        });
+                    }
                     playerColumn.appendChild(playerList);
 
                     settingsColumn.innerHTML = '<h3>게임 설정</h3>';
-                    const groupSettingsDiv = document.createElement('div');
-                    groupSettingsDiv.className = 'group-settings';
-                    groupSettingsDiv.innerHTML = '<h4>모둠 수 설정 (2일차부터 사용)</h4>';
-                    const groupCountInput = document.createElement('input');
-                    groupCountInput.type = 'number';
-                    groupCountInput.className = 'group-count-input';
-                    groupCountInput.id = `group-count-${code}`;
-                    groupCountInput.value = 4;
-                    groupCountInput.min = 2;
-                    groupSettingsDiv.appendChild(groupCountInput);
-                    settingsColumn.appendChild(groupSettingsDiv);
 
                     const roleSettingsDiv = document.createElement('div');
                     roleSettingsDiv.className = 'role-settings';
                     roleSettingsDiv.innerHTML = '<h4>역할 인원 설정</h4>';
                     const defaultCounts = getDefaultRoleCounts(roomData.players.length);
+
                     ALL_ROLES.forEach(roleName => {
                         const itemDiv = document.createElement('div');
                         itemDiv.className = 'role-item';
-                        const nameSpan = document.createElement('span');
-                        nameSpan.textContent = roleName;
-                        const controlsDiv = document.createElement('div');
-                        controlsDiv.className = 'role-controls';
-                        const countInput = document.createElement('input');
-                        countInput.type = 'number';
-                        countInput.value = defaultCounts[roleName] || 0;
-                        countInput.min = 0;
-                        countInput.dataset.role = roleName;
-                        controlsDiv.appendChild(countInput);
-                        itemDiv.appendChild(nameSpan);
-                        itemDiv.appendChild(controlsDiv);
+                        itemDiv.innerHTML = `<span>${roleName}</span>
+                                           <div class="role-controls">
+                                               <input type="number" value="${defaultCounts[roleName] || 0}" min="0" data-role="${roleName}">
+                                           </div>`;
                         roleSettingsDiv.appendChild(itemDiv);
                     });
                     settingsColumn.appendChild(roleSettingsDiv);
+
+                    const roleSummary = document.createElement('div');
+                    roleSummary.className = 'role-summary';
+                    settingsColumn.appendChild(roleSummary);
 
                     const startButton = document.createElement('button');
                     startButton.className = 'start-game-btn';
                     startButton.textContent = '게임 시작';
                     settingsColumn.appendChild(startButton);
+
+                    // 최초 렌더링 시 요약 업데이트
+                    setTimeout(() => updateRoleSummary(roomDiv), 0);
                 }
                 contentDiv.appendChild(playerColumn);
                 contentDiv.appendChild(settingsColumn);
@@ -388,42 +419,72 @@
             }
         }
 
-        roomsContainer.addEventListener('click', (event) => {
+        function updateRoleSummary(roomDiv) {
+            const roomCode = roomDiv.dataset.code;
+            if (!gameRoomsState[roomCode]) return;
+
+            const players = gameRoomsState[roomCode].players;
+            let totalRoles = 0;
+            const roleItems = roomDiv.querySelectorAll('.role-controls input');
+            roleItems.forEach(input => {
+                totalRoles += parseInt(input.value, 10) || 0;
+            });
+            const summaryDiv = roomDiv.querySelector('.role-summary');
+            const startButton = roomDiv.querySelector('.start-game-btn');
+
+            if (summaryDiv) {
+                summaryDiv.textContent = `설정된 역할 합계: ${totalRoles} / 총 플레이어: ${players.length}`;
+                if (totalRoles !== players.length) {
+                    summaryDiv.style.color = 'red';
+                    if (startButton) startButton.disabled = true;
+                } else {
+                    summaryDiv.style.color = 'green';
+                    if (startButton) startButton.disabled = players.length < 4;
+                }
+            }
+        }
+
+        roomsContainer.addEventListener('input', (event) => {
             const target = event.target;
             const roomDiv = target.closest('.room');
             if (!roomDiv) return;
+            if (target.closest('.role-controls')) {
+                updateRoleSummary(roomDiv);
+            }
+        });
+
+        roomsContainer.addEventListener('click', (event) => {
+            const target = event.target;
+            const roomDiv = target.closest('.room');
+            if (!roomDiv || target.disabled) return;
+
             const roomCode = roomDiv.dataset.code;
             const classList = target.classList;
 
             if (classList.contains('start-game-btn')) {
                 const players = gameRoomsState[roomCode].players;
                 if (players.length < 4) { alert(`최소 인원(4명)이 모이지 않아 시작할 수 없습니다.`); return; }
+
                 const roleSettings = {};
                 let totalRoles = 0;
-                const roleItems = roomDiv.querySelectorAll('.role-controls input');
-                roleItems.forEach(input => {
-                    const roleName = input.dataset.role;
-                    const roleCount = parseInt(input.value, 10);
-                    if (roleCount > 0) roleSettings[roleName] = roleCount;
+                roomDiv.querySelectorAll('.role-controls input').forEach(input => {
+                    const roleCount = parseInt(input.value, 10) || 0;
+                    if (roleCount > 0) roleSettings[input.dataset.role] = roleCount;
                     totalRoles += roleCount;
                 });
-                if (totalRoles > 0 && totalRoles !== players.length) {
+
+                if (totalRoles !== players.length) {
                     alert('설정된 역할의 합계가 총 플레이어 수와 일치하지 않습니다.');
                     return;
                 }
-                const groupCountInput = document.getElementById(`group-count-${roomCode}`);
-                socket.emit('startGame', {
-                    code: roomCode,
-                    settings: roleSettings,
-                    groupCount: parseInt(groupCountInput.value, 10) || 4
-                });
+                socket.emit('startGame', { code: roomCode, settings: roleSettings });
 
             } else if (classList.contains('eliminate-btn')) {
                 if (confirm('정말로 이 플레이어를 사망 처리하시겠습니까?')) {
                     socket.emit('eliminatePlayer', { roomCode, playerId: target.dataset.playerId });
                 }
             } else if (classList.contains('revive-btn')) {
-                if (confirm('정말로 이 처리를 취소하고 플레이어를 부활시키겠습니까?')) {
+                if (confirm('정말로 이 플레이어를 부활시키겠습니까?')) {
                     socket.emit('revivePlayer', { roomCode, playerId: target.dataset.playerId });
                 }
             } else if (classList.contains('next-phase-btn')) {
@@ -442,6 +503,8 @@
                 target.disabled = true;
             } else if (classList.contains('resolve-night-btn')) {
                 socket.emit('resolveNightActions', { code: roomCode });
+                target.textContent = '결과 적용 중...';
+                target.disabled = true;
             } else if (classList.contains('trigger-crew-action-btn')) {
                 socket.emit('triggerCrewAction', { code: roomCode });
                 target.textContent = '탐사대 활동 중...';
@@ -450,14 +513,6 @@
                 socket.emit('endNightAndStartMeeting', { code: roomCode });
             }
         });
-
-        const debugButton = document.getElementById('debug-start-btn');
-        if (debugButton) {
-            debugButton.addEventListener('click', () => {
-                console.log('4인 테스트 게임 시작을 요청합니다.');
-                socket.emit('debugStartGame');
-            });
-        }
     </script>
 </body>
 

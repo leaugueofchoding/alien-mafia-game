@@ -1,4 +1,4 @@
-// 기존 index.js 파일의 모든 내용을 이 코드로 교체해주세요.
+// server/index.js
 
 const express = require('express');
 const http = require('http');
@@ -17,9 +17,20 @@ const gameRooms = {};
 const ADMIN_ROOM = 'admin_room';
 const timerIntervals = {};
 
-const presetsPath = path.join(__dirname, 'presets.json');
-const presetsData = fs.readFileSync(presetsPath, 'utf8');
-const PRESETS = JSON.parse(presetsData);
+// presets.json 로드 로직 (만약 파일이 없다면 기본값 사용)
+let PRESETS = {};
+try {
+  const presetsPath = path.join(__dirname, 'presets.json');
+  if (fs.existsSync(presetsPath)) {
+    const presetsData = fs.readFileSync(presetsPath, 'utf8');
+    PRESETS = JSON.parse(presetsData);
+  } else {
+    console.log('presets.json 파일이 없어 기본값으로 시작합니다.');
+  }
+} catch (error) {
+  console.error('presets.json 파일을 읽거나 파싱하는 데 실패했습니다:', error);
+}
+
 
 const ROLE_DESCRIPTIONS = {
   '에일리언 여왕': '게임 중 단 한 번, [사냥] 능력으로 두 명을 제거할 수 있습니다. 특정 위기 상황에서는 네 명을 잡아먹기도 합니다.',
@@ -54,14 +65,18 @@ function shuffle(array) {
   return array;
 }
 
-function broadcastUpdates(roomCode) {
+function broadcastUpdates(roomCode, fullUpdate = true) {
   if (gameRooms[roomCode]) {
     const room = gameRooms[roomCode];
-    io.to(ADMIN_ROOM).emit('updateAdmin', { rooms: gameRooms });
+    io.to(ADMIN_ROOM).emit('updateAdmin', { rooms: gameRooms, presets: PRESETS });
     io.to(roomCode).emit('boardUpdate', room);
-    io.to(roomCode).emit('updateRoom', room);
+
+    if (fullUpdate) {
+      io.to(roomCode).emit('updateRoom', room);
+    }
   }
 }
+
 
 function checkWinConditions(roomCode) {
   const room = gameRooms[roomCode];
@@ -107,7 +122,7 @@ function checkWinConditions(roomCode) {
     }
     room.status = 'game_over';
     io.to(roomCode).emit('gameOver', { winner: ending.winner, reason: ending.reason, detailLog: detailLog });
-    io.to(ADMIN_ROOM).emit('updateAdmin', { rooms: gameRooms });
+    broadcastUpdates(roomCode);
     return true;
   }
 
@@ -139,9 +154,15 @@ function eliminatePlayer(roomCode, playerId, cause = 'unknown') {
   return false;
 }
 
-app.use(express.static(path.join(__dirname, '../client/public')));
-app.get('/', (req, res) => { res.sendFile(path.join(__dirname, '../client/public', 'index.html')); });
-app.get('/admin', (req, res) => { res.sendFile(path.join(__dirname, '../client/public', 'admin.html')); });
+// ======================================================
+// ★★★ 경로 수정 부분 ★★★
+// 모든 파일 경로에 '/public'을 다시 추가했습니다.
+// ======================================================
+app.use(express.static(path.join(__dirname, '..', 'client', 'public')));
+app.get('/', (req, res) => { res.sendFile(path.join(__dirname, '..', 'client', 'public', 'index.html')); });
+app.get('/admin', (req, res) => { res.sendFile(path.join(__dirname, '..', 'client', 'public', 'admin.html')); });
+app.get('/situation-board.html', (req, res) => { res.sendFile(path.join(__dirname, '..', 'client', 'public', 'situation-board.html')); });
+
 
 io.on('connection', (socket) => {
 
@@ -160,10 +181,20 @@ io.on('connection', (socket) => {
 
   socket.on('joinGame', (data) => {
     const { name, code } = data;
+    if (!code) return;
     socket.join(code);
+
     if (!gameRooms[code]) {
-      gameRooms[code] = { players: [], status: 'waiting', day: 0, phase: 'lobby' };
+      gameRooms[code] = {
+        players: [],
+        status: 'waiting',
+        day: 0,
+        phase: 'lobby',
+        selections: {},
+        groupCount: 4
+      };
     }
+
     const newPlayer = { id: socket.id, name: name, status: 'alive' };
     gameRooms[code].players.push(newPlayer);
     broadcastUpdates(code);
@@ -173,53 +204,43 @@ io.on('connection', (socket) => {
     const { code, settings, groupCount } = data;
     const room = gameRooms[code];
     if (!room || room.status === 'playing') return;
+
     room.groupCount = groupCount;
     const roles = [];
     for (const roleName in settings) {
       for (let i = 0; i < settings[roleName]; i++) { roles.push(roleName); }
     }
+
     const players = room.players;
+    if (roles.length !== players.length) {
+      console.error("역할 수와 플레이어 수가 다릅니다.");
+      return;
+    }
+
     const shuffledRoles = shuffle(roles);
     players.forEach((player, index) => {
       player.role = shuffledRoles[index];
-      player.description = ROLE_DESCRIPTIONS[shuffledRoles[index]] || '';
+      player.description = ROLE_DESCRIPTIONS[player.role] || '';
       player.abilityUsed = false;
 
-      if (player.role === '함장') {
-        player.bullets = 2;
-      } else if (player.role === '군인') {
-        player.bullets = 1;
-      }
+      if (player.role === '함장') player.bullets = 2;
+      else if (player.role === '군인') player.bullets = 1;
     });
+
     room.status = 'playing';
+    room.day = 0;
     room.phase = 'role_reveal';
     broadcastUpdates(code);
-  });
-
-  socket.on('selectGroup', (data) => {
-    const { groupNumber } = data;
-    let roomCode = '';
-    let player = null;
-    for (const code in gameRooms) {
-      const p = gameRooms[code].players.find(p => p.id === socket.id);
-      if (p) {
-        roomCode = code;
-        player = p;
-        break;
-      }
-    }
-    if (player && roomCode) {
-      player.group = groupNumber;
-      broadcastUpdates(roomCode);
-    }
   });
 
   socket.on('nextPhase', (data) => {
     const { code, phase, day } = data;
     const room = gameRooms[code];
     if (!room) return;
+
     room.phase = phase;
     room.day = parseInt(day, 10);
+
     if (phase === 'night_alien_action') {
       room.selections = {};
     }
@@ -230,38 +251,163 @@ io.on('connection', (socket) => {
     const { code } = data;
     const room = gameRooms[code];
     if (!room) return;
+
     const livingPlayers = room.players.filter(p => p.status === 'alive');
     const allAlienRoles = livingPlayers.filter(p => p.role.includes('에일리언'));
     const allAlienIds = allAlienRoles.map(p => p.id);
     const targets = livingPlayers.filter(p => !allAlienIds.includes(p.id));
 
-    const normalAliens = allAlienRoles.filter(p => p.role === '에일리언');
-    normalAliens.forEach(alien => {
+    allAlienRoles.forEach(alien => {
       const otherAliens = allAlienRoles.filter(a => a.id !== alien.id).map(a => a.name);
-      io.to(alien.id).emit('alienAction', { otherAliens, targets });
+      if (alien.role === '에일리언 여왕' && !alien.abilityUsed) {
+        io.to(alien.id).emit('queenHuntAction', { otherAliens, targets });
+      } else {
+        io.to(alien.id).emit('alienAction', { otherAliens, targets });
+      }
     });
 
-    const queen = allAlienRoles.find(p => p.role === '에일리언 여왕');
-    if (queen) {
-      const otherAliens = allAlienRoles.filter(a => a.id !== queen.id).map(a => a.name);
-      if (!queen.abilityUsed) {
-        io.to(queen.id).emit('queenHuntAction', { otherAliens, targets });
-      } else {
-        io.to(queen.id).emit('alienAction', { otherAliens, targets: [] });
+    broadcastUpdates(code, false);
+  });
+
+  function handleNightSelection(socket, targetIds) {
+    const selectorId = socket.id;
+    let roomCode = '';
+    for (const code in gameRooms) {
+      if (gameRooms[code].players.some(p => p.id === selectorId)) {
+        roomCode = code;
+        break;
       }
+    }
+
+    if (roomCode) {
+      const room = gameRooms[roomCode];
+      room.selections = room.selections || {};
+
+      const finalTargetIds = Array.isArray(targetIds) ? targetIds : [targetIds];
+
+      if (finalTargetIds.length > 0 && finalTargetIds[0] !== null) {
+        room.selections[selectorId] = finalTargetIds;
+      } else {
+        delete room.selections[selectorId];
+      }
+
+      const allAliens = room.players.filter(p => p.role.includes('에일리언') && p.status === 'alive');
+      allAliens.forEach(alienPlayer => {
+        io.to(alienPlayer.id).emit('nightSelectionUpdate', { selections: room.selections });
+      });
+
+      io.to(selectorId).emit('actionConfirmed');
+      broadcastUpdates(roomCode, false);
+    }
+  }
+
+  socket.on('nightAction', (data) => handleNightSelection(socket, data.targetId ? [data.targetId] : []));
+  socket.on('useQueenHunt', (data) => handleNightSelection(socket, data.targetIds));
+  socket.on('useQueenRampage', (data) => handleNightSelection(socket, data.targetIds));
+
+  socket.on('resolveNightActions', (data) => {
+    const { code } = data;
+    const room = gameRooms[code];
+    if (!room || !room.selections) return;
+
+    const targetsToEliminate = [...new Set(Object.values(room.selections).flat())];
+
+    targetsToEliminate.forEach(targetId => {
+      const player = room.players.find(p => p.id === targetId);
+      const selector = room.players.find(p => room.selections[p.id]?.includes(targetId));
+
+      let cause = 'alien_kill';
+      if (selector) {
+        if (selector.role === '에일리언 여왕' && room.pendingAction === 'queen_rampage') {
+          cause = 'queen_rampage';
+        } else if (selector.role === '에일리언 여왕') {
+          cause = 'queen_hunt';
+          selector.abilityUsed = true;
+        }
+      }
+      eliminatePlayer(code, targetId, cause);
+    });
+
+    room.selections = {};
+    if (room.pendingAction === 'queen_rampage') {
+      delete room.pendingAction;
+    }
+
+    if (checkWinConditions(code)) return;
+
+    room.phase = 'night_crew_action';
+    broadcastUpdates(code, true);
+  });
+
+  socket.on('triggerCrewAction', (data) => {
+    const { code } = data;
+    const room = gameRooms[code];
+    if (!room) return;
+
+    room.players.forEach(p => {
+      if (p.status === 'alive') {
+        io.to(p.id).emit('crewActionPhaseStarted', room);
+      }
+    });
+
+    broadcastUpdates(code, false);
+  });
+
+  socket.on('endNightAndStartMeeting', (data) => {
+    const { code } = data;
+    const room = gameRooms[code];
+    if (!room) return;
+
+    if (checkWinConditions(code)) return;
+
+    room.day++;
+    room.phase = 'meeting';
+    broadcastUpdates(code);
+  });
+
+  socket.on('engineerChoseToFight', () => {
+    let roomCode = '';
+    for (const code in gameRooms) {
+      if (gameRooms[code].players.some(p => p.id === socket.id)) { roomCode = code; break; }
+    }
+    if (!roomCode) return;
+
+    const room = gameRooms[roomCode];
+    room.pendingAction = 'queen_rampage';
+    room.phase = 'night_alien_action';
+    io.to(roomCode).emit('feastAnnounced');
+    broadcastUpdates(roomCode);
+  });
+
+  socket.on('engineerChoseEscape', () => {
+    // 비상탈출 로직 (추후 구현)
+  });
+
+  socket.on('triggerQueenRampage', (data) => {
+    const { code } = data;
+    const room = gameRooms[code];
+    if (!room || room.pendingAction !== 'queen_rampage') return;
+
+    const queen = room.players.find(p => p.role === '에일리언 여왕' && p.status === 'alive');
+    if (queen) {
+      const allAlienIds = room.players.filter(p => p.role.includes('에일리언')).map(p => p.id);
+      const targets = room.players.filter(p => p.status === 'alive' && !allAlienIds.includes(p.id));
+      io.to(queen.id).emit('queenRampageAction', { targets });
+      broadcastUpdates(code, false);
     }
   });
 
   socket.on('startMeetingTimer', (roomCode) => {
     if (!gameRooms[roomCode] || timerIntervals[roomCode]) return;
     const room = gameRooms[roomCode];
-    room.timeLeft = 120;
+    let timeLeft = 120;
+    room.timeLeft = timeLeft;
 
     timerIntervals[roomCode] = setInterval(() => {
-      io.to(roomCode).emit('timerUpdate', { timeLeft: room.timeLeft });
-      room.timeLeft--;
+      io.to(roomCode).emit('timerUpdate', { timeLeft: timeLeft });
+      timeLeft--;
 
-      if (room.timeLeft < 0) {
+      if (timeLeft < 0) {
         clearInterval(timerIntervals[roomCode]);
         delete timerIntervals[roomCode];
       }
@@ -289,221 +435,57 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('nightAction', (data) => {
-    const { targetId } = data;
-    const selectorId = socket.id;
-    let roomCode = '';
-    for (const code in gameRooms) {
-      if (gameRooms[code].players.some(p => p.id === selectorId)) {
-        roomCode = code;
-        break;
-      }
-    }
-    if (roomCode) {
-      const room = gameRooms[roomCode];
-      if (targetId) {
-        room.selections[selectorId] = targetId;
-      } else {
-        delete room.selections[selectorId];
-      }
-      const allAliens = room.players.filter(p => p.role.includes('에일리언'));
-      allAliens.forEach(alienPlayer => {
-        io.to(alienPlayer.id).emit('nightSelectionUpdate', { selections: room.selections });
-      });
-    }
-  });
-
-  socket.on('resolveNightActions', (data) => {
-    const { code } = data;
-    const room = gameRooms[code];
-    if (!room || !room.selections) return;
-
-    // ★★★ 추가된 부분: 디버깅 로그 ★★★
-    console.log(`[${code}] 밤 활동 결과 정산 시작. 현재 선택 현황:`, room.selections);
-
-    const targetsToEliminate = [];
-    for (const selectorId in room.selections) {
-      const selection = room.selections[selectorId];
-      if (Array.isArray(selection)) {
-        targetsToEliminate.push(...selection);
-      } else {
-        targetsToEliminate.push(selection);
-      }
-    }
-
-    const uniqueTargets = [...new Set(targetsToEliminate)];
-    console.log(`[${code}] 제거될 대상:`, uniqueTargets); // 디버깅 로그
-
-    uniqueTargets.forEach(targetId => {
-      eliminatePlayer(code, targetId, 'alien_kill');
-    });
-
-    room.phase = 'night_crew_action';
-    broadcastUpdates(code);
-  });
-
-  socket.on('triggerCrewAction', (data) => {
-    const { code } = data;
-    const room = gameRooms[code];
-    if (!room) return;
-
-    const livingPlayers = room.players.filter(p => p.status === 'alive');
-
-    const soldier = livingPlayers.find(p => p.role === '군인' && p.bullets > 0);
-    if (soldier) {
-      const targets = livingPlayers.filter(p => p.id !== soldier.id);
-      io.to(soldier.id).emit('soldierAction', { targets, bulletsLeft: soldier.bullets });
-    }
-
-    const captain = livingPlayers.find(p => p.role === '함장' && p.bullets > 0);
-    if (captain) {
-      const targets = livingPlayers.filter(p => p.id !== captain.id);
-      io.to(captain.id).emit('captainAction', { targets, bulletsLeft: captain.bullets });
-    }
-  });
-
   socket.on('useSoldierAbility', (data) => {
     const { targetId } = data;
-    const selectorId = socket.id;
     let roomCode = '';
-    for (const code in gameRooms) {
-      if (gameRooms[code].players.some(p => p.id === selectorId)) { roomCode = code; break; }
-    }
+    for (const code in gameRooms) { if (gameRooms[code].players.some(p => p.id === socket.id)) { roomCode = code; break; } }
+    if (!roomCode) return;
 
-    if (roomCode) {
-      const room = gameRooms[roomCode];
-      const soldier = room.players.find(p => p.id === socket.id);
-      if (room && soldier && soldier.role === '군인' && soldier.bullets > 0) {
-        soldier.bullets--;
-        eliminatePlayer(roomCode, targetId, 'soldier_shot');
-        broadcastUpdates(roomCode);
+    const room = gameRooms[roomCode];
+    const soldier = room.players.find(p => p.id === socket.id);
+    if (room && soldier && soldier.role === '군인' && soldier.bullets > 0 && soldier.status === 'alive') {
+      soldier.bullets--;
+      if (eliminatePlayer(roomCode, targetId, 'soldier_shot')) {
+        io.to(soldier.id).emit('actionConfirmed', '사격 완료! 남은 총알: ' + soldier.bullets + '발');
+        if (!checkWinConditions(roomCode)) {
+          broadcastUpdates(roomCode);
+        }
       }
     }
   });
 
   socket.on('useCaptainAbility', (data) => {
     const { targetId } = data;
-    const selectorId = socket.id;
     let roomCode = '';
-    for (const code in gameRooms) {
-      if (gameRooms[code].players.some(p => p.id === selectorId)) { roomCode = code; break; }
-    }
-
-    if (roomCode) {
-      const room = gameRooms[roomCode];
-      const captain = room.players.find(p => p.id === socket.id);
-      if (room && captain && captain.role === '함장' && captain.bullets > 0) {
-        captain.bullets--;
-        eliminatePlayer(roomCode, targetId, 'captain_shot');
-        broadcastUpdates(roomCode);
-      }
-    }
-  });
-
-  socket.on('useQueenHunt', (data) => {
-    const { targetIds } = data;
-    const selectorId = socket.id;
-    let roomCode = '';
-    for (const code in gameRooms) {
-      if (gameRooms[code].players.some(p => p.id === selectorId)) { roomCode = code; break; }
-    }
-
-    if (roomCode) {
-      const room = gameRooms[roomCode];
-      const queen = room.players.find(p => p.id === socket.id);
-      if (room && queen && queen.role === '에일리언 여왕' && !queen.abilityUsed && targetIds && targetIds.length === 2) {
-        queen.abilityUsed = true;
-        room.selections[selectorId] = targetIds;
-
-        const allAliens = room.players.filter(p => p.role.includes('에일리언'));
-        allAliens.forEach(alienPlayer => {
-          io.to(alienPlayer.id).emit('nightSelectionUpdate', { selections: room.selections });
-        });
-      }
-    }
-  });
-
-  socket.on('triggerQueenRampage', (data) => {
-    const { code } = data;
-    const room = gameRooms[code];
-    if (!room || room.pendingAction !== 'queen_rampage') return;
-
-    console.log(`[${code}] 관리자가 여왕의 만찬을 시작시켰습니다.`);
-    const queen = room.players.find(p => p.role === '에일리언 여왕' && p.status === 'alive');
-    if (queen) {
-      const allAlienIds = room.players.filter(p => p.role.includes('에일리언')).map(p => p.id);
-      const targets = room.players.filter(p => p.status === 'alive' && !allAlienIds.includes(p.id));
-      io.to(queen.id).emit('queenRampageAction', { targets });
-    }
-  });
-
-  socket.on('useQueenRampage', (data) => {
-    const { targetIds } = data;
-    const selectorId = socket.id;
-    let roomCode = '';
-    for (const code in gameRooms) {
-      if (gameRooms[code].players.some(p => p.id === selectorId)) { roomCode = code; break; }
-    }
-
-    if (roomCode) {
-      const room = gameRooms[roomCode];
-      const queen = room.players.find(p => p.id === socket.id);
-      if (room && queen && queen.role === '에일리언 여왕' && targetIds && targetIds.length === 4) {
-        room.selections[selectorId] = targetIds;
-        delete room.pendingAction;
-
-        // ★★★ 추가된 부분: 디버깅 로그 ★★★
-        console.log(`[${roomCode}] 여왕 만찬 선택 기록:`, room.selections);
-
-        io.to(selectorId).emit('actionConfirmed'); 
-        
-        const allAliens = room.players.filter(p => p.role.includes('에일리언'));
-        allAliens.forEach(alienPlayer => {
-          io.to(alienPlayer.id).emit('nightSelectionUpdate', { selections: room.selections });
-        });
-
-        // ★★★ 수정된 부분: 이제 여기서 broadcastUpdates를 호출하여 관리자 페이지를 갱신합니다 ★★★
-        broadcastUpdates(roomCode);
-      }
-    }
-  });
-
-  socket.on('engineerChoseToFight', () => {
-    let roomCode = '';
-    for (const code in gameRooms) {
-      if (gameRooms[code].players.some(p => p.id === socket.id)) { roomCode = code; break; }
-    }
+    for (const code in gameRooms) { if (gameRooms[code].players.some(p => p.id === socket.id)) { roomCode = code; break; } }
     if (!roomCode) return;
 
-    console.log(`[${roomCode}] 엔지니어가 싸움을 선택했습니다. 여왕의 만찬을 준비합니다.`);
     const room = gameRooms[roomCode];
-    room.pendingAction = 'queen_rampage';
-    io.to(roomCode).emit('feastAnnounced');
-    broadcastUpdates(roomCode);
-  });
-
-  socket.on('engineerChoseEscape', () => {
-    let roomCode = '';
-    for (const code in gameRooms) {
-      if (gameRooms[code].players.some(p => p.id === socket.id)) { roomCode = code; break; }
+    const captain = room.players.find(p => p.id === socket.id);
+    if (room && captain && captain.role === '함장' && captain.bullets > 0 && captain.status === 'alive') {
+      captain.bullets--;
+      if (eliminatePlayer(roomCode, targetId, 'captain_shot')) {
+        io.to(captain.id).emit('actionConfirmed', '즉결처분 완료! 남은 총알: ' + captain.bullets + '발');
+        if (!checkWinConditions(roomCode)) {
+          broadcastUpdates(roomCode);
+        }
+      }
     }
-    console.log(`[${roomCode}] 엔지니어가 비상탈출을 선택했습니다.`);
-  });
-
-  socket.on('endNightAndStartMeeting', (data) => {
-    const { code } = data;
-    const room = gameRooms[code];
-    if (!room) return;
-
-    const gameEnded = checkWinConditions(code);
-    if (gameEnded) return;
-
-    room.day++;
-    room.phase = 'meeting';
-    broadcastUpdates(code);
   });
 
   socket.on('disconnect', () => {
+    for (const code in gameRooms) {
+      const room = gameRooms[code];
+      const playerIndex = room.players.findIndex(p => p.id === socket.id);
+      if (playerIndex > -1) {
+        room.players.splice(playerIndex, 1);
+        if (room.players.length === 0) {
+          delete gameRooms[code];
+        }
+        broadcastUpdates(code);
+        break;
+      }
+    }
   });
 });
 
