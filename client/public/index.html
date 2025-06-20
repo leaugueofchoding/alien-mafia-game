@@ -32,7 +32,6 @@
         const adminContainer = document.getElementById('admin-container');
 
         let amIAlive = true;
-        let isEngineerChoiceActive = false;
         let huntSelections = [];
 
         function clearContainer() {
@@ -99,17 +98,18 @@
                 <button id="confirm-hunt-btn" disabled>선택 완료 (0/2)</button>
             `;
         }
-        
+
         function showQueenRampageScreen(targets) {
             clearContainer();
             huntSelections = [];
             const targetButtons = targets.map(target => `<li><button class="target-btn" data-ability="queen_rampage" data-target-id="${target.id}">${target.name}</button></li>`).join('');
+            // ★★★ 수정: 설명 문구 변경 및 버튼 활성화 조건 완화
             playerContainer.innerHTML = `
-                <h2>[여왕의 만찬] 대상을 4명 선택하세요.</h2>
-                <p>(분노에 휩싸여 4명을 공격합니다.)</p>
-                <ul>${targetButtons}</ul>
-                <button id="confirm-rampage-btn" disabled>선택 완료 (0/4)</button>
-            `;
+        <h2>[여왕의 만찬]</h2>
+        <p>(분노에 휩싸여 최대 4명의 대상을 공격합니다.)</p>
+        <ul>${targetButtons}</ul>
+        <button id="confirm-rampage-btn" disabled>선택 완료 (0명)</button>
+    `;
         }
 
         function showDeathScreen() {
@@ -134,18 +134,40 @@
             const me = room.players.find(p => p.id === socket.id);
             if (!me) return;
 
-            let abilityContent = `<h4>사용할 수 있는 능력이 없습니다.</h4>`;
-            if (me.role === '함장' && me.bullets > 0) {
-                const targets = room.players.filter(p => p.status === 'alive' && p.id !== me.id);
-                abilityContent = `<h4>즉결 처분할 대상을 선택하세요. <span style="font-weight:normal;">(남은 총알: ${me.bullets}발)</span></h4>
-                                  <ul>${targets.map(t => `<li><button class="target-btn" data-ability="captain" data-target-id="${t.id}">${t.name}</button></li>`).join('')}</ul>`;
-            } else if (me.role === '군인' && me.bullets > 0) {
-                const targets = room.players.filter(p => p.status === 'alive' && p.id !== me.id);
-                abilityContent = `<h4>저격할 대상을 선택하세요. <span style="font-weight:normal;">(남은 총알: ${me.bullets}발)</span></h4>
-                                  <ul>${targets.map(t => `<li><button class="target-btn" data-ability="soldier" data-target-id="${t.id}">${t.name}</button></li>`).join('')}</ul>`;
-            } else if (me.role === '일반 승객') {
-                abilityContent = `<h4>당신은 선량한 일반 승객입니다.</h4>`;
+            let abilityContent = ''; // '내 능력' 탭에 들어갈 내용을 담을 변수
+            const isAlienTeam = me.role.includes('에일리언');
+
+            // 관리자가 '활동 시작' 버튼을 누르기 전
+            if (!room.crewActionTriggered) {
+                const message = isAlienTeam
+                    ? "탐사대가 혼란에 빠진 틈을 타 미션을 방해하고 생존자들을 처리하세요."
+                    : "밤이 깊었습니다. 동료들과 협력하여 미션을 해결하고 능력을 사용하세요!";
+
+                abilityContent = `
+            <div style="padding: 20px;">
+                <h4>활동 대기중...</h4>
+                <p style="font-size: 1.1em; margin-top: 15px;">${message}</p>
+                <p style="margin-top: 10px;">관리자가 활동을 시작하기를 기다립니다.</p>
+            </div>
+        `;
             }
+            // 관리자가 '활동 시작' 버튼을 누른 후
+            else {
+                // 기존의 능력 버튼 생성 로직을 그대로 사용합니다.
+                if (me.role === '함장' && me.bullets > 0) {
+                    const targets = room.players.filter(p => p.status === 'alive' && p.id !== me.id);
+                    abilityContent = `<h4>즉결 처분할 대상을 선택하세요. <span style="font-weight:normal;">(남은 총알: ${me.bullets}발)</span></h4>
+                              <ul>${targets.map(t => `<li><button class="target-btn" data-ability="captain" data-target-id="${t.id}">${t.name}</button></li>`).join('')}</ul>`;
+                } else if (me.role === '군인' && me.bullets > 0) {
+                    const targets = room.players.filter(p => p.status === 'alive' && p.id !== me.id);
+                    abilityContent = `<h4>저격할 대상을 선택하세요. <span style="font-weight:normal;">(남은 총알: ${me.bullets}발)</span></h4>
+                              <ul>${targets.map(t => `<li><button class="target-btn" data-ability="soldier" data-target-id="${t.id}">${t.name}</button></li>`).join('')}</ul>`;
+                } else {
+                    abilityContent = `<h4>사용할 수 있는 능력이 없거나 이미 사용했습니다.</h4>`;
+                }
+            }
+
+            // --- 여기부터는 기존의 탭 UI 구조를 그대로 렌더링합니다 ---
 
             const rolesInGame = [...new Set(room.players.map(p => p.role))].sort();
             const roleSummary = rolesInGame.map(role => {
@@ -154,32 +176,33 @@
                 return `<tr><td>${role}</td><td>${alive} / ${total}</td></tr>`;
             }).join('');
             const situationBoardContent = `
-                <h4>직업별 생존 현황</h4>
-                <table class="summary-table">
-                    <thead><tr><th>직업</th><th>생존/총원</th></tr></thead>
-                    <tbody>${roleSummary}</tbody>
-                </table>`;
+        <h4>직업별 생존 현황</h4>
+        <table class="summary-table">
+            <thead><tr><th>직업</th><th>생존/총원</th></tr></thead>
+            <tbody>${roleSummary}</tbody>
+        </table>`;
 
             playerContainer.innerHTML = `
-                <h2>${room.day}일차 밤: 탐사대 활동</h2>
-                <div class="tab-container">
-                    <button class="tab-link active" data-tab="ability">내 능력</button>
-                    <button class="tab-link" data-tab="lobby">대기실</button>
-                    <button class="tab-link" data-tab="situation">상황판</button>
-                    <button class="tab-link" data-tab="mission">내 미션</button>
-                    <button class="tab-link" data-tab="camouflage">위장 화면</button> 
-                </div>
-                <div class="content-container">
-                    <div id="ability-content" class="tab-content active">${abilityContent}</div>
-                    <div id="lobby-content" class="tab-content"></div>
-                    <div id="situation-content" class="tab-content">${situationBoardContent}</div>
-                    <div id="mission-content" class="tab-content"><h4>미션 기능은 준비 중입니다.</h4></div>
-                    <div id="camouflage-content" class="tab-content"><h4>초능력 사용 중... (위장 화면)</h4><p>이 화면을 다른 사람에게 보여주어 당신의 정체를 숨기세요.</p></div>
-                </div>
-            `;
+        <h2>${room.day}일차 밤: 탐사대 활동</h2>
+        <div class="tab-container">
+            <button class="tab-link active" data-tab="ability">내 능력</button>
+            <button class="tab-link" data-tab="lobby">대기실</button>
+            <button class="tab-link" data-tab="situation">상황판</button>
+            <button class="tab-link" data-tab="mission">내 미션</button>
+            <button class="tab-link" data-tab="camouflage">위장 화면</button> 
+        </div>
+        <div class="content-container">
+            <div id="ability-content" class="tab-content active">${abilityContent}</div>
+            <div id="lobby-content" class="tab-content"></div>
+            <div id="situation-content" class="tab-content">${situationBoardContent}</div>
+            <div id="mission-content" class="tab-content"><h4>미션 기능은 준비 중입니다.</h4></div>
+            <div id="camouflage-content" class="tab-content"><h4>초능력 사용 중... (위장 화면)</h4><p>이 화면을 다른 사람에게 보여주어 당신의 정체를 숨기세요.</p></div>
+        </div>
+    `;
+
+            // '대기실' 탭의 내용은 별도로 채워줍니다.
             showLobby(room, playerContainer.querySelector('#lobby-content'));
         }
-
         function showEngineerChoiceScreen(isEngineer) {
             clearContainer();
             const fightButtonAttr = isEngineer ? 'data-choice="fight"' : 'data-fake-button="true"';
@@ -199,50 +222,68 @@
                 <p style="font-size: 0.9em; margin-top: 20px;">${notice}</p>
             `;
         }
-        
+
         function showFeastAnnouncedScreen() {
             clearContainer();
             playerContainer.innerHTML = `
-                <h2>여왕의 만찬</h2>
-                <p>엔지니어가 계속 싸우는 것을 선택했습니다.</p>
-                <p style="color: #ff4757; font-weight: bold;">분노한 에일리언 여왕이 광란 상태에 빠졌습니다!</p>
-                <p>잠시 후 관리자가 만찬을 시작합니다...</p>
-            `;
+        <h2 style="color: #dc3545;">경고: 함선 전체 비상사태</h2>
+        <p>엔지니어의 결정으로, 탐사대는 후퇴 대신 저항을 선택했습니다.</p>
+        <p style="font-size: 1.2em; color: #ff4757; font-weight: bold; margin-top: 20px;">
+            모두 엎드리세요! 여왕이 광란 상태에 빠졌습니다.<br>
+            곧 여왕의 만찬이 시작됩니다.
+        </p>
+        <p style="margin-top: 20px;">관리자가 만찬을 시작하기를 기다립니다...</p>
+    `;
         }
 
-        socket.on('captainDiedChoice', (data) => {
-            if (amIAlive) {
-                isEngineerChoiceActive = true;
-                showEngineerChoiceScreen(data.isEngineer);
-            }
-        });
 
         socket.on('connect', () => console.log('서버에 성공적으로 연결되었습니다.'));
 
         socket.on('updateRoom', (room) => {
-            if (isEngineerChoiceActive || room.pendingAction === 'queen_rampage') {
-                return;
-            }
-
             if (!amIAlive || room.status === 'game_over') return;
 
             const me = room.players.find(p => p.id === socket.id);
-            if (me) {
-                adminContainer.style.display = 'none';
-            } else {
+            if (!me) {
                 adminContainer.style.display = 'block';
                 showInitialScreen();
                 return;
+            } else {
+                adminContainer.style.display = 'none';
             }
 
-            if (room.status === 'playing' && room.phase === 'night_crew_action') {
-                showCrewActionScreen(room);
-            } else if (room.status === 'playing') {
+            // --- 상태에 따른 화면 분기 처리 ---
+
+            // 최우선 순위: '엔지니어의 선택' 또는 '여왕의 만찬' 같은 특별 이벤트 처리
+            if (room.pendingAction === 'engineer_choice') {
+                const isEngineer = me.role === '엔지니어';
+                showEngineerChoiceScreen(isEngineer);
+                return; // 다른 화면을 렌더링하지 않고 종료
+            }
+            if (room.pendingAction === 'queen_rampage' && !room.rampageTriggered) {
+                showFeastAnnouncedScreen();
+                return; // 다른 화면을 렌더링하지 않고 종료
+            }
+
+            // 일반 게임 단계 처리
+            if (room.status === 'playing') {
                 switch (room.phase) {
-                    case 'role_reveal': showRoleScreen(me.role, me.description); break;
-                    case 'meeting': showMeetingScreen(room.day); break;
-                    case 'night_alien_action': showAlienNightScreen(); break;
-                    default: showLobby(room, playerContainer); break;
+                    case 'role_reveal':
+                        showRoleScreen(me.role, me.description);
+                        break;
+                    case 'meeting':
+                        showMeetingScreen(room.day);
+                        break;
+                    case 'night_crew_action':
+                        showCrewActionScreen(room);
+                        break;
+                    case 'night_alien_action':
+                        // 의도적으로 비워둡니다. 
+                        // 'alienAction' 또는 'queenHuntAction' 이벤트가 직접 화면을 그립니다.
+                        // 만약 아무 능력도 없다면 검은 화면을 유지하게 됩니다.
+                        break;
+                    default:
+                        showLobby(room, playerContainer);
+                        break;
                 }
             } else if (room.status === 'waiting') {
                 showLobby(room, playerContainer);
@@ -288,11 +329,11 @@
                 showQueenHuntScreen(data.otherAliens, data.targets);
             }
         });
-        
+
         socket.on('feastAnnounced', () => {
             console.log("Feast Announced event received!");
             if (amIAlive) {
-                isEngineerChoiceActive = false;
+                isEngineerChoiceActive = false; // ★★★ 여기서 플래그를 해제하여 모든 플레이어의 화면을 갱신합니다.
                 showFeastAnnouncedScreen();
             }
         });
@@ -305,8 +346,8 @@
         });
 
         socket.on('actionConfirmed', () => {
-             console.log("Action Confirmed event received!");
-            if(amIAlive) {
+            console.log("Action Confirmed event received!");
+            if (amIAlive) {
                 showAlienNightScreen("선택이 완료되었습니다. 다른 에일리언들을 기다립니다.");
             }
         });
@@ -339,6 +380,7 @@
             }
 
             if (target.dataset.choice) {
+                // ★★★ 수정된 부분: 여기서 isEngineerChoiceActive 플래그를 건드리지 않습니다. ★★★
                 if (target.dataset.choice === 'fight') {
                     if (confirm("'계속 싸운다'를 선택하면 큰 위험이 따를 수 있습니다. 정말 선택하시겠습니까?")) {
                         socket.emit('engineerChoseToFight');
@@ -363,12 +405,15 @@
                 }
                 return;
             }
-            
+
             if (target.id === 'confirm-rampage-btn') {
-                if (huntSelections.length === 4) {
+                // ★★★ 수정: 1명 이상 선택 시 전송 가능하도록 변경
+                if (huntSelections.length > 0) {
                     socket.emit('useQueenRampage', { targetIds: huntSelections });
                     target.textContent = '선택 완료';
                     target.disabled = true;
+                } else {
+                    alert('최소 1명 이상을 선택해야 합니다.');
                 }
                 return;
             }
@@ -394,7 +439,7 @@
                     confirmBtn.disabled = huntSelections.length !== 2;
                     return;
                 }
-                
+
                 if (abilityType === 'queen_rampage') {
                     const confirmBtn = document.getElementById('confirm-rampage-btn');
                     const index = huntSelections.indexOf(targetId);
@@ -408,7 +453,7 @@
                         }
                     }
                     confirmBtn.textContent = `선택 완료 (${huntSelections.length}/4)`;
-                    confirmBtn.disabled = huntSelections.length !== 4;
+                    confirmBtn.disabled = huntSelections.length !== 0;
                     return;
                 }
 

@@ -114,6 +114,9 @@ function checkWinConditions(roomCode) {
   return false;
 }
 
+// server/index.js
+
+// 이 함수 전체를 아래 코드로 교체해주세요.
 function eliminatePlayer(roomCode, playerId, cause = 'unknown') {
   const room = gameRooms[roomCode];
   if (!room) return false;
@@ -124,14 +127,15 @@ function eliminatePlayer(roomCode, playerId, cause = 'unknown') {
     player.causeOfDeath = cause;
     io.to(playerId).emit('youAreDead');
 
+    // ★★★ 핵심 수정 ★★★
+    // 함장 사망 시, 이벤트를 직접 보내는 대신 '상태'를 변경하고 전파합니다.
     if (player.role === '함장') {
       const engineer = room.players.find(p => p.role === '엔지니어' && p.status === 'alive');
       if (engineer) {
-        room.players.forEach(p => {
-          if (p.status === 'alive') {
-            io.to(p.id).emit('captainDiedChoice', { isEngineer: p.id === engineer.id });
-          }
-        });
+        // '엔지니어의 선택'이 필요한 상황임을 게임 상태에 기록합니다.
+        room.pendingAction = 'engineer_choice';
+        // broadcastUpdates를 통해 모든 클라이언트(플레이어, 관리자)가 이 상태를 알게 됩니다.
+        broadcastUpdates(roomCode);
       }
     }
     return true;
@@ -226,10 +230,17 @@ io.on('connection', (socket) => {
     broadcastUpdates(code);
   });
 
+  // server/index.js
+
+  // 1. 이 함수로 교체
   socket.on('triggerAlienAction', (data) => {
     const { code } = data;
     const room = gameRooms[code];
     if (!room) return;
+
+    // ★★★ 추가: 에일리언 활동이 시작되었음을 상태에 기록
+    room.alienActionTriggered = true;
+
     const livingPlayers = room.players.filter(p => p.status === 'alive');
     const allAlienRoles = livingPlayers.filter(p => p.role.includes('에일리언'));
     const allAlienIds = allAlienRoles.map(p => p.id);
@@ -250,6 +261,30 @@ io.on('connection', (socket) => {
         io.to(queen.id).emit('alienAction', { otherAliens, targets: [] });
       }
     }
+
+    // ★★★ 추가: 변경된 상태를 즉시 전파하여 관리자 UI 갱신
+    broadcastUpdates(code);
+  });
+
+  // 2. 이 함수로 교체
+  socket.on('triggerQueenRampage', (data) => {
+    const { code } = data;
+    const room = gameRooms[code];
+    if (!room || room.pendingAction !== 'queen_rampage') return;
+
+    // ★★★ 추가: 만찬이 시작되었음을 상태에 기록
+    room.rampageTriggered = true;
+
+    console.log(`[${code}] 관리자가 여왕의 만찬을 시작시켰습니다.`);
+    const queen = room.players.find(p => p.role === '에일리언 여왕' && p.status === 'alive');
+    if (queen) {
+      const allAlienIds = room.players.filter(p => p.role.includes('에일리언')).map(p => p.id);
+      const targets = room.players.filter(p => p.status === 'alive' && !allAlienIds.includes(p.id));
+      io.to(queen.id).emit('queenRampageAction', { targets });
+    }
+
+    // ★★★ 추가: 변경된 상태를 즉시 전파하여 관리자 UI 갱신
+    broadcastUpdates(code);
   });
 
   socket.on('startMeetingTimer', (roomCode) => {
@@ -313,12 +348,14 @@ io.on('connection', (socket) => {
     }
   });
 
+  // server/index.js
+
+  // 2. 이 함수로 교체해주세요.
   socket.on('resolveNightActions', (data) => {
     const { code } = data;
     const room = gameRooms[code];
     if (!room || !room.selections) return;
 
-    // ★★★ 추가된 부분: 디버깅 로그 ★★★
     console.log(`[${code}] 밤 활동 결과 정산 시작. 현재 선택 현황:`, room.selections);
 
     const targetsToEliminate = [];
@@ -332,20 +369,33 @@ io.on('connection', (socket) => {
     }
 
     const uniqueTargets = [...new Set(targetsToEliminate)];
-    console.log(`[${code}] 제거될 대상:`, uniqueTargets); // 디버깅 로그
+    console.log(`[${code}] 제거될 대상:`, uniqueTargets);
 
     uniqueTargets.forEach(targetId => {
       eliminatePlayer(code, targetId, 'alien_kill');
     });
 
+    // ★★★ 추가된 부분 ★★★
+    // '여왕의 만찬' 같은 일회성 액션의 상태를 여기서 확실히 제거합니다.
+    if (room.pendingAction === 'queen_rampage') {
+      delete room.pendingAction;
+      delete room.rampageTriggered;
+    }
+    delete room.alienActionTriggered;
+
     room.phase = 'night_crew_action';
     broadcastUpdates(code);
   });
 
+
+  // 3. 이 함수로 교체해주세요.
   socket.on('triggerCrewAction', (data) => {
     const { code } = data;
     const room = gameRooms[code];
     if (!room) return;
+
+    // ★★★ 추가된 부분: 활동이 시작되었음을 상태에 기록 ★★★
+    room.crewActionTriggered = true;
 
     const livingPlayers = room.players.filter(p => p.status === 'alive');
 
@@ -360,6 +410,9 @@ io.on('connection', (socket) => {
       const targets = livingPlayers.filter(p => p.id !== captain.id);
       io.to(captain.id).emit('captainAction', { targets, bulletsLeft: captain.bullets });
     }
+
+    // ★★★ 추가된 부분: 변경된 상태를 모든 클라이언트에 전파하여 UI를 갱신 ★★★
+    broadcastUpdates(code);
   });
 
   socket.on('useSoldierAbility', (data) => {
@@ -428,6 +481,9 @@ io.on('connection', (socket) => {
     const room = gameRooms[code];
     if (!room || room.pendingAction !== 'queen_rampage') return;
 
+    // ★★★ 추가: 만찬이 시작되었음을 상태에 기록
+    room.rampageTriggered = true;
+
     console.log(`[${code}] 관리자가 여왕의 만찬을 시작시켰습니다.`);
     const queen = room.players.find(p => p.role === '에일리언 여왕' && p.status === 'alive');
     if (queen) {
@@ -435,6 +491,9 @@ io.on('connection', (socket) => {
       const targets = room.players.filter(p => p.status === 'alive' && !allAlienIds.includes(p.id));
       io.to(queen.id).emit('queenRampageAction', { targets });
     }
+
+    // ★★★ 추가: 변경된 상태를 즉시 전파하여 관리자 UI 갱신
+    broadcastUpdates(code);
   });
 
   socket.on('useQueenRampage', (data) => {
@@ -448,21 +507,18 @@ io.on('connection', (socket) => {
     if (roomCode) {
       const room = gameRooms[roomCode];
       const queen = room.players.find(p => p.id === socket.id);
-      if (room && queen && queen.role === '에일리언 여왕' && targetIds && targetIds.length === 4) {
+      // ★★★ 수정: targetIds.length === 4 조건을 1명 이상, 4명 이하로 변경
+      if (room && queen && queen.role === '에일리언 여왕' && targetIds && targetIds.length > 0 && targetIds.length <= 4) {
         room.selections[selectorId] = targetIds;
-        delete room.pendingAction;
 
-        // ★★★ 추가된 부분: 디버깅 로그 ★★★
         console.log(`[${roomCode}] 여왕 만찬 선택 기록:`, room.selections);
+        io.to(selectorId).emit('actionConfirmed');
 
-        io.to(selectorId).emit('actionConfirmed'); 
-        
         const allAliens = room.players.filter(p => p.role.includes('에일리언'));
         allAliens.forEach(alienPlayer => {
           io.to(alienPlayer.id).emit('nightSelectionUpdate', { selections: room.selections });
         });
 
-        // ★★★ 수정된 부분: 이제 여기서 broadcastUpdates를 호출하여 관리자 페이지를 갱신합니다 ★★★
         broadcastUpdates(roomCode);
       }
     }
@@ -490,6 +546,9 @@ io.on('connection', (socket) => {
     console.log(`[${roomCode}] 엔지니어가 비상탈출을 선택했습니다.`);
   });
 
+  // server/index.js
+
+  // 4. 이 함수로 교체해주세요.
   socket.on('endNightAndStartMeeting', (data) => {
     const { code } = data;
     const room = gameRooms[code];
@@ -497,6 +556,11 @@ io.on('connection', (socket) => {
 
     const gameEnded = checkWinConditions(code);
     if (gameEnded) return;
+
+    delete room.crewActionTriggered;
+    delete room.alienActionTriggered; // ★★★ 추가
+    delete room.rampageTriggered;   // ★★★ 추가
+    room.selections = {};
 
     room.day++;
     room.phase = 'meeting';

@@ -204,6 +204,7 @@
             renderAdminView();
         });
 
+        // 교체할 내용
         function renderAdminView() {
             roomsContainer.innerHTML = '';
             if (Object.keys(gameRoomsState).length === 0) {
@@ -272,7 +273,13 @@
                     phaseInfo.className = 'phase-info';
                     let phaseText = `현재 상태: ${roomData.day}일차 ${roomData.phase}`;
                     if (roomData.pendingAction === 'queen_rampage') {
-                        phaseText += ' (여왕의 만찬 대기중)';
+                        const queen = roomData.players.find(p => p.role === '에일리언 여왕');
+                        const queenSelection = roomData.selections && roomData.selections[queen.id];
+                        if (queenSelection && queenSelection.length === 4) {
+                            phaseText += ' (여왕의 만찬 선택 완료)';
+                        } else {
+                            phaseText += ' (여왕의 만찬 대기중)';
+                        }
                     }
                     phaseInfo.textContent = (roomData.status === 'game_over') ? '게임 종료' : phaseText;
                     settingsColumn.appendChild(phaseInfo);
@@ -299,29 +306,42 @@
                             settingsColumn.appendChild(nextBtn);
 
                         } else if (roomData.phase === 'night_alien_action') {
+                            // '여왕의 만찬'이 우선순위
                             if (roomData.pendingAction === 'queen_rampage') {
-                                const rampageBtn = document.createElement('button');
-                                rampageBtn.className = 'trigger-rampage-btn';
-                                rampageBtn.textContent = '여왕의 만찬 시작';
-                                settingsColumn.appendChild(rampageBtn);
-
-                            } else if (roomData.selections && Object.keys(roomData.selections).length > 0) {
-                                const resolveBtn = document.createElement('button');
-                                resolveBtn.className = 'resolve-night-btn';
-                                resolveBtn.textContent = '밤 활동 결과 적용';
-                                settingsColumn.appendChild(resolveBtn);
-
-                            } else {
-                                const triggerBtn = document.createElement('button');
-                                triggerBtn.className = 'trigger-alien-action-btn';
-                                triggerBtn.textContent = '에일리언 활동 시작';
-                                settingsColumn.appendChild(triggerBtn);
+                                // '만찬 시작' 버튼이 눌렸는지(rampageTriggered)를 기준으로 버튼 표시
+                                if (roomData.rampageTriggered) {
+                                    const resolveBtn = document.createElement('button');
+                                    resolveBtn.className = 'resolve-night-btn';
+                                    resolveBtn.textContent = '여왕의 만찬 결과 적용';
+                                    settingsColumn.appendChild(resolveBtn);
+                                } else {
+                                    const rampageBtn = document.createElement('button');
+                                    rampageBtn.className = 'trigger-rampage-btn';
+                                    rampageBtn.textContent = '여왕의 만찬 시작';
+                                    settingsColumn.appendChild(rampageBtn);
+                                }
+                            } else { // 일반 에일리언 활동
+                                // '활동 시작' 버튼이 눌렸는지(alienActionTriggered)를 기준으로 버튼 표시
+                                if (roomData.alienActionTriggered) {
+                                    const resolveBtn = document.createElement('button');
+                                    resolveBtn.className = 'resolve-night-btn';
+                                    resolveBtn.textContent = '에일리언 활동 결과 반영';
+                                    settingsColumn.appendChild(resolveBtn);
+                                } else {
+                                    const triggerBtn = document.createElement('button');
+                                    triggerBtn.className = 'trigger-alien-action-btn';
+                                    triggerBtn.textContent = '에일리언 활동 시작';
+                                    settingsColumn.appendChild(triggerBtn);
+                                }
                             }
                         } else if (roomData.phase === 'night_crew_action') {
-                            const crewBtn = document.createElement('button');
-                            crewBtn.className = 'trigger-crew-action-btn';
-                            crewBtn.textContent = '탐사대 활동 시작';
-                            settingsColumn.appendChild(crewBtn);
+                            // roomData.crewActionTriggered 상태에 따라 버튼을 다르게 표시
+                            if (!roomData.crewActionTriggered) {
+                                const crewBtn = document.createElement('button');
+                                crewBtn.className = 'trigger-crew-action-btn';
+                                crewBtn.textContent = '탐사대 활동 시작';
+                                settingsColumn.appendChild(crewBtn);
+                            }
 
                             const endBtn = document.createElement('button');
                             endBtn.className = 'end-night-btn';
@@ -330,7 +350,7 @@
                         }
                     }
 
-                } else {
+                } else { // 'waiting' status
                     playerColumn.innerHTML = '<h3>참가자 목록</h3>';
                     const playerList = document.createElement('ul');
                     roomData.players.forEach(player => {
@@ -434,18 +454,12 @@
                 target.disabled = true;
             } else if (classList.contains('trigger-rampage-btn')) {
                 socket.emit('triggerQueenRampage', { code: roomCode });
-                target.textContent = '여왕 활동 중...';
-                target.disabled = true;
             } else if (classList.contains('trigger-alien-action-btn')) {
                 socket.emit('triggerAlienAction', { code: roomCode });
-                target.textContent = '에일리언 활동 중...';
-                target.disabled = true;
             } else if (classList.contains('resolve-night-btn')) {
                 socket.emit('resolveNightActions', { code: roomCode });
             } else if (classList.contains('trigger-crew-action-btn')) {
                 socket.emit('triggerCrewAction', { code: roomCode });
-                target.textContent = '탐사대 활동 중...';
-                target.disabled = true;
             } else if (classList.contains('end-night-btn')) {
                 socket.emit('endNightAndStartMeeting', { code: roomCode });
             }
