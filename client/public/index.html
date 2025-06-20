@@ -103,12 +103,12 @@
             clearContainer();
             huntSelections = [];
             const targetButtons = targets.map(target => `<li><button class="target-btn" data-ability="queen_rampage" data-target-id="${target.id}">${target.name}</button></li>`).join('');
-            // ★★★ 수정: 설명 문구 변경 및 버튼 활성화 조건 완화
+            // ★★★ 수정: 버튼의 disabled 속성 제거 ★★★
             playerContainer.innerHTML = `
         <h2>[여왕의 만찬]</h2>
-        <p>(분노에 휩싸여 최대 4명의 대상을 공격합니다.)</p>
+        <p>(분노에 휩싸여 최대 4명의 대상을 공격합니다. 대상을 선택하지 않을 수도 있습니다.)</p>
         <ul>${targetButtons}</ul>
-        <button id="confirm-rampage-btn" disabled>선택 완료 (0명)</button>
+        <button id="confirm-rampage-btn">선택 완료 (0명)</button>
     `;
         }
 
@@ -407,16 +407,13 @@
             }
 
             if (target.id === 'confirm-rampage-btn') {
-                // ★★★ 수정: 1명 이상 선택 시 전송 가능하도록 변경
-                if (huntSelections.length > 0) {
-                    socket.emit('useQueenRampage', { targetIds: huntSelections });
-                    target.textContent = '선택 완료';
-                    target.disabled = true;
-                } else {
-                    alert('최소 1명 이상을 선택해야 합니다.');
-                }
+                // ★★★ 수정: 조건 없이 항상 전송 가능하도록 변경 ★★★
+                socket.emit('useQueenRampage', { targetIds: huntSelections });
+                target.textContent = '선택 완료';
+                target.disabled = true;
                 return;
             }
+
 
             if (target.classList.contains('target-btn')) {
                 const abilityType = target.dataset.ability;
@@ -452,8 +449,8 @@
                             target.classList.add('pre-selected');
                         }
                     }
-                    confirmBtn.textContent = `선택 완료 (${huntSelections.length}/4)`;
-                    confirmBtn.disabled = huntSelections.length !== 0;
+                    // ★★★ 수정: 버튼 텍스트만 갱신 (활성화/비활성화 로직 제거) ★★★
+                    confirmBtn.textContent = `선택 완료 (${huntSelections.length}명)`;
                     return;
                 }
 

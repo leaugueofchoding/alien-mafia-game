@@ -205,6 +205,8 @@
         });
 
         // 교체할 내용
+        // admin.html의 <script> 태그 안에 있는 renderAdminView 함수를 아래 코드로 통째로 교체해주세요.
+
         function renderAdminView() {
             roomsContainer.innerHTML = '';
             if (Object.keys(gameRoomsState).length === 0) {
@@ -272,20 +274,45 @@
                     const phaseInfo = document.createElement('div');
                     phaseInfo.className = 'phase-info';
                     let phaseText = `현재 상태: ${roomData.day}일차 ${roomData.phase}`;
-                    if (roomData.pendingAction === 'queen_rampage') {
-                        const queen = roomData.players.find(p => p.role === '에일리언 여왕');
-                        const queenSelection = roomData.selections && roomData.selections[queen.id];
-                        if (queenSelection && queenSelection.length === 4) {
-                            phaseText += ' (여왕의 만찬 선택 완료)';
-                        } else {
-                            phaseText += ' (여왕의 만찬 대기중)';
-                        }
+
+                    // 특수 상태에 대한 텍스트를 우선적으로 추가
+                    if (roomData.pendingAction === 'engineer_choice') {
+                        phaseText += ' (엔지니어 선택 대기중)';
+                    } else if (roomData.pendingAction === 'queen_rampage') {
+                        phaseText += ' (여왕의 만찬 대기중)';
                     }
+
                     phaseInfo.textContent = (roomData.status === 'game_over') ? '게임 종료' : phaseText;
                     settingsColumn.appendChild(phaseInfo);
 
                     if (roomData.status === 'playing') {
-                        if (roomData.phase === 'role_reveal') {
+                        // --- 버튼 렌더링 로직 ---
+                        // 특별 이벤트를 일반 게임 단계보다 먼저 확인합니다.
+
+                        // 1. 엔지니어의 선택이 필요한 경우
+                        if (roomData.pendingAction === 'engineer_choice') {
+                            const notice = document.createElement('p');
+                            notice.textContent = '엔지니어가 [계속 싸운다] 또는 [비상탈출]을 선택하기를 기다리는 중입니다...';
+                            notice.style.fontWeight = 'bold';
+                            notice.style.color = '#007bff';
+                            settingsColumn.appendChild(notice);
+                        }
+                        // 2. 여왕의 만찬이 예정된 경우
+                        else if (roomData.pendingAction === 'queen_rampage') {
+                            if (roomData.rampageTriggered) {
+                                const resolveBtn = document.createElement('button');
+                                resolveBtn.className = 'resolve-night-btn';
+                                resolveBtn.textContent = '여왕의 만찬 결과 적용';
+                                settingsColumn.appendChild(resolveBtn);
+                            } else {
+                                const rampageBtn = document.createElement('button');
+                                rampageBtn.className = 'trigger-rampage-btn';
+                                rampageBtn.textContent = '여왕의 만찬 시작';
+                                settingsColumn.appendChild(rampageBtn);
+                            }
+                        }
+                        // 3. 그 외 일반적인 게임 단계
+                        else if (roomData.phase === 'role_reveal') {
                             const btn = document.createElement('button');
                             btn.className = 'next-phase-btn';
                             btn.dataset.phase = 'meeting';
@@ -296,7 +323,23 @@
                             const timerBtn = document.createElement('button');
                             timerBtn.className = 'timer-btn';
                             timerBtn.textContent = '2분 타이머 시작';
-                            settingsColumn.appendChild(timerBtn);
+
+                            const timerDisplay = document.createElement('span');
+                            timerDisplay.id = `timer-display-${code}`;
+                            timerDisplay.style.marginLeft = '15px';
+                            timerDisplay.style.fontWeight = 'bold';
+                            timerDisplay.style.color = '#dc3545';
+                            if (roomData.timeLeft !== undefined && roomData.timeLeft >= 0) {
+                                const minutes = Math.floor(roomData.timeLeft / 60);
+                                const seconds = (roomData.timeLeft % 60).toString().padStart(2, '0');
+                                timerDisplay.textContent = `${minutes}:${seconds}`;
+                            }
+
+                            const timerDiv = document.createElement('div');
+                            timerDiv.style.marginTop = '15px';
+                            timerDiv.appendChild(timerBtn);
+                            timerDiv.appendChild(timerDisplay);
+                            settingsColumn.appendChild(timerDiv);
 
                             const nextBtn = document.createElement('button');
                             nextBtn.className = 'next-phase-btn';
@@ -306,36 +349,18 @@
                             settingsColumn.appendChild(nextBtn);
 
                         } else if (roomData.phase === 'night_alien_action') {
-                            // '여왕의 만찬'이 우선순위
-                            if (roomData.pendingAction === 'queen_rampage') {
-                                // '만찬 시작' 버튼이 눌렸는지(rampageTriggered)를 기준으로 버튼 표시
-                                if (roomData.rampageTriggered) {
-                                    const resolveBtn = document.createElement('button');
-                                    resolveBtn.className = 'resolve-night-btn';
-                                    resolveBtn.textContent = '여왕의 만찬 결과 적용';
-                                    settingsColumn.appendChild(resolveBtn);
-                                } else {
-                                    const rampageBtn = document.createElement('button');
-                                    rampageBtn.className = 'trigger-rampage-btn';
-                                    rampageBtn.textContent = '여왕의 만찬 시작';
-                                    settingsColumn.appendChild(rampageBtn);
-                                }
-                            } else { // 일반 에일리언 활동
-                                // '활동 시작' 버튼이 눌렸는지(alienActionTriggered)를 기준으로 버튼 표시
-                                if (roomData.alienActionTriggered) {
-                                    const resolveBtn = document.createElement('button');
-                                    resolveBtn.className = 'resolve-night-btn';
-                                    resolveBtn.textContent = '에일리언 활동 결과 반영';
-                                    settingsColumn.appendChild(resolveBtn);
-                                } else {
-                                    const triggerBtn = document.createElement('button');
-                                    triggerBtn.className = 'trigger-alien-action-btn';
-                                    triggerBtn.textContent = '에일리언 활동 시작';
-                                    settingsColumn.appendChild(triggerBtn);
-                                }
+                            if (roomData.alienActionTriggered) {
+                                const resolveBtn = document.createElement('button');
+                                resolveBtn.className = 'resolve-night-btn';
+                                resolveBtn.textContent = '에일리언 활동 결과 반영';
+                                settingsColumn.appendChild(resolveBtn);
+                            } else {
+                                const triggerBtn = document.createElement('button');
+                                triggerBtn.className = 'trigger-alien-action-btn';
+                                triggerBtn.textContent = '에일리언 활동 시작';
+                                settingsColumn.appendChild(triggerBtn);
                             }
                         } else if (roomData.phase === 'night_crew_action') {
-                            // roomData.crewActionTriggered 상태에 따라 버튼을 다르게 표시
                             if (!roomData.crewActionTriggered) {
                                 const crewBtn = document.createElement('button');
                                 crewBtn.className = 'trigger-crew-action-btn';
@@ -349,7 +374,6 @@
                             settingsColumn.appendChild(endBtn);
                         }
                     }
-
                 } else { // 'waiting' status
                     playerColumn.innerHTML = '<h3>참가자 목록</h3>';
                     const playerList = document.createElement('ul');
@@ -407,6 +431,16 @@
                 roomsContainer.appendChild(roomDiv);
             }
         }
+
+        socket.on('timerUpdate', (data) => {
+            const { roomCode, timeLeft } = data;
+            const timerDisplay = document.getElementById(`timer-display-${roomCode}`);
+            if (timerDisplay) {
+                const minutes = Math.floor(timeLeft / 60);
+                const seconds = (timeLeft % 60).toString().padStart(2, '0');
+                timerDisplay.textContent = (timeLeft >= 0) ? `${minutes}:${seconds}` : "회의 종료!";
+            }
+        });
 
         roomsContainer.addEventListener('click', (event) => {
             const target = event.target;
