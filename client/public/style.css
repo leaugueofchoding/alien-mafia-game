@@ -1,0 +1,210 @@
+/* 공용 스타일 */
+body,
+html {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    min-height: 100%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    background-color: #1a1a2e;
+    color: #e0e0e0;
+    font-family: 'Malgun Gothic', sans-serif;
+}
+
+#root {
+    display: flex;
+    flex-direction: column;
+    gap: 30px;
+}
+
+.container {
+    text-align: center;
+    background-color: #2a2a4e;
+    padding: 40px;
+    border-radius: 15px;
+    box-shadow: 0 0 20px rgba(0, 209, 255, 0.2);
+    min-width: 350px;
+}
+
+h1 {
+    font-size: 2.5em;
+    color: #00d1ff;
+}
+
+h2 {
+    font-size: 1.8em;
+    color: #00d1ff;
+}
+
+p {
+    font-size: 1.1em;
+    line-height: 1.6;
+}
+
+input[type=text] {
+    width: 80%;
+    padding: 15px;
+    margin-bottom: 20px;
+    border-radius: 8px;
+    border: 2px solid #00d1ff;
+    background-color: #1a1a2e;
+    color: #e0e0e0;
+    font-size: 1.2em;
+}
+
+button {
+    width: 90%;
+    padding: 15px;
+    border-radius: 8px;
+    border: none;
+    background-color: #00d1ff;
+    color: #1a1a2e;
+    font-size: 1.4em;
+    font-weight: bold;
+    cursor: pointer;
+    transition: background-color 0.3s;
+}
+
+button:hover {
+    background-color: #8affff;
+}
+
+.admin-button {
+    background-color: #ff4757;
+    color: white;
+}
+
+.admin-button:hover {
+    background-color: #ff6b81;
+}
+
+ul {
+    list-style: none;
+    padding: 0;
+}
+
+li {
+    background-color: #1a1a2e;
+    margin: 10px 0;
+    padding: 15px;
+    border-radius: 8px;
+    font-size: 1.2em;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+li.dead {
+    text-decoration: line-through;
+    color: #888;
+    background-color: #222;
+}
+
+.eliminate-btn {
+    padding: 5px 10px;
+    font-size: 0.8em;
+    font-weight: normal;
+    width: auto;
+    margin: 0;
+    background-color: #dc3545;
+    color: white;
+}
+
+.eliminate-btn:disabled {
+    background-color: #6c757d;
+    cursor: not-allowed;
+}
+
+.timer {
+    font-size: 4em;
+    color: #ffc107;
+}
+
+/* 에일리언 사냥감 선택 */
+.target-btn.pre-selected {
+    border: 4px solid #feca57 !important;
+    /* 테두리를 더 두껍게 하고, !important를 추가해 최우선 적용 */
+    box-shadow: 0 0 15px #feca57;
+}
+
+#confirm-kill-btn {
+    margin-top: 20px;
+    background-color: #4cd137;
+}
+
+#confirm-kill-btn:disabled {
+    background-color: #6c757d;
+    cursor: not-allowed;
+}
+
+/* --- 탭 인터페이스 스타일 --- */
+.tab-container {
+    display: flex;
+    border-bottom: 2px solid #00d1ff;
+    margin-bottom: 20px;
+}
+
+.tab-link {
+    padding: 10px 20px;
+    cursor: pointer;
+    background-color: transparent;
+    border: none;
+    color: #e0e0e0;
+    font-size: 1.1em;
+    border-bottom: 3px solid transparent;
+    transition: all 0.3s ease;
+    width: auto;
+    /* 버튼 기본 너비 초기화 */
+    margin: 0;
+}
+
+.tab-link:hover {
+    background-color: #3a3a5e;
+}
+
+.tab-link.active {
+    color: #00d1ff;
+    border-bottom: 3px solid #00d1ff;
+    font-weight: bold;
+}
+
+.tab-content {
+    display: none;
+    /* 기본적으로 모든 콘텐츠 숨김 */
+    animation: fadeIn 0.5s;
+}
+
+.tab-content.active {
+    display: block;
+    /* 활성화된 탭의 콘텐츠만 표시 */
+}
+
+/* --- 상황판 테이블 스타일 --- */
+.summary-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 15px;
+}
+
+.summary-table th,
+.summary-table td {
+    border: 1px solid #4a4a6e;
+    padding: 8px;
+    text-align: left;
+}
+
+.summary-table th {
+    background-color: #3a3a5e;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+    }
+
+    to {
+        opacity: 1;
+    }
+}
