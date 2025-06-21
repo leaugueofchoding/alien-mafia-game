@@ -297,6 +297,33 @@
                             notice.style.color = '#007bff';
                             settingsColumn.appendChild(notice);
                         }
+                        // ★★★ 추가: 비상탈출 생존자 선택 UI ★★★
+                        else if (roomData.pendingAction === 'escape_survivor_selection') {
+                            settingsColumn.innerHTML += '<h4>비상탈출 캡슐에 탑승할 4명을 선택하세요.</h4>';
+
+                            const survivorList = document.createElement('ul');
+                            survivorList.style.listStyleType = 'none';
+                            survivorList.style.padding = '0';
+
+                            const livingPlayers = roomData.players.filter(p => p.status === 'alive');
+                            livingPlayers.forEach(p => {
+                                const item = document.createElement('li');
+                                item.innerHTML = `
+                <label>
+                    <input type="checkbox" class="survivor-checkbox" value="${p.id}">
+                    ${p.name} (${p.role || '역할 미정'})
+                </label>
+            `;
+                                survivorList.appendChild(item);
+                            });
+                            settingsColumn.appendChild(survivorList);
+
+                            const startEscapeBtn = document.createElement('button');
+                            startEscapeBtn.className = 'start-escape-sequence-btn';
+                            startEscapeBtn.textContent = '비상탈출 시퀀스 시작';
+                            startEscapeBtn.style.backgroundColor = '#6f42c1';
+                            settingsColumn.appendChild(startEscapeBtn);
+                        }
                         // 2. 여왕의 만찬이 예정된 경우
                         else if (roomData.pendingAction === 'queen_rampage') {
                             if (roomData.rampageTriggered) {
@@ -449,10 +476,6 @@
             }
         });
 
-        // admin.html의 <script> 태그 안에 있는 roomsContainer.addEventListener를 아래 코드로 통째로 교체해주세요.
-
-        // admin.html의 <script> 태그 안
-
         // 2. 이 이벤트 리스너를 아래 코드로 통째로 교체해주세요.
         roomsContainer.addEventListener('click', (event) => {
             const target = event.target;
@@ -521,6 +544,17 @@
             } else if (classList.contains('end-night-btn')) {
                 console.log('[디버그] "활동 종료 및 아침으로" 버튼 처리');
                 socket.emit('endNightAndStartMeeting', { code: roomCode });
+            } else if (classList.contains('start-escape-sequence-btn')) {
+                console.log('[디버그] "비상탈출 시퀀스 시작" 버튼 처리');
+                const checkedBoxes = roomDiv.querySelectorAll('.survivor-checkbox:checked');
+
+                if (checkedBoxes.length !== 4) {
+                    alert('반드시 4명을 선택해야 합니다.');
+                    return;
+                }
+
+                const survivorIds = Array.from(checkedBoxes).map(box => box.value);
+                socket.emit('startEscapeSequence', { code: roomCode, survivorIds: survivorIds });
             }
         });
     </script>

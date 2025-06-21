@@ -437,6 +437,44 @@ io.on('connection', (socket) => {
     broadcastUpdates(code);
   });
 
+  // server/index.js
+
+  // 1. 'engineerChoseEscape' 핸들러 추가
+  socket.on('engineerChoseEscape', () => {
+    let roomCode = '';
+    // 소켓 ID로 현재 방을 찾습니다.
+    for (const code in gameRooms) {
+      if (gameRooms[code].players.some(p => p.id === socket.id)) { roomCode = code; break; }
+    }
+    if (!roomCode) return;
+
+    const room = gameRooms[roomCode];
+    console.log(`[${roomCode}] 엔지니어가 비상탈출을 선택했습니다.`);
+
+    // 관리자에게 생존자 선택 UI를 띄우도록 상태 변경
+    room.pendingAction = 'escape_survivor_selection';
+    broadcastUpdates(roomCode);
+  });
+
+  // 2. 'startEscapeSequence' 핸들러 추가
+  socket.on('startEscapeSequence', (data) => {
+    const { code, survivorIds } = data;
+    const room = gameRooms[code];
+    if (!room) return;
+
+    console.log(`[${code}] 비상탈출 시퀀스가 시작되었습니다. 탑승자:`, survivorIds);
+
+    // 선택된 생존자 정보를 방 상태에 저장
+    room.escapees = room.players.filter(p => survivorIds.includes(p.id));
+
+    // 게임 단계를 '비상탈출 시퀀스'로 전환
+    room.phase = 'escape_sequence';
+    room.escapeStep = 0; // 0단계부터 시작
+    delete room.pendingAction; // '생존자 선택' 상태는 완료되었으므로 삭제
+
+    broadcastUpdates(code);
+  });
+
   socket.on('useSoldierAbility', (data) => {
     const { targetId } = data;
     const selectorId = socket.id;
