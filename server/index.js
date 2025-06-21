@@ -70,6 +70,35 @@ const ENDING_MESSAGES = {
   }
 };
 
+function endGame(roomCode, endingKey, detailLog = '') {
+  const room = gameRooms[roomCode];
+  if (!room || room.status === 'game_over') return; // 이미 종료된 경우 중복 실행 방지
+
+  const ending = ENDING_MESSAGES[endingKey];
+  if (!ending) {
+    console.error(`[${roomCode}] FATAL: Could not find ending for key: ${endingKey}`);
+    return;
+  }
+
+  console.log(`[${roomCode}] Game Over. Winner: ${ending.winner}, Reason: ${ending.reason}`);
+
+  room.status = 'game_over';
+  room.winner = ending.winner;
+
+  // ★★★ 모든 플레이어의 이름과 역할을 배열로 만듭니다. ★★★
+  const rolesPayload = room.players.map(p => ({ name: p.name, role: p.role || '역할 미정' }));
+
+  const gameOverPayload = {
+    winner: ending.winner,
+    reason: ending.reason,
+    detailLog: detailLog,
+    roles: rolesPayload // ★★★ 역할 정보 추가 ★★★
+  };
+
+  io.to(roomCode).emit('gameOver', gameOverPayload);
+  broadcastUpdates(roomCode);
+}
+
 function shuffle(array) {
   for (let i = array.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
@@ -521,7 +550,7 @@ io.on('connection', (socket) => {
     delete room.pendingAction;
 
     room.escapeLog.push(">>> 비상탈출 시퀀스 가동. 캡슐 인원 확인 시작...");
-    room.escapeLog.push(">>> 관리자는 [관문 1단계 확인] 버튼을 눌러주세요.");
+    room.escapeLog.push(">>> 다음 보안 검사를 진행합니다... [ 1단계 확인] 버튼을 눌러주세요.");
 
     broadcastUpdates(code);
   });
@@ -567,16 +596,25 @@ io.on('connection', (socket) => {
     let nextStep = room.escapeStep + 1;
 
     switch (room.escapeStep) {
-      case 0: // 1관문: 뚱이 체크
+      // ★★★ 위 case 0: 블록을 아래 코드로 완전히 교체해주세요. ★★★
+      case 0: // 1관문: 식량 창고 확인 (뚱이 체크)
         const hasGlutton = room.escapees.some(p => p.role === '뚱이');
         if (hasGlutton) {
-          resultMessage = "[1관문 실패] '뚱이'가 탑승했습니다. 캡슐의 모든 식량이 사라집니다...";
-          isGameOver = true;
-          const ending = ENDING_MESSAGES['alien_win_glutton'];
-          room.winner = ending.winner;
-          io.to(code).emit('gameOver', ending);
+          // 1. 요청된 메시지를 로그에 추가합니다.
+          room.escapeLog.push(">>> 치명적인 식량 약탈자 뚱이가 잠입된 것이 확인되었습니다.");
+
+          // 2. 이 메시지를 즉시 클라이언트에 전송하여 타이핑 애니메이션을 시작시킵니다.
+          broadcastUpdates(code);
+
+          // 3. 7초 후에 게임 종료 함수를 호출합니다.
+          setTimeout(() => {
+            endGame(code, 'alien_win_glutton');
+          }, 4500);
+
+          // 4. 비동기 타이머가 작동하므로, 여기서 함수의 추가 실행을 막습니다.
+          return;
         } else {
-          resultMessage = "[1관문 통과] 식량은 안전합니다. 다음 관문을 확인합니다.";
+          resultMessage = "[1차 관문 통과] 식량 창고는 안전합니다. 다행히 굶주린 자는 없는 것 같습니다.";
         }
         break;
 
@@ -648,7 +686,7 @@ io.on('connection', (socket) => {
       room.status = 'game_over';
     } else {
       room.escapeStep = nextStep;
-      room.escapeLog.push(`>>> 관리자는 [관문 ${nextStep + 1}단계 확인] 버튼을 눌러주세요.`);
+      room.escapeLog.push(`>>> 다음 보안 검사를 진행합니다... [ ${nextStep + 1}단계 확인] 버튼을 눌러주세요.`);
     }
 
     broadcastUpdates(code);
