@@ -323,6 +323,19 @@
                             startEscapeBtn.textContent = '비상탈출 시퀀스 시작';
                             startEscapeBtn.style.backgroundColor = '#6f42c1';
                             settingsColumn.appendChild(startEscapeBtn);
+                            
+                            const escapeTimerBtn = document.createElement('button');
+                            escapeTimerBtn.className = 'escape-timer-btn';
+                            escapeTimerBtn.textContent = '3분 30초 타이머 시작';
+                            escapeTimerBtn.style.backgroundColor = '#ffc107';
+                            escapeTimerBtn.style.color = '#212529';
+                            settingsColumn.appendChild(escapeTimerBtn);
+
+                            const forceFailBtn = document.createElement('button');
+                            forceFailBtn.className = 'force-escape-fail-btn';
+                            forceFailBtn.textContent = '비상탈출 실패 처리';
+                            forceFailBtn.style.backgroundColor = '#dc3545';
+                            settingsColumn.appendChild(forceFailBtn);
                         }
                         // 2. 여왕의 만찬이 예정된 경우
                         else if (roomData.pendingAction === 'queen_rampage') {
@@ -555,6 +568,16 @@
 
                 const survivorIds = Array.from(checkedBoxes).map(box => box.value);
                 socket.emit('startEscapeSequence', { code: roomCode, survivorIds: survivorIds });
+            } else if (classList.contains('escape-timer-btn')) {
+                console.log('[디버그] "비상탈출 타이머 시작" 버튼 처리');
+                socket.emit('startEscapeTimer', roomCode);
+                target.textContent = '타이머 작동 중...';
+                target.disabled = true;
+            } else if (classList.contains('force-escape-fail-btn')) {
+                console.log('[디버그] "비상탈출 실패 처리" 버튼 처리');
+                if (confirm('정말로 시간 초과로 비상탈출을 실패 처리하시겠습니까?')) {
+                    socket.emit('forceEscapeFailure', { code: roomCode });
+                }
             }
         });
     </script>

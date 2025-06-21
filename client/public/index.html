@@ -236,6 +236,25 @@
     `;
         }
 
+        // index.html의 <script> 안에 새로운 함수를 추가해주세요.
+
+        function showEscapeSelectionAnnouncement() {
+            clearContainer();
+            playerContainer.innerHTML = `
+        <h2>비상탈출 인원 선정</h2>
+        <p style="font-size: 1.2em; margin-top: 20px;">이제 탐사선의 운명이 걸린 마지막 선택의 시간입니다.</p>
+        <p>생존자들은 회의를 통해 캡슐에 탑승할 4명을 선정해야 합니다.</p>
+        <div style="margin-top:25px; padding: 15px; border: 1px solid #ffc107; border-radius: 5px; background-color: rgba(255, 193, 7, 0.1);">
+            <h4 style="margin-top:0; color: #ffc107;">주의사항</h4>
+            <ul style="text-align: left; margin: 10px auto; max-width: 400px;">
+                <li><b style="color: #28a745;">군인, 엔지니어, 의사</b>가 없으면 위기가 찾아옵니다.</li>
+                <li><b style="color: #dc3545;">뚱이, 에일리언</b>이 탑승하면 위기가 찾아옵니다.</li>
+            </ul>
+        </div>
+        <h1 class="timer" id="timer-display" style="margin-top: 30px;">03:30</h1>
+    `;
+        }
+
 
         socket.on('connect', () => console.log('서버에 성공적으로 연결되었습니다.'));
 
@@ -257,6 +276,11 @@
             if (room.pendingAction === 'engineer_choice') {
                 const isEngineer = me.role === '엔지니어';
                 showEngineerChoiceScreen(isEngineer);
+                return;
+            }
+
+            if (room.pendingAction === 'escape_survivor_selection') {
+                showEscapeSelectionAnnouncement();
                 return;
             }
 

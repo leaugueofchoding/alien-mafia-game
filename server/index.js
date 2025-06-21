@@ -44,6 +44,10 @@ const ENDING_MESSAGES = {
   alien_win_assassinate: {
     winner: '에일리언', reason: '탐사대의 핵심 인물인 함장과 엔지니어를 모두 제거하는 데 성공했습니다!'
   },
+  alien_win_escape_timeout: {
+    winner: '에일리언',
+    reason: '탐사대는 제한 시간 내에 의견을 모으지 못하고 귀중한 탈출 기회를 놓치고 말았습니다. 함선에 남은 이들에게 남은 것은 절망뿐입니다.'
+  },
 };
 
 function shuffle(array) {
@@ -439,10 +443,9 @@ io.on('connection', (socket) => {
 
   // server/index.js
 
-  // 1. 'engineerChoseEscape' 핸들러 추가
+  // 'engineerChoseEscape' 핸들러 추가
   socket.on('engineerChoseEscape', () => {
     let roomCode = '';
-    // 소켓 ID로 현재 방을 찾습니다.
     for (const code in gameRooms) {
       if (gameRooms[code].players.some(p => p.id === socket.id)) { roomCode = code; break; }
     }
@@ -451,7 +454,17 @@ io.on('connection', (socket) => {
     const room = gameRooms[roomCode];
     console.log(`[${roomCode}] 엔지니어가 비상탈출을 선택했습니다.`);
 
-    // 관리자에게 생존자 선택 UI를 띄우도록 상태 변경
+    // ★★★ 추가: 생존자 수 체크 ★★★
+    const livingPlayers = room.players.filter(p => p.status === 'alive');
+    if (livingPlayers.length < 4) {
+      console.log(`[${roomCode}] 생존자가 4명 미만이라 비상탈출이 불가능합니다.`);
+      room.status = 'game_over';
+      const ending = { winner: '에일리언', reason: `생존 인원이 4명보다 적어 비상탈출 캡슐을 가동할 수 없습니다. 남은 탐사대는 절망에 빠졌습니다.` };
+      io.to(roomCode).emit('gameOver', ending);
+      io.to(ADMIN_ROOM).emit('updateAdmin', { rooms: gameRooms });
+      return;
+    }
+
     room.pendingAction = 'escape_survivor_selection';
     broadcastUpdates(roomCode);
   });
@@ -472,6 +485,38 @@ io.on('connection', (socket) => {
     room.escapeStep = 0; // 0단계부터 시작
     delete room.pendingAction; // '생존자 선택' 상태는 완료되었으므로 삭제
 
+    broadcastUpdates(code);
+  });
+
+  // 비상탈출 타이머 시작 핸들러
+  socket.on('startEscapeTimer', (roomCode) => {
+    if (!gameRooms[roomCode] || timerIntervals[roomCode]) return;
+    const room = gameRooms[roomCode];
+    room.timeLeft = 210; // 3분 30초
+
+    timerIntervals[roomCode] = setInterval(() => {
+      const payload = { roomCode: roomCode, timeLeft: room.timeLeft };
+      io.to(roomCode).emit('timerUpdate', payload);
+      io.to(ADMIN_ROOM).emit('timerUpdate', payload);
+
+      room.timeLeft--;
+
+      if (room.timeLeft < 0) {
+        clearInterval(timerIntervals[roomCode]);
+        delete timerIntervals[roomCode];
+      }
+    }, 1000);
+  });
+
+  // 관리자에 의한 비상탈출 실패 처리 핸들러
+  socket.on('forceEscapeFailure', (data) => {
+    const { code } = data;
+    const room = gameRooms[code];
+    if (!room) return;
+
+    room.status = 'game_over';
+    const ending = ENDING_MESSAGES['alien_win_escape_timeout'];
+    io.to(code).emit('gameOver', { winner: ending.winner, reason: ending.reason });
     broadcastUpdates(code);
   });
 
