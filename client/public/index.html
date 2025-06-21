@@ -7,6 +7,23 @@
     <title>에일리언 마피아 게임</title>
     <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
     <link rel="stylesheet" href="style.css">
+
+    <style>
+        .typing-cursor {
+            display: inline-block;
+            width: 10px;
+            height: 1.2em;
+            background-color: #00ff41;
+            animation: blink 1s step-end infinite;
+            vertical-align: bottom;
+        }
+
+        @keyframes blink {
+            50% {
+                opacity: 0;
+            }
+        }
+    </style>
 </head>
 
 <body>
@@ -33,6 +50,7 @@
 
         let amIAlive = true;
         let huntSelections = [];
+        let displayedLogCount = 0;
 
         function clearContainer() {
             playerContainer.innerHTML = '';
@@ -255,6 +273,70 @@
     `;
         }
 
+        function typewriter(element, text, speed = 50, callback) {
+            let i = 0;
+            element.innerHTML = ''; // 내용을 비우고 시작
+            const cursor = document.createElement('span');
+            cursor.className = 'typing-cursor';
+            element.appendChild(cursor);
+
+            function type() {
+                if (i < text.length) {
+                    element.insertBefore(document.createTextNode(text.charAt(i)), cursor);
+                    i++;
+                    setTimeout(type, speed);
+                } else {
+                    if (cursor.parentNode) {
+                        cursor.parentNode.removeChild(cursor); // 타이핑 끝나면 커서 제거
+                    }
+                    if (callback) callback();
+                }
+            }
+            type();
+        }
+
+        // ★★★ 문제를 수정한 완성된 함수 ★★★
+        function showEscapeSequenceScreen(room) {
+            const containerId = 'escape-log-container';
+            let container = document.getElementById(containerId);
+
+            // 화면이 아직 없으면 기본 구조를 생성
+            if (!container) {
+                clearContainer();
+                playerContainer.innerHTML = `
+                <h2 style="color: #ffc107;">비상탈출 시퀀스 가동 중</h2>
+                <p>생존을 위한 마지막 관문들을 통과해야 합니다.</p>
+                <div id="${containerId}" style="text-align: left; margin-top: 20px; padding: 15px; border: 1px solid #666; background-color: #222; border-radius: 5px; height: 250px; overflow-y: auto; font-family: 'Courier New', Courier, monospace; color: #00ff41;">
+                </div>
+                <p style="margin-top: 20px;">관리자가 다음 단계를 진행하기를 기다립니다...</p>
+            `;
+                container = document.getElementById(containerId);
+                displayedLogCount = 0; // 화면을 처음 그릴 때 로그 카운트 초기화
+            }
+
+            const logs = room.escapeLog || [];
+            // 새로 추가된 로그만 타이핑 애니메이션으로 출력
+            if (logs.length > displayedLogCount) {
+                const newLogs = logs.slice(displayedLogCount);
+
+                function printNextLog(index = 0) {
+                    if (index < newLogs.length) {
+                        const logEntry = document.createElement('p');
+                        logEntry.style.margin = '0 0 5px 0';
+                        container.appendChild(logEntry);
+                        // 컨테이너 스크롤을 항상 맨 아래로 이동
+                        container.scrollTop = container.scrollHeight;
+
+                        typewriter(logEntry, newLogs[index], 30, () => {
+                            printNextLog(index + 1);
+                        });
+                    }
+                }
+
+                printNextLog();
+                displayedLogCount = logs.length; // 출력된 로그 수 갱신
+            }
+        }
 
         socket.on('connect', () => console.log('서버에 성공적으로 연결되었습니다.'));
 
@@ -312,6 +394,9 @@
                         break;
                     case 'night_crew_action':
                         showCrewActionScreen(room);
+                        break;
+                    case 'escape_sequence':
+                        showEscapeSequenceScreen(room);
                         break;
                     default:
                         showLobby(room, playerContainer);

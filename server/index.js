@@ -48,6 +48,10 @@ const ENDING_MESSAGES = {
     winner: '에일리언',
     reason: '탐사대는 제한 시간 내에 의견을 모으지 못하고 귀중한 탈출 기회를 놓치고 말았습니다. 함선에 남은 이들에게 남은 것은 절망뿐입니다.'
   },
+  alien_win_glutton: {
+    winner: '에일리언',
+    reason: '치명적인 식량 약탈자, \'뚱이\'가 캡슐에 탑승했습니다. 살아남기 위해 발버둥 쳤지만, 결국 모두 굶주림 속에서 비참한 최후를 맞이했습니다.'
+  },
 };
 
 function shuffle(array) {
@@ -117,6 +121,8 @@ function checkWinConditions(roomCode) {
 
   return false;
 }
+
+// server/index.js
 
 // server/index.js
 
@@ -469,7 +475,7 @@ io.on('connection', (socket) => {
     broadcastUpdates(roomCode);
   });
 
-  // 2. 'startEscapeSequence' 핸들러 추가
+  // 'startEscapeSequence' 핸들러를 아래 코드로 교체해주세요.
   socket.on('startEscapeSequence', (data) => {
     const { code, survivorIds } = data;
     const room = gameRooms[code];
@@ -480,10 +486,14 @@ io.on('connection', (socket) => {
     // 선택된 생존자 정보를 방 상태에 저장
     room.escapees = room.players.filter(p => survivorIds.includes(p.id));
 
-    // 게임 단계를 '비상탈출 시퀀스'로 전환
+    // 게임 단계를 '비상탈출 시퀀스'로 전환하고, 결과 로그를 초기화합니다.
     room.phase = 'escape_sequence';
     room.escapeStep = 0; // 0단계부터 시작
+    room.escapeLog = []; // 관문 결과를 기록할 배열
     delete room.pendingAction; // '생존자 선택' 상태는 완료되었으므로 삭제
+
+    // 첫 번째 관문 시작을 알리는 메시지를 로그에 추가
+    room.escapeLog.push("비상탈출 시퀀스가 가동되었습니다. 생존을 위한 관문 확인을 시작합니다...");
 
     broadcastUpdates(code);
   });
@@ -517,6 +527,42 @@ io.on('connection', (socket) => {
     room.status = 'game_over';
     const ending = ENDING_MESSAGES['alien_win_escape_timeout'];
     io.to(code).emit('gameOver', { winner: ending.winner, reason: ending.reason });
+    broadcastUpdates(code);
+  });
+
+  // 3. 비상 탈출 관문 핸들러
+  socket.on('advanceEscapeSequence', (data) => {
+    const { code } = data;
+    const room = gameRooms[code];
+    if (!room || room.phase !== 'escape_sequence') return;
+
+    // 현재 단계에 따라 로직을 분기합니다.
+    switch (room.escapeStep) {
+      // [1관문] 뚱이 체크 시작
+      case 0:
+        console.log(`[${code}] 탈출 시퀀스 1단계: 뚱이 체크 시작`);
+        room.escapeStep = 0.5; // 질문 공개 단계로 변경
+        break;
+
+      // [1관문] 뚱이 체크 결과 판정
+      case 0.5:
+        const hasGlutton = room.escapees.some(p => p.role === '뚱이');
+        if (hasGlutton) {
+          console.log(`[${code}] 뚱이 발견! 비상탈출 실패.`);
+          room.escapeResult.step1 = 'fail';
+          room.status = 'game_over';
+          const ending = ENDING_MESSAGES['alien_win_glutton'];
+          io.to(code).emit('gameOver', { winner: ending.winner, reason: ending.reason });
+        } else {
+          console.log(`[${code}] 뚱이 없음. 1관문 통과.`);
+          room.escapeResult.step1 = 'pass';
+          room.escapeStep = 1; // 다음 관문 대기 단계로 변경
+        }
+        break;
+
+      // 다음 관문들은 여기에 case 1, 1.5, ... 로 추가될 예정입니다.
+    }
+
     broadcastUpdates(code);
   });
 
