@@ -41,6 +41,10 @@ const ENDING_MESSAGES = {
     winner: '탐사대',
     reason: '마침내 에일리언 무리의 우두머리, 에일리언 여왕을 제거하는 데 성공했습니다! 탐사선에 평화가 찾아왔습니다.'
   },
+  crew_win_escape_success: {
+    winner: '탐사대',
+    reason: '수많은 위기를 극복하고, 생존자들은 무사히 지구로 귀환했습니다. 당신들은 인류의 영웅입니다!'
+  },
   alien_win_assassinate: {
     winner: '에일리언', reason: '탐사대의 핵심 인물인 함장과 엔지니어를 모두 제거하는 데 성공했습니다!'
   },
@@ -52,6 +56,18 @@ const ENDING_MESSAGES = {
     winner: '에일리언',
     reason: '치명적인 식량 약탈자, \'뚱이\'가 캡슐에 탑승했습니다. 살아남기 위해 발버둥 쳤지만, 결국 모두 굶주림 속에서 비참한 최후를 맞이했습니다.'
   },
+  alien_win_escape_aliens: {
+    winner: '에일리언',
+    reason: '에일리언이 캡슐에 잠입하는 것을 막지 못했습니다. 캡슐 안에서 벌어진 최후의 사투 끝에, 탐사대는 전멸하고 말았습니다.'
+  },
+  alien_win_escape_plague: {
+    winner: '에일리언',
+    reason: '캡슐 내에 역병이 창궐했으나, 의사가 없어 속수무책으로 당했습니다. 생존자들은 고통 속에서 죽음을 맞이했습니다.'
+  },
+  alien_win_escape_malfunction: {
+    winner: '에일리언',
+    reason: '캡슐에 치명적인 결함이 발생했지만, 엔지니어의 부재로 수리할 수 없었습니다. 캡슐은 우주의 미아가 되었습니다.'
+  }
 };
 
 function shuffle(array) {
@@ -137,17 +153,19 @@ function eliminatePlayer(roomCode, playerId, cause = 'unknown') {
     player.causeOfDeath = cause;
     io.to(playerId).emit('youAreDead');
 
-    // ★★★ 핵심 수정 ★★★
-    // 함장 사망 시, 이벤트를 직접 보내는 대신 '상태'를 변경하고 전파합니다.
+    const gameEndedByElimination = checkWinConditions(roomCode);
+    if (gameEndedByElimination) return true;
+
     if (player.role === '함장') {
       const engineer = room.players.find(p => p.role === '엔지니어' && p.status === 'alive');
       if (engineer) {
-        // '엔지니어의 선택'이 필요한 상황임을 게임 상태에 기록합니다.
         room.pendingAction = 'engineer_choice';
-        // broadcastUpdates를 통해 모든 클라이언트(플레이어, 관리자)가 이 상태를 알게 됩니다.
-        broadcastUpdates(roomCode);
+      } else {
+        // 함장도 엔지니어도 모두 죽었으면 즉시 에일리언 승리
+        checkWinConditions(roomCode);
       }
     }
+    broadcastUpdates(roomCode);
     return true;
   }
   return false;
@@ -231,24 +249,36 @@ io.on('connection', (socket) => {
   // server/index.js
 
   // 1. 이 함수로 교체해주세요.
+  // io.on('connection', (socket) => { ... 안에 있는 핸들러입니다 ...
+
+  // ★★★ 기존 코드를 아래 코드로 완전히 교체해주세요. ★★★
   socket.on('nextPhase', (data) => {
     const { code, phase, day } = data;
-    const room = gameRooms[code];
-    if (!room) return;
+    console.log(`[${code}] Received nextPhase event. Target phase: ${phase}, Day: ${day}`); // 디버깅 로그 추가
 
-    // ★★★ 추가: 타이머 인터벌 초기화 로직 ★★★
-    // 만약 현재 방에 실행중인 타이머가 있다면, 다음 단계로 넘어가기 전에 종료합니다.
+    const room = gameRooms[code];
+    if (!room) {
+      console.error(`[${code}] Error: Room not found for nextPhase.`);
+      return;
+    }
+
     if (timerIntervals[code]) {
       clearInterval(timerIntervals[code]);
       delete timerIntervals[code];
-      console.log(`[${code}] 회의 단계가 종료되어 타이머를 초기화합니다.`);
+      console.log(`[${code}] Cleared existing meeting timer.`);
     }
 
     room.phase = phase;
     room.day = parseInt(day, 10);
+
+    // 밤이 되면 에일리언 활동 관련 상태 초기화
     if (phase === 'night_alien_action') {
       room.selections = {};
+      delete room.alienActionTriggered; // 다음 밤을 위해 초기화
+      delete room.crewActionTriggered; // 다음 밤을 위해 초기화
     }
+
+    console.log(`[${code}] Room state updated. New phase: ${room.phase}. Broadcasting...`);
     broadcastUpdates(code);
   });
 
@@ -309,41 +339,42 @@ io.on('connection', (socket) => {
     broadcastUpdates(code);
   });
 
-  // server/index.js
+  // io.on('connection', (socket) => { ... 안에 있는 핸들러입니다 ...
 
-  // 이 함수를 아래 코드로 교체해주세요.
+  // ★★★ 기존 코드를 아래 코드로 완전히 교체해주세요. ★★★
   socket.on('startMeetingTimer', (roomCode) => {
-    if (!gameRooms[roomCode] || timerIntervals[roomCode]) return;
+    console.log(`[${roomCode}] Received startMeetingTimer event.`); // 디버깅 로그 추가
+
+    if (!gameRooms[roomCode]) {
+      console.error(`[${roomCode}] Error: Room not found.`);
+      return;
+    }
+    if (timerIntervals[roomCode]) {
+      console.warn(`[${roomCode}] Warning: Timer is already running.`);
+      return;
+    }
+
     const room = gameRooms[roomCode];
-    room.timeLeft = 120;
+    room.timeLeft = 120; // 2분
+
+    // 즉시 첫 업데이트를 전송하여 '02:00'이 바로 표시되도록 함
+    const initialPayload = { roomCode: roomCode, timeLeft: room.timeLeft };
+    io.to(roomCode).emit('timerUpdate', initialPayload);
+    io.to(ADMIN_ROOM).emit('timerUpdate', initialPayload);
+    console.log(`[${roomCode}] Timer started. Initial time: ${room.timeLeft}s`);
 
     timerIntervals[roomCode] = setInterval(() => {
+      room.timeLeft--;
       const payload = { roomCode: roomCode, timeLeft: room.timeLeft };
       io.to(roomCode).emit('timerUpdate', payload);
       io.to(ADMIN_ROOM).emit('timerUpdate', payload);
 
-      // ★★★ 디버깅용 로그 추가 ★★★
-      console.log(`[디버그] 방 ${roomCode}의 타이머(${room.timeLeft}초) 정보를 관리자에게 전송했습니다.`);
-
-      room.timeLeft--;
-
       if (room.timeLeft < 0) {
         clearInterval(timerIntervals[roomCode]);
         delete timerIntervals[roomCode];
+        console.log(`[${roomCode}] Timer finished and cleared.`);
       }
     }, 1000);
-  });
-
-  socket.on('revivePlayer', (data) => {
-    const { roomCode, playerId } = data;
-    const room = gameRooms[roomCode];
-    if (!room) return;
-    const player = room.players.find(p => p.id === playerId);
-    if (player) {
-      player.status = 'alive';
-      io.to(playerId).emit('youAreAlive');
-      broadcastUpdates(roomCode);
-    }
   });
 
   socket.on('nightAction', (data) => {
@@ -483,17 +514,142 @@ io.on('connection', (socket) => {
 
     console.log(`[${code}] 비상탈출 시퀀스가 시작되었습니다. 탑승자:`, survivorIds);
 
-    // 선택된 생존자 정보를 방 상태에 저장
     room.escapees = room.players.filter(p => survivorIds.includes(p.id));
-
-    // 게임 단계를 '비상탈출 시퀀스'로 전환하고, 결과 로그를 초기화합니다.
     room.phase = 'escape_sequence';
     room.escapeStep = 0; // 0단계부터 시작
-    room.escapeLog = []; // 관문 결과를 기록할 배열
-    delete room.pendingAction; // '생존자 선택' 상태는 완료되었으므로 삭제
+    room.escapeLog = [];
+    delete room.pendingAction;
 
-    // 첫 번째 관문 시작을 알리는 메시지를 로그에 추가
-    room.escapeLog.push("비상탈출 시퀀스가 가동되었습니다. 생존을 위한 관문 확인을 시작합니다...");
+    room.escapeLog.push(">>> 비상탈출 시퀀스 가동. 캡슐 인원 확인 시작...");
+    room.escapeLog.push(">>> 관리자는 [관문 1단계 확인] 버튼을 눌러주세요.");
+
+    broadcastUpdates(code);
+  });
+
+  socket.on('startEscapeTimer', (roomCode) => {
+    if (!gameRooms[roomCode] || timerIntervals[roomCode]) return;
+    const room = gameRooms[roomCode];
+    room.timeLeft = 210; // 3분 30초
+
+    timerIntervals[roomCode] = setInterval(() => {
+      const payload = { roomCode: roomCode, timeLeft: room.timeLeft };
+      io.to(roomCode).emit('timerUpdate', payload);
+      io.to(ADMIN_ROOM).emit('timerUpdate', payload);
+
+      room.timeLeft--;
+
+      if (room.timeLeft < 0) {
+        clearInterval(timerIntervals[roomCode]);
+        delete timerIntervals[roomCode];
+      }
+    }, 1000);
+  });
+
+  socket.on('forceEscapeFailure', (data) => {
+    const { code } = data;
+    const room = gameRooms[code];
+    if (!room) return;
+
+    room.status = 'game_over';
+    const ending = ENDING_MESSAGES['alien_win_escape_timeout'];
+    room.winner = ending.winner; // ★★★ 추가
+    io.to(code).emit('gameOver', { winner: ending.winner, reason: ending.reason });
+    broadcastUpdates(code);
+  });
+
+  socket.on('resolveEscapeStep', (data) => {
+    const { code } = data;
+    const room = gameRooms[code];
+    if (!room || room.phase !== 'escape_sequence') return;
+
+    let resultMessage = '';
+    let isGameOver = false;
+    let nextStep = room.escapeStep + 1;
+
+    switch (room.escapeStep) {
+      case 0: // 1관문: 뚱이 체크
+        const hasGlutton = room.escapees.some(p => p.role === '뚱이');
+        if (hasGlutton) {
+          resultMessage = "[1관문 실패] '뚱이'가 탑승했습니다. 캡슐의 모든 식량이 사라집니다...";
+          isGameOver = true;
+          const ending = ENDING_MESSAGES['alien_win_glutton'];
+          room.winner = ending.winner;
+          io.to(code).emit('gameOver', ending);
+        } else {
+          resultMessage = "[1관문 통과] 식량은 안전합니다. 다음 관문을 확인합니다.";
+        }
+        break;
+
+      case 1: // 2관문: 에일리언 체크
+        const aliensOnBoard = room.escapees.filter(p => p.role.includes('에일리언'));
+        const soldierOnBoard = room.escapees.some(p => p.role === '군인');
+        if (aliensOnBoard.length > 0) {
+          if (soldierOnBoard) {
+            resultMessage = "[2관문 통과] 에일리언이 잠입했으나, 용맹한 군인의 활약으로 처치했습니다!";
+          } else {
+            resultMessage = "[2관문 실패] 군인이 없는 상황에서 에일리언이 잠입했습니다. 최후의 사투가 벌어집니다...";
+            isGameOver = true;
+            const ending = ENDING_MESSAGES['alien_win_escape_aliens'];
+            room.winner = ending.winner;
+            io.to(code).emit('gameOver', ending);
+          }
+        } else {
+          resultMessage = "[2관문 통과] 에일리언의 잠입은 없었습니다. 다음 관문을 확인합니다.";
+        }
+        break;
+
+      case 2: // 3관문: 의사 체크
+        const hasPlague = Math.random() < 0.5; // 50% 확률로 역병 발생
+        const doctorOnBoard = room.escapees.some(p => p.role === '의사');
+        if (hasPlague) {
+          if (doctorOnBoard) {
+            resultMessage = "[3관문 통과] 역병이 창궐했으나, 유능한 의사가 모두를 치료했습니다.";
+          } else {
+            resultMessage = "[3관문 실패] 역병이 창궐했지만, 치료할 의사가 없습니다...";
+            isGameOver = true;
+            const ending = ENDING_MESSAGES['alien_win_escape_plague'];
+            room.winner = ending.winner;
+            io.to(code).emit('gameOver', ending);
+          }
+        } else {
+          resultMessage = "[3관문 통과] 다행히 캡슐 내부는 위생적이었습니다. 다음 관문을 확인합니다.";
+        }
+        break;
+
+      case 3: // 4관문: 엔지니어 체크
+        const hasMalfunction = Math.random() < 0.5; // 50% 확률로 결함 발생
+        const engineerOnBoard = room.escapees.some(p => p.role === '엔지니어');
+        if (hasMalfunction) {
+          if (engineerOnBoard) {
+            resultMessage = "[4관문 통과] 캡슐에 결함이 발생했지만, 엔지니어가 성공적으로 수리했습니다.";
+          } else {
+            resultMessage = "[4관문 실패] 치명적인 결함이 발생했으나, 수리할 엔지니어가 없습니다...";
+            isGameOver = true;
+            const ending = ENDING_MESSAGES['alien_win_escape_malfunction'];
+            room.winner = ending.winner;
+            io.to(code).emit('gameOver', ending);
+          }
+        } else {
+          resultMessage = "[4관문 통과] 캡슐은 아무 이상 없었습니다. 지구로 귀환합니다!";
+        }
+
+        // 마지막 관문 통과 시 탐사대 승리 처리
+        if (!isGameOver) {
+          const finalEnding = ENDING_MESSAGES['crew_win_escape_success'];
+          room.winner = finalEnding.winner;
+          io.to(code).emit('gameOver', finalEnding);
+          isGameOver = true;
+        }
+        break;
+    }
+
+    room.escapeLog.push(`>>> ${resultMessage}`);
+    if (isGameOver) {
+      room.status = 'game_over';
+    } else {
+      room.escapeStep = nextStep;
+      room.escapeLog.push(`>>> 관리자는 [관문 ${nextStep + 1}단계 확인] 버튼을 눌러주세요.`);
+    }
 
     broadcastUpdates(code);
   });
@@ -583,6 +739,13 @@ io.on('connection', (socket) => {
         broadcastUpdates(roomCode);
       }
     }
+  });
+
+  // ★★★ 위 코드를 아래 코드로 교체해주세요. ★★★
+  socket.on('eliminatePlayer', (data) => {
+    const { roomCode, playerId, cause } = data;
+    // 서버에서는 확인 절차 없이 바로 실행합니다. (확인은 admin.html에서 이미 완료됨)
+    eliminatePlayer(roomCode, playerId, cause || 'admin_action');
   });
 
   socket.on('useCaptainAbility', (data) => {
