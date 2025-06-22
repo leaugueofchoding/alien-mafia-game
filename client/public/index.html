@@ -547,12 +547,8 @@
 
         // index.html의 <script> 태그 안
 
-        // index.html의 <script> 태그 안
+        // ★★★ 기존 showRouletteScreen, rouletteResult를 모두 지우고 아래 코드로 교체 ★★★
 
-        // ★★★ 기존 showRouletteScreen 함수를 아래 코드로 교체 ★★★
-        // index.html의 <script> 태그 안
-
-        // ★★★ 이 함수를 아래 코드로 교체해주세요. ★★★
         function showRouletteScreen(data) {
             const oldOverlay = document.getElementById('roulette-overlay');
             if (oldOverlay) oldOverlay.remove();
@@ -561,41 +557,43 @@
             overlay.id = 'roulette-overlay';
 
             let cardsHtml = '';
-            data.options.forEach(option => {
+            data.options.forEach((option, index) => {
+                // is-shuffling 클래스를 겉 껍데기에 부여
                 cardsHtml += `
-            <div class="roulette-card" data-result="${option.back}">
-                <div class="card-face card-front">${option.front}</div>
-                <div class="card-face card-back">${option.back}</div>
+            <div class="roulette-card is-shuffling" data-result="${option.back}">
+                <div class="card-flipper">
+                    <div class="card-shuffler" style="animation-delay: ${index * 0.25}s">
+                        <div class="card-face card-front">${option.front}</div>
+                        <div class="card-face card-back">${option.back}</div>
+                    </div>
+                </div>
             </div>
         `;
             });
 
             overlay.innerHTML = `<h1>${data.title}</h1><div id="roulette-container">${cardsHtml}</div>`;
             document.body.appendChild(overlay);
-
-            // ★★★ 이 부분을 추가해주세요. ★★★
-            // 각 카드에 시간차를 두어 셔플 애니메이션이 비동기적으로 보이게 합니다.
-            const cards = overlay.querySelectorAll('.roulette-card');
-            cards.forEach((card, index) => {
-                card.style.animationDelay = `${index * 0.25}s`;
-            });
         }
 
         socket.on('showRoulette', (data) => {
-            // ★★★ 1단계 디버깅 로그 ★★★
-            console.log('✅ [1단계] 서버로부터 "룰렛 시작" 신호를 받았습니다.', data);
             showRouletteScreen(data);
         });
 
-        // ★★★ 기존 rouletteResult 핸들러를 아래 코드로 교체 ★★★
         socket.on('rouletteResult', (data) => {
+            // 모든 카드의 셔플 애니메이션을 중지
+            document.querySelectorAll('.roulette-card').forEach(card => {
+                card.classList.remove('is-shuffling');
+            });
+
+            // 선택된 카드 찾기
             const cardToReveal = document.querySelector(`.roulette-card[data-result="${data.result}"]`);
             if (cardToReveal) {
-                // 'is-flipped' 클래스를 추가하는 것만으로 CSS가 알아서 애니메이션을 처리합니다.
-                cardToReveal.classList.add('is-flipped');
+                // 잠시 후 뒤집기 (셔플 멈춤과 뒤집기 사이에 시각적 간격 부여)
+                setTimeout(() => {
+                    cardToReveal.classList.add('is-flipped');
+                }, 200);
             }
         });
-
         socket.on('queenHuntAction', (data) => {
             if (amIAlive) {
                 showQueenHuntScreen(data.otherAliens, data.targets);

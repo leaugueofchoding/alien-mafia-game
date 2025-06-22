@@ -277,9 +277,9 @@ li.dead {
     }
 }
 
-/* style.css 파일 */
+/* style.css */
 
-/* --- 룰렛 애니메이션 최종 스타일 (기존 룰렛 관련 CSS는 모두 삭제 후 이걸로 교체) --- */
+/* --- 룰렛 애니메이션 최종 구조 (기존 룰렛 관련 CSS 모두 삭제 후 이걸로 교체) --- */
 
 #roulette-overlay {
     position: fixed;
@@ -287,47 +287,61 @@ li.dead {
     left: 0;
     width: 100%;
     height: 100%;
-    background-color: rgba(0, 0, 0, 0.85);
+    background-color: rgba(0, 0, 0, 0.9);
     display: flex;
     justify-content: center;
     align-items: center;
     flex-direction: column;
     z-index: 1000;
     color: white;
-    animation: fadeIn 0.5s forwards;
 }
 
 #roulette-container {
     display: flex;
     gap: 30px;
     margin-top: 30px;
-    perspective: 1000px;
 }
 
+/* 겉 껍데기: 카드의 위치와 크기, 3D 공간만 설정 */
 .roulette-card {
     width: 180px;
     height: 250px;
+    perspective: 1000px;
+    background-color: transparent;
+}
+
+/* 속 알맹이 1: 뒤집기를 담당 */
+.card-flipper {
     position: relative;
+    width: 100%;
+    height: 100%;
     transform-style: preserve-3d;
-    /* ★★★ '뒤집기'를 위한 transition 속성만 남깁니다. ★★★ */
     transition: transform 0.8s cubic-bezier(0.25, 0.46, 0.45, 0.94);
 }
 
-/* ★★★ '셔플 중'일 때만 애니메이션을 적용하는 클래스를 새로 만듭니다. ★★★ */
-.roulette-card.is-shuffling {
-    animation: shuffle 1.5s ease-in-out infinite;
-}
-
-.roulette-card.is-flipped {
+.roulette-card.is-flipped .card-flipper {
     transform: rotateY(180deg);
 }
 
+/* 속 알맹이 2: 셔플을 담당 */
+.card-shuffler {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    transform-style: preserve-3d;
+}
+
+.roulette-card.is-shuffling .card-shuffler {
+    animation: shuffle 1.5s ease-in-out infinite;
+}
+
+/* 카드 앞/뒷면 스타일 */
 .card-face {
     position: absolute;
     width: 100%;
     height: 100%;
-    backface-visibility: hidden;
     -webkit-backface-visibility: hidden;
+    backface-visibility: hidden;
     display: flex;
     justify-content: center;
     align-items: center;
@@ -347,19 +361,15 @@ li.dead {
     transform: rotateY(180deg);
 }
 
-/* 셔플 애니메이션은 이전의 역동적인 버전으로 유지합니다. */
+/* 셔플 애니메이션 키프레임 */
 @keyframes shuffle {
 
     0%,
     100% {
-        transform: translateY(0) scale(1) rotate(0);
+        transform: translateY(0) rotate(0);
     }
 
     50% {
-        transform: translateY(-20px) scale(1.05) rotate(5deg);
-    }
-
-    75% {
-        transform: translateY(10px) rotate(-5deg);
+        transform: translateY(-20px) rotate(5deg);
     }
 }

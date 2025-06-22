@@ -997,9 +997,8 @@ io.on('connection', (socket) => {
     }
   });
 
-  // index.js의 io.on('connection', ...) 내부
+  // index.js의 usePsychicAbility 핸들러
 
-  // ★★★ 기존 usePsychicAbility 핸들러 전체를 아래 코드로 교체해주세요. ★★★
   socket.on('usePsychicAbility', (data) => {
     const { targetIds } = data;
     const selectorId = socket.id;
@@ -1016,31 +1015,23 @@ io.on('connection', (socket) => {
     if (!psychic.group) return io.to(selectorId).emit('abilityError', '모둠을 먼저 선택해야 능력을 사용할 수 있습니다.');
 
     psychic.abilityUsed = true;
-    const isSuccess = Math.random() < 0.45; // 45% 성공 확률
+    const isSuccess = Math.random() < 0.45;
     const result = isSuccess ? '성공' : '실패';
-    const ROULETTE_DURATION = 5000; // 룰렛 애니메이션 시간
-    const VIEW_DURATION = 3500;
+    const ROULETTE_DURATION = 5000;
+    const VIEW_DURATION = 3000;
 
-    // 1. 모든 플레이어에게 룰렛 UI를 생성하라는 신호를 보냄
     io.to(roomCode).emit('showRoulette', {
       title: '초능력 판정',
-      // 옵션을 객체 배열로 변경하여 앞/뒷면을 모두 설정
-      options: [
-        { front: '?', back: '성공' },
-        { front: '?', back: '실패' }
-      ],
-      duration: ROULETTE_DURATION
+      options: [{ front: '?', back: '성공' }, { front: '?', back: '실패' }],
     });
 
-    // 2. 룰렛 애니메이션 시간(8초)이 흐른 뒤, 결과를 보냄
     setTimeout(() => {
       io.to(roomCode).emit('rouletteResult', { result: result });
     }, ROULETTE_DURATION);
 
-    // 3. 결과가 공개되고 잠시 후(11초), 실제 게임 상태를 변경하고 업데이트함
     setTimeout(() => {
+      // 성공 또는 실패 로직 적용
       if (isSuccess) {
-        console.log(`[${roomCode}] Psychic ability SUCCEEDED.`);
         targetIds.forEach(targetId => {
           const target = room.players.find(p => p.id === targetId);
           if (target) {
@@ -1049,8 +1040,6 @@ io.on('connection', (socket) => {
           }
         });
       } else {
-        console.log(`[${roomCode}] Psychic ability FAILED.`);
-        // ... (기존 실패 처리 로직은 동일) ...
         const psychicGroup = room.players.filter(p => p.status === 'alive' && p.group === psychic.group);
         const psychicIndex = psychicGroup.findIndex(p => p.id === psychic.id);
         if (psychicIndex !== -1) {
