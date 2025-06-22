@@ -66,8 +66,12 @@
             playerContainer.innerHTML = '';
             adminContainer.style.display = 'none';
             playerContainer.style.display = 'block';
-        }
 
+            const rouletteOverlay = document.getElementById('roulette-overlay');
+            if (rouletteOverlay) {
+                rouletteOverlay.remove();
+            }
+        }
         function showInitialScreen() {
             playerContainer.style.display = 'block';
             playerContainer.innerHTML = `
@@ -428,7 +432,7 @@
                 }
                 document.getElementById('header-container').innerHTML = `
             <div class="group-info-header">
-                <strong>나의 모둠 (${meForHeader.group}모둠):</strong> ${myGroupMembers}
+                <strong> (${meForHeader.group}모둠):</strong> ${myGroupMembers}
             </div>
         `;
             }
@@ -541,14 +545,56 @@
             }
         });
 
-        socket.on('psychicAbilityStart', (data) => {
-            clearContainer();
-            const resultText = data.success ? "성공!" : "실패...";
-            playerContainer.innerHTML = `
-        <h1>${data.psychicName}님이 능력을 사용합니다...</h1>
-        <p style="font-size: 2em; margin-top: 40px;">결과는... ${resultText}</p>
-        <p style="margin-top: 20px;">(잠시 후 결과가 적용됩니다.)</p>
+        // index.html의 <script> 태그 안
+
+        // ★★★ 룰렛 화면을 생성하고 애니메이션을 시작하는 함수 ★★★
+        function showRouletteScreen(data) {
+            const oldOverlay = document.getElementById('roulette-overlay');
+            if (oldOverlay) oldOverlay.remove();
+
+            const overlay = document.createElement('div');
+            overlay.id = 'roulette-overlay';
+
+            // ★★★ 새로운 options 구조에 맞게 카드 생성 로직 수정 ★★★
+            let cardsHtml = '';
+            data.options.forEach(option => {
+                // data-result에는 결과값인 뒷면(back) 내용을 저장
+                cardsHtml += `
+            <div class="roulette-card" data-result="${option.back}">
+                <div class="card-face card-front">${option.front}</div>
+                <div class="card-face card-back">${option.back}</div>
+            </div>
+        `;
+            });
+
+            overlay.innerHTML = `
+        <h1>${data.title}</h1>
+        <div id="roulette-container">${cardsHtml}</div>
     `;
+
+            document.body.appendChild(overlay);
+
+            const cards = overlay.querySelectorAll('.roulette-card');
+            cards.forEach((card, index) => {
+                card.style.animation = `shuffle 1.5s ease-in-out infinite ${index * 0.2}s`;
+            });
+        }
+
+        // ★★★ 서버로부터 룰렛 시작 신호를 받는 핸들러 ★★★
+        socket.on('showRoulette', (data) => {
+            showRouletteScreen(data);
+        });
+
+        // ★★★ 서버로부터 룰렛 결과 신호를 받는 핸들러 ★★★
+        socket.on('rouletteResult', (data) => {
+            const overlay = document.getElementById('roulette-overlay');
+            const cardToReveal = document.querySelector(`.roulette-card[data-result="${data.result}"]`);
+
+            if (overlay && cardToReveal) {
+                overlay.classList.add('revealed');
+                cardToReveal.classList.add('selected');
+            }
+            // 3초 후 룰렛 화면을 제거하던 setTimeout을 여기서 삭제했습니다.
         });
 
         socket.on('queenHuntAction', (data) => {
