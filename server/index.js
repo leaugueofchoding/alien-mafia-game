@@ -236,8 +236,28 @@ io.on('connection', (socket) => {
     broadcastUpdates(code);
   });
 
-  // index.js
+  socket.on('kickPlayer', (data) => {
+    const { roomCode, playerId } = data;
+    const room = gameRooms[roomCode];
+    if (!room) return;
 
+    // 1. 플레이어 목록에서 해당 플레이어 제거
+    const playerIndex = room.players.findIndex(p => p.id === playerId);
+    if (playerIndex > -1) {
+      const kickedPlayerName = room.players[playerIndex].name;
+      room.players.splice(playerIndex, 1);
+      console.log(`[${roomCode}] Player ${kickedPlayerName} (${playerId}) was kicked by admin.`);
+    }
+
+    // 2. 해당 플레이어의 소켓 연결 강제 종료
+    const kickedSocket = io.sockets.sockets.get(playerId);
+    if (kickedSocket) {
+      kickedSocket.disconnect(true);
+    }
+
+    // 3. 변경된 상태를 모든 클라이언트에 전파
+    broadcastUpdates(roomCode);
+  });
   socket.on('startGame', (data) => {
     const { code, settings, groupCount } = data;
     const room = gameRooms[code];
@@ -312,6 +332,16 @@ io.on('connection', (socket) => {
     if (!room) {
       console.error(`[${code}] Error: Room not found for nextPhase.`);
       return;
+    }
+
+    if (room.phase === 'meeting' && room.needsGroupSelection) {
+      const unselectedPlayers = room.players.filter(p => p.status === 'alive' && !p.group);
+      if (unselectedPlayers.length > 0) {
+        const names = unselectedPlayers.map(p => p.name).join(', ');
+        // 에러 이벤트를 보낸 클라이언트(관리자)에게만 전송
+        socket.emit('adminError', `아직 모둠을 선택하지 않은 참가자가 있습니다: ${names}`);
+        return; // 다음 단계로 진행하지 않고 함수 종료
+      }
     }
 
     if (timerIntervals[code]) {

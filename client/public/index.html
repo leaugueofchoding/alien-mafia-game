@@ -83,13 +83,21 @@
         // index.html의 <script> 태그 안
 
         // ★★★ 기존 showLobby 함수를 아래 코드로 교체해주세요. ★★★
-        function showLobby(room, container) {
+        function showLobby(room, container, options = {}) {
             const targetContainer = container || playerContainer;
-            // ★★★ 수정: 모둠 정보를 표시하도록 li 태그 내용 변경 ★★★
+            const { showGroup = true } = options; // 기본값은 모둠 표시
+
             const playerList = room.players.map(player => {
+                // ★★★ 역할이 공개되면 노란색으로 강조하는 클래스 추가 ★★★
                 const revealedRole = player.revealedRole ? ` (${player.revealedRole})` : '';
-                const groupInfo = player.group ? ` (${player.group}모둠)` : '';
-                return `<li class="${player.status === 'dead' ? 'dead' : ''}">${player.name}${groupInfo}${revealedRole}</li>`;
+                const revealedClass = player.revealedRole ? 'role-revealed' : '';
+
+                // ★★★ 옵션에 따라 모둠 정보 표시 여부 결정 ★★★
+                const groupInfo = showGroup && player.group ? ` (${player.group}모둠)` : '';
+
+                return `<li class="${player.status === 'dead' ? 'dead' : ''} ${revealedClass}">
+                    ${player.name}${groupInfo}${revealedRole}
+                </li>`;
             }).join('');
 
             targetContainer.innerHTML = `
@@ -148,7 +156,7 @@
                 <h2>[사냥] 대상을 2명 선택하세요.</h2>
                 <p>(단 한 번만 사용할 수 있는 강력한 능력입니다.)</p>
                 <p>${otherAliens.length > 0 ? `(동료 에일리언: ${otherAliens.join(', ')})` : ''}</p>
-                <ul>${targetButtons}</ul>
+                <ul class="player-grid-list">${targetButtons}</ul>
                 <button id="confirm-hunt-btn" disabled>선택 완료 (0/2)</button>
             `;
         }
@@ -161,7 +169,7 @@
             playerContainer.innerHTML = `
         <h2>[여왕의 만찬]</h2>
         <p>(분노에 휩싸여 최대 4명의 대상을 공격합니다. 대상을 선택하지 않을 수도 있습니다.)</p>
-        <ul>${targetButtons}</ul>
+        <ul class="player-grid-list">${targetButtons}</ul>
         <button id="confirm-rampage-btn">선택 완료 (0명)</button>
     `;
         }
@@ -211,11 +219,11 @@
                 if (me.role === '함장' && me.bullets > 0) {
                     const targets = room.players.filter(p => p.status === 'alive' && p.id !== me.id);
                     abilityContent = `<h4>즉결 처분할 대상을 선택하세요. <span style="font-weight:normal;">(남은 총알: ${me.bullets}발)</span></h4>
-                              <ul>${targets.map(t => `<li><button class="target-btn" data-ability="captain" data-target-id="${t.id}">${t.name}</button></li>`).join('')}</ul>`;
+                              <ul class="player-grid-list">${targets.map(t => `<li><button class="target-btn" data-ability="captain" data-target-id="${t.id}">${t.name}</button></li>`).join('')}</ul>`;
                 } else if (me.role === '군인' && me.bullets > 0) {
                     const targets = room.players.filter(p => p.status === 'alive' && p.id !== me.id);
                     abilityContent = `<h4>저격할 대상을 선택하세요. <span style="font-weight:normal;">(남은 총알: ${me.bullets}발)</span></h4>
-                              <ul>${targets.map(t => `<li><button class="target-btn" data-ability="soldier" data-target-id="${t.id}">${t.name}</button></li>`).join('')}</ul>`;
+                              <ul class="player-grid-list">${targets.map(t => `<li><button class="target-btn" data-ability="soldier" data-target-id="${t.id}">${t.name}</button></li>`).join('')}</ul>`;
                 } else {
                     abilityContent = `<h4>사용할 수 있는 능력이 없거나 이미 사용했습니다.</h4>`;
                 }
@@ -255,7 +263,7 @@
     `;
 
             // '대기실' 탭의 내용은 별도로 채워줍니다.
-            showLobby(room, playerContainer.querySelector('#lobby-content'));
+            showLobby(room, playerContainer.querySelector('#lobby-content'), { showGroup: false });
         }
         function showEngineerChoiceScreen(isEngineer) {
             clearContainer();
@@ -483,7 +491,7 @@
             const targetButtons = data.targets.map(target => `<li><button class="target-btn" data-ability="alien" data-target-id="${target.id}">${target.name}</button></li>`).join('');
             playerContainer.innerHTML = `<h2>오늘 밤의 사냥감을 선택하세요.</h2>
                 <p>${data.otherAliens.length > 0 ? `(동료 에일리언: ${data.otherAliens.join(', ')})` : '(동료 에일리언 없음)'}</p>
-                <ul>${targetButtons}</ul>`;
+                <ul class="player-grid-list">${targetButtons}</ul>`;
         });
 
         socket.on('nightSelectionUpdate', (data) => {

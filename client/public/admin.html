@@ -208,6 +208,10 @@
             renderAdminView();
         });
 
+        socket.on('adminError', (message) => {
+            alert(message);
+        });
+
         // ★★★ 이 함수를 완전한 버전으로 교체합니다 ★★★
         function renderAdminView() {
             roomsContainer.innerHTML = '';
@@ -226,7 +230,14 @@
                 headerDiv.className = 'room-header';
                 const roomTitle = document.createElement('h2');
                 roomTitle.textContent = `방 코드: ${code}`;
+
+                const playerCountSpan = document.createElement('span');
+                playerCountSpan.className = 'role-summary'; // 기존 스타일 재활용
+                playerCountSpan.textContent = `총 인원: ${roomData.players.length}명`;
+                playerCountSpan.style.marginLeft = '20px';
+
                 headerDiv.appendChild(roomTitle);
+                headerDiv.appendChild(playerCountSpan);
                 roomDiv.appendChild(headerDiv);
 
                 const contentDiv = document.createElement('div');
@@ -243,6 +254,7 @@
                     const livingPlayers = roomData.players.filter(p => p.status === 'alive').length;
                     playerColumn.innerHTML = `<h3>참가자 현황 (${livingPlayers}/${roomData.players.length})</h3>`;
                     const playerList = document.createElement('ul');
+                    playerList.className = 'player-grid-list';
                     roomData.players.forEach(player => {
                         const playerItem = document.createElement('li');
                         const playerInfoSpan = document.createElement('span');
@@ -250,6 +262,7 @@
                         if ((player.role === '함장' || player.role === '군인') && typeof player.bullets !== 'undefined') {
                             roleInfo = `<span class="role-info">(총알: ${player.bullets})</span>`;
                         }
+                        const groupInfo = player.group ? `(${player.group}모둠)` : '';
                         playerInfoSpan.innerHTML = `${player.name} - ${player.role || '역할 미정'} ${roleInfo}`;
                         playerItem.appendChild(playerInfoSpan);
                         if (player.status === 'dead') {
@@ -431,9 +444,23 @@
                 } else { // 'waiting' status
                     playerColumn.innerHTML = '<h3>참가자 목록</h3>';
                     const playerList = document.createElement('ul');
+                    playerList.className = 'player-grid-list';
                     roomData.players.forEach(player => {
                         const playerItem = document.createElement('li');
-                        playerItem.textContent = player.name;
+                        playerItem.style.justifyContent = 'space-between'; // 이름과 버튼을 양끝으로 정렬
+
+                        const playerName = document.createElement('span');
+                        playerName.textContent = player.name;
+
+                        const kickButton = document.createElement('button');
+                        kickButton.textContent = '퇴장';
+                        kickButton.className = 'eliminate-btn'; // 기존 '사망 처리' 버튼 스타일 재활용
+                        kickButton.dataset.playerId = player.id;
+                        kickButton.dataset.playerName = player.name;
+                        kickButton.classList.add('kick-player-btn'); // 새로운 클래스 추가
+
+                        playerItem.appendChild(playerName);
+                        playerItem.appendChild(kickButton);
                         playerList.appendChild(playerItem);
                     });
                     playerColumn.appendChild(playerList);
@@ -567,6 +594,11 @@
                 }
             } else if (classList.contains('resolve-escape-step-btn')) { // ★★★ 추가된 부분
                 socket.emit('resolveEscapeStep', { code: roomCode });
+            } else if (classList.contains('kick-player-btn')) {
+                const playerName = target.dataset.playerName;
+                if (confirm(`정말로 '${playerName}' 님을 대기실에서 퇴장시키겠습니까?`)) {
+                    socket.emit('kickPlayer', { roomCode, playerId: target.dataset.playerId });
+                }
             }
         });
     </script>
