@@ -241,23 +241,28 @@ io.on('connection', (socket) => {
     const room = gameRooms[roomCode];
     if (!room) return;
 
-    // 1. 플레이어 목록에서 해당 플레이어 제거
+    // 플레이어 목록에서 해당 플레이어의 인덱스를 찾습니다.
     const playerIndex = room.players.findIndex(p => p.id === playerId);
+
     if (playerIndex > -1) {
       const kickedPlayerName = room.players[playerIndex].name;
+
+      // ★★★ 핵심: '사망' 처리하는 것이 아니라, 배열에서 플레이어 정보를 완전히 '제거'합니다. ★★★
       room.players.splice(playerIndex, 1);
-      console.log(`[${roomCode}] Player ${kickedPlayerName} (${playerId}) was kicked by admin.`);
+
+      console.log(`[${roomCode}] Player ${kickedPlayerName} (${playerId}) was completely REMOVED by admin.`);
     }
 
-    // 2. 해당 플레이어의 소켓 연결 강제 종료
+    // 해당 플레이어의 소켓 연결이 남아있다면 강제 종료합니다.
     const kickedSocket = io.sockets.sockets.get(playerId);
     if (kickedSocket) {
       kickedSocket.disconnect(true);
     }
 
-    // 3. 변경된 상태를 모든 클라이언트에 전파
+    // 변경된 상태(플레이어가 제거된 목록)를 모든 클라이언트에 전파합니다.
     broadcastUpdates(roomCode);
   });
+
   socket.on('startGame', (data) => {
     const { code, settings, groupCount } = data;
     const room = gameRooms[code];

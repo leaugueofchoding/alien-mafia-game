@@ -245,9 +245,9 @@
                 contentDiv.style.gap = '20px';
 
                 const playerColumn = document.createElement('div');
-                playerColumn.style.flex = 1;
+                playerColumn.style.flex = 6;
                 const settingsColumn = document.createElement('div');
-                settingsColumn.style.flex = 1;
+                settingsColumn.style.flex = 2;
 
                 if (roomData.status === 'playing' || roomData.status === 'game_over') {
                     // 참가자 현황 UI
@@ -454,7 +454,7 @@
 
                         const kickButton = document.createElement('button');
                         kickButton.textContent = '퇴장';
-                        kickButton.className = 'eliminate-btn'; // 기존 '사망 처리' 버튼 스타일 재활용
+                        kickButton.className = 'kick-btn'; // 고유 클래스 이름으로 변경
                         kickButton.dataset.playerId = player.id;
                         kickButton.dataset.playerName = player.name;
                         kickButton.classList.add('kick-player-btn'); // 새로운 클래스 추가
