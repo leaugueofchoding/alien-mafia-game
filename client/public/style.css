@@ -277,9 +277,10 @@ li.dead {
     }
 }
 
-/* style.css 파일 하단에 추가 */
+/* style.css 파일 */
 
-/* --- 룰렛 애니메이션 스타일 --- */
+/* --- 룰렛 애니메이션 최종 스타일 (기존 룰렛 관련 CSS는 모두 삭제 후 이걸로 교체) --- */
+
 #roulette-overlay {
     position: fixed;
     top: 0;
@@ -293,31 +294,32 @@ li.dead {
     flex-direction: column;
     z-index: 1000;
     color: white;
-    opacity: 0;
     animation: fadeIn 0.5s forwards;
 }
 
 #roulette-container {
     display: flex;
-    gap: 20px;
+    gap: 30px;
     margin-top: 30px;
+    perspective: 1000px;
 }
 
 .roulette-card {
-    width: 150px;
-    height: 220px;
-    border: 2px solid #00d1ff;
-    border-radius: 15px;
-    background-color: #2a2a4e;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    font-size: 2em;
-    font-weight: bold;
-    cursor: default;
-    transform-style: preserve-3d;
-    transition: transform 0.6s;
+    width: 180px;
+    height: 250px;
     position: relative;
+    transform-style: preserve-3d;
+    /* ★★★ '뒤집기'를 위한 transition 속성만 남깁니다. ★★★ */
+    transition: transform 0.8s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
+/* ★★★ '셔플 중'일 때만 애니메이션을 적용하는 클래스를 새로 만듭니다. ★★★ */
+.roulette-card.is-shuffling {
+    animation: shuffle 1.5s ease-in-out infinite;
+}
+
+.roulette-card.is-flipped {
+    transform: rotateY(180deg);
 }
 
 .card-face {
@@ -329,42 +331,35 @@ li.dead {
     display: flex;
     justify-content: center;
     align-items: center;
-    border-radius: 13px;
+    border-radius: 15px;
+    font-size: 2.5em;
+    font-weight: bold;
 }
 
 .card-front {
-    background-color: #1a1a2e;
+    background-color: #2a2a4e;
+    border: 3px solid #00d1ff;
 }
 
 .card-back {
-    background-color: #2a2a4e;
+    background-color: #1a1a2e;
+    border: 3px solid #ffc107;
     transform: rotateY(180deg);
 }
 
-/* 룰렛 시작 시 카드 셔플 애니메이션 */
+/* 셔플 애니메이션은 이전의 역동적인 버전으로 유지합니다. */
 @keyframes shuffle {
 
     0%,
     100% {
-        transform: translateY(0) scale(1);
+        transform: translateY(0) scale(1) rotate(0);
     }
 
-    25% {
-        transform: translateY(-20px) scale(1.05) rotate(-5deg);
+    50% {
+        transform: translateY(-20px) scale(1.05) rotate(5deg);
     }
 
     75% {
-        transform: translateY(20px) scale(1.05) rotate(5deg);
+        transform: translateY(10px) rotate(-5deg);
     }
-}
-
-/* 결과 공개 시 카드 뒤집기 애니메이션 */
-#roulette-overlay.revealed .roulette-card {
-    animation: none;
-    /* 셔플 애니메이션 중지 */
-}
-
-#roulette-overlay.revealed .roulette-card.selected {
-    transform: rotateY(180deg) scale(1.1);
-    border-color: #ffc107;
 }

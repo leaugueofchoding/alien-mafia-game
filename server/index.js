@@ -1018,7 +1018,8 @@ io.on('connection', (socket) => {
     psychic.abilityUsed = true;
     const isSuccess = Math.random() < 0.45; // 45% 성공 확률
     const result = isSuccess ? '성공' : '실패';
-    const ROULETTE_DURATION = 8000; // 룰렛 애니메이션 시간 (8초)
+    const ROULETTE_DURATION = 5000; // 룰렛 애니메이션 시간
+    const VIEW_DURATION = 3500;
 
     // 1. 모든 플레이어에게 룰렛 UI를 생성하라는 신호를 보냄
     io.to(roomCode).emit('showRoulette', {
@@ -1062,7 +1063,7 @@ io.on('connection', (socket) => {
         }
       }
       broadcastUpdates(roomCode);
-    }, ROULETTE_DURATION + 4000); // 총 12초 후
+    }, ROULETTE_DURATION + VIEW_DURATION);
   });
 
   // ★★★ 위 함수를 아래의 완전한 코드로 교체해주세요. ★★★

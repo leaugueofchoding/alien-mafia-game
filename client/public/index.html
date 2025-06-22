@@ -547,7 +547,12 @@
 
         // index.html의 <script> 태그 안
 
-        // ★★★ 룰렛 화면을 생성하고 애니메이션을 시작하는 함수 ★★★
+        // index.html의 <script> 태그 안
+
+        // ★★★ 기존 showRouletteScreen 함수를 아래 코드로 교체 ★★★
+        // index.html의 <script> 태그 안
+
+        // ★★★ 이 함수를 아래 코드로 교체해주세요. ★★★
         function showRouletteScreen(data) {
             const oldOverlay = document.getElementById('roulette-overlay');
             if (oldOverlay) oldOverlay.remove();
@@ -555,10 +560,8 @@
             const overlay = document.createElement('div');
             overlay.id = 'roulette-overlay';
 
-            // ★★★ 새로운 options 구조에 맞게 카드 생성 로직 수정 ★★★
             let cardsHtml = '';
             data.options.forEach(option => {
-                // data-result에는 결과값인 뒷면(back) 내용을 저장
                 cardsHtml += `
             <div class="roulette-card" data-result="${option.back}">
                 <div class="card-face card-front">${option.front}</div>
@@ -567,34 +570,30 @@
         `;
             });
 
-            overlay.innerHTML = `
-        <h1>${data.title}</h1>
-        <div id="roulette-container">${cardsHtml}</div>
-    `;
-
+            overlay.innerHTML = `<h1>${data.title}</h1><div id="roulette-container">${cardsHtml}</div>`;
             document.body.appendChild(overlay);
 
+            // ★★★ 이 부분을 추가해주세요. ★★★
+            // 각 카드에 시간차를 두어 셔플 애니메이션이 비동기적으로 보이게 합니다.
             const cards = overlay.querySelectorAll('.roulette-card');
             cards.forEach((card, index) => {
-                card.style.animation = `shuffle 1.5s ease-in-out infinite ${index * 0.2}s`;
+                card.style.animationDelay = `${index * 0.25}s`;
             });
         }
 
-        // ★★★ 서버로부터 룰렛 시작 신호를 받는 핸들러 ★★★
         socket.on('showRoulette', (data) => {
+            // ★★★ 1단계 디버깅 로그 ★★★
+            console.log('✅ [1단계] 서버로부터 "룰렛 시작" 신호를 받았습니다.', data);
             showRouletteScreen(data);
         });
 
-        // ★★★ 서버로부터 룰렛 결과 신호를 받는 핸들러 ★★★
+        // ★★★ 기존 rouletteResult 핸들러를 아래 코드로 교체 ★★★
         socket.on('rouletteResult', (data) => {
-            const overlay = document.getElementById('roulette-overlay');
             const cardToReveal = document.querySelector(`.roulette-card[data-result="${data.result}"]`);
-
-            if (overlay && cardToReveal) {
-                overlay.classList.add('revealed');
-                cardToReveal.classList.add('selected');
+            if (cardToReveal) {
+                // 'is-flipped' 클래스를 추가하는 것만으로 CSS가 알아서 애니메이션을 처리합니다.
+                cardToReveal.classList.add('is-flipped');
             }
-            // 3초 후 룰렛 화면을 제거하던 setTimeout을 여기서 삭제했습니다.
         });
 
         socket.on('queenHuntAction', (data) => {
