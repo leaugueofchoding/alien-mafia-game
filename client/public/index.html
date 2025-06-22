@@ -80,19 +80,19 @@
             adminContainer.style.display = 'block';
         }
 
-        // index.html의 <script> 태그 안
+        // index.html의 기존 showLobby 함수를 지우고 이 코드를 붙여넣어 주세요.
 
-        // ★★★ 기존 showLobby 함수를 아래 코드로 교체해주세요. ★★★
         function showLobby(room, container, options = {}) {
             const targetContainer = container || playerContainer;
-            const { showGroup = true } = options; // 기본값은 모둠 표시
+            const { showGroup = true } = options;
 
             const playerList = room.players.map(player => {
-                // ★★★ 역할이 공개되면 노란색으로 강조하는 클래스 추가 ★★★
-                const revealedRole = player.revealedRole ? ` (${player.revealedRole})` : '';
-                const revealedClass = player.revealedRole ? 'role-revealed' : '';
+                let revealedClass = '';
+                if (player.revealedRole) {
+                    revealedClass = player.revealedBy === 'psychic' ? 'role-revealed-psychic' : 'role-revealed';
+                }
 
-                // ★★★ 옵션에 따라 모둠 정보 표시 여부 결정 ★★★
+                const revealedRole = player.revealedRole ? ` (${player.revealedRole})` : '';
                 const groupInfo = showGroup && player.group ? ` (${player.group}모둠)` : '';
 
                 return `<li class="${player.status === 'dead' ? 'dead' : ''} ${revealedClass}">
@@ -114,9 +114,15 @@
                 <p>${description}</p>`;
         }
 
-        // ★★★ 기존 showMeetingScreen 함수를 아래 코드로 교체해주세요. ★★★
         function showMeetingScreen(roomData, player) {
             let groupSelectionHtml = '';
+
+            // 1일차와 2일차 이후의 설명을 구분합니다.
+            const guideText = roomData.day > 1
+                ? `모둠을 이동한 뒤 해당 모둠 번호를 선택하세요.<br><small style="color: #ffc107;">신중하게 확인하세요. 모든 불이익은 자신의 책임입니다.</small>`
+                : `현재 자신의 모둠 번호를 선택하세요.`;
+
+            // 모둠 선택이 필요한 경우 UI를 생성합니다.
             if (roomData.needsGroupSelection && !player.group) {
                 const groupCount = roomData.groupCount || 4;
                 let buttonsHtml = '';
@@ -125,22 +131,22 @@
                 }
                 groupSelectionHtml = `
             <div id="group-selection-container">
-                <h3>자신의 모둠 번호를 선택하세요</h3>
+                <h3>${guideText}</h3>
                 <div class="button-group" style="display: flex; gap: 10px; justify-content: center; margin-top: 10px;">
                     ${buttonsHtml}
                 </div>
             </div>
-            <hr>
-        `;
+            <hr>`;
             }
 
+            // 최종 화면을 렌더링합니다.
             playerContainer.innerHTML = `
-                <h2>${roomData.day}일차 - 회의</h2>
-                ${groupSelectionHtml}
-                <p>생존자들과 토론하여 에일리언을 찾아내세요. 잠시 후 투표가 진행됩니다.</p>
-                <h1 class="timer" id="timer-display"></h1>
-            `;
+        <h2>${roomData.day}일차 - 회의</h2>
+        ${groupSelectionHtml}
+        <p>생존자들과 토론하여 에일리언을 찾아내세요. 잠시 후 투표가 진행됩니다.</p>
+        <h1 class="timer" id="timer-display"></h1>`;
         }
+
         function showAlienNightScreen(text = "에일리언이 활동을 시작합니다.") {
             clearContainer();
             playerContainer.innerHTML = `
@@ -233,11 +239,19 @@
                               ${targets.map(t => `<li><button class="target-btn" data-ability="chatterbox" data-target-id="${t.id}">${t.name}</button></li>`).join('')}
                           </ul>`;
 
+                } else if (me.role === '초능력자' && !me.abilityUsed) {
+                    const targets = room.players.filter(p => p.status === 'alive' && p.id !== me.id);
+                    abilityContent = `<h4>정체를 꿰뚫어볼 대상 4명을 선택하세요.</h4>
+                          <p>(단 한 번만 사용 가능하며, 실패 시 큰 위험이 따릅니다.)</p>
+                          <ul class="player-grid-list">
+                              ${targets.map(t => `<li><button class="target-btn" data-ability="psychic" data-target-id="${t.id}">${t.name}</button></li>`).join('')}
+                          </ul>
+                          <button id="confirm-psychic-ability" disabled>선택 완료 (0/4)</button>`;
+
                 } else {
                     abilityContent = `<h4>사용할 수 있는 능력이 없거나 이미 사용했습니다.</h4>`;
                 }
             }
-
             // --- 여기부터는 기존의 탭 UI 구조를 그대로 렌더링합니다 ---
 
             const rolesInGame = [...new Set(room.players.map(p => p.role))].sort();
@@ -396,6 +410,7 @@
         // index.html의 <script> 태그 안에 있는 socket.on('updateRoom', ...) 핸들러를 아래 코드로 통째로 교체해주세요.
 
         socket.on('updateRoom', (room) => {
+            console.log('클라이언트가 서버로부터 받은 room 데이터:', room);
             const headerContainer = document.getElementById('header-container');
             if (headerContainer) headerContainer.innerHTML = ''; // 기존 헤더 내용 초기화
 
@@ -503,6 +518,10 @@
                 <ul class="player-grid-list">${targetButtons}</ul>`;
         });
 
+        socket.on('abilityError', (message) => {
+            alert(message); // 간단하게 alert 창으로 에러 메시지 표시
+        });
+
         socket.on('nightSelectionUpdate', (data) => {
             if (!amIAlive) return;
             const allSelectedTargetIds = new Set(Object.values(data.selections).flat());
@@ -520,6 +539,16 @@
                 const seconds = (timeLeft % 60).toString().padStart(2, '0');
                 timerDisplay.textContent = (timeLeft >= 0) ? `${minutes}:${seconds}` : "회의 종료!";
             }
+        });
+
+        socket.on('psychicAbilityStart', (data) => {
+            clearContainer();
+            const resultText = data.success ? "성공!" : "실패...";
+            playerContainer.innerHTML = `
+        <h1>${data.psychicName}님이 능력을 사용합니다...</h1>
+        <p style="font-size: 2em; margin-top: 40px;">결과는... ${resultText}</p>
+        <p style="margin-top: 20px;">(잠시 후 결과가 적용됩니다.)</p>
+    `;
         });
 
         socket.on('queenHuntAction', (data) => {
@@ -624,6 +653,14 @@
                 return;
             }
 
+            if (target.id === 'confirm-psychic-ability') {
+                if (huntSelections.length === 4) {
+                    socket.emit('usePsychicAbility', { targetIds: huntSelections });
+                    target.textContent = '능력 사용됨';
+                    target.disabled = true;
+                }
+                return;
+            }
 
             if (target.classList.contains('target-btn')) {
                 const abilityType = target.dataset.ability;
@@ -661,6 +698,23 @@
                     }
                     // ★★★ 수정: 버튼 텍스트만 갱신 (활성화/비활성화 로직 제거) ★★★
                     confirmBtn.textContent = `선택 완료 (${huntSelections.length}명)`;
+                    return;
+                }
+
+                if (abilityType === 'psychic') {
+                    const confirmBtn = document.getElementById('confirm-psychic-ability');
+                    const index = huntSelections.indexOf(target.dataset.targetId);
+                    if (index > -1) {
+                        huntSelections.splice(index, 1);
+                        target.classList.remove('pre-selected');
+                    } else {
+                        if (huntSelections.length < 4) {
+                            huntSelections.push(target.dataset.targetId);
+                            target.classList.add('pre-selected');
+                        }
+                    }
+                    confirmBtn.textContent = `선택 완료 (${huntSelections.length}/4)`;
+                    confirmBtn.disabled = huntSelections.length !== 4;
                     return;
                 }
 

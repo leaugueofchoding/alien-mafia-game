@@ -296,6 +296,38 @@
                     phaseInfo.textContent = (roomData.status === 'game_over') ? `게임 종료 - ${roomData.winner} 승리` : phaseText;
                     settingsColumn.appendChild(phaseInfo);
 
+                    const helpBox = document.createElement('div');
+                    helpBox.style.padding = '10px';
+                    helpBox.style.marginTop = '15px';
+                    helpBox.style.border = '1px solid #007bff';
+                    helpBox.style.borderRadius = '5px';
+                    helpBox.style.backgroundColor = '#f8f9fa';
+                    helpBox.style.textAlign = 'left';
+
+                    let helpText = '';
+                    switch (roomData.phase) {
+                        case 'role_reveal':
+                            helpText = '<b>[진행 가이드]</b> 학생들이 자신의 역할을 확인할 시간을 주세요. 모두 확인했다면 아래의 <b>\'1일차 회의 시작\'</b> 버튼을 누르세요.';
+                            break;
+                        case 'meeting':
+                            helpText = '<b>[진행 가이드]</b> 타이머를 켜고 모둠별로 한 명을 방출 후보로 지목하게 하세요. 2분 후 방출 후보끼리 가위바위보를 합니다. 관리자가 빨간 버튼을 눌러 꼴찌를 방출 시킵니다. 그 후 <b>\'밤으로 이동\'</b> 버튼을 누르세요.';
+                            break;
+                        case 'night_alien_action':
+                            helpText = '<b>[진행 가이드]</b> 먼저 모두 엎드리게 하세요. \'에일리언 활동 시작\'을 누르면 에일리언에게 사냥 화면이 나옵니다. 모든 에일리언이 다시 고개를 숙이면 \'활동 결과 반영\'을 눌러주세요.';
+                            break;
+                        case 'night_crew_action':
+                            helpText = '<b>[진행 가이드]</b> 고개를 들어 결과를 확인하게 하세요. \'탐사대 활동 시작\'을 누르면 특수 직업들의 능력이 오픈됩니다. 일반 승객은 미션을 해결하도록 안내하세요. 충분한 시간이 지나면 \'활동 종료 및 아침으로\' 버튼을 누르세요. ';
+                            break;
+                        default:
+                            helpText = '<b>[진행 가이드]</b> 게임의 다음 단계를 진행할 준비가 되면 아래 버튼을 눌러주세요.';
+                    }
+                    if (roomData.status === 'waiting') {
+                        helpText = '<b>[진행 가이드]</b> 모든 학생이 참가했는지 확인 후, 역할 인원을 맞추고 <b>\'게임 시작\'</b> 버튼을 누르세요.';
+                    }
+
+                    helpBox.innerHTML = helpText;
+                    settingsColumn.appendChild(helpBox);
+
                     if (roomData.status === 'playing') {
                         // 1. 특수 시나리오 (비상탈출, 엔지니어 선택 등)
                         if (roomData.phase === 'escape_sequence') {
@@ -505,7 +537,19 @@
                     startButton.className = 'start-game-btn';
                     startButton.textContent = '게임 시작';
                     settingsColumn.appendChild(startButton);
+                    const helpBox = document.createElement('div');
+                    helpBox.style.padding = '10px';
+                    helpBox.style.marginTop = '15px';
+                    helpBox.style.border = '1px solid #28a745';
+                    helpBox.style.borderRadius = '5px';
+                    helpBox.style.backgroundColor = '#f8f9fa';
+                    helpBox.style.textAlign = 'left';
+                    helpBox.innerHTML = '<b>[진행 가이드]</b> 모든 학생이 참가했는지 확인 후, 역할 인원을 맞추고 <b>\'게임 시작\'</b> 버튼을 누르세요.';
+                    settingsColumn.insertBefore(helpBox, settingsColumn.querySelector('.role-settings'));
                 }
+
+
+
                 contentDiv.appendChild(playerColumn);
                 contentDiv.appendChild(settingsColumn);
                 roomDiv.appendChild(contentDiv);

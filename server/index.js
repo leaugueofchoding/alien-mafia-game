@@ -997,6 +997,78 @@ io.on('connection', (socket) => {
     }
   });
 
+  // index.js의 io.on('connection', ...) 내부
+
+  // ★★★ 기존 usePsychicAbility 핸들러 전체를 아래 코드로 교체해주세요. ★★★
+  socket.on('usePsychicAbility', (data) => {
+    const { targetIds } = data;
+    const selectorId = socket.id;
+    let roomCode = '';
+    for (const code in gameRooms) {
+      if (gameRooms[code].players.some(p => p.id === selectorId)) {
+        roomCode = code;
+        break;
+      }
+    }
+
+    if (!roomCode) return;
+
+    const room = gameRooms[roomCode];
+    const psychic = room.players.find(p => p.id === selectorId);
+
+    // 1. 유효성 검사 강화
+    if (!psychic || psychic.role !== '초능력자' || psychic.abilityUsed) {
+      return; // 유효하지 않은 요청은 무시
+    }
+    // ★★★ 추가: 초능력자가 모둠을 선택하지 않았으면 에러 메시지 전송 ★★★
+    if (!psychic.group) {
+      return io.to(selectorId).emit('abilityError', '모둠을 먼저 선택해야 능력을 사용할 수 있습니다.');
+    }
+
+    // 2. 능력 사용 처리
+    psychic.abilityUsed = true;
+    const isSuccess = Math.random() < 0.5; // 50% 확률 (룰렛 구현 시 대체될 부분)
+
+    io.to(roomCode).emit('psychicAbilityStart', { psychicName: psychic.name, success: isSuccess });
+
+    // 3. 결과 적용 (3초 후)
+    setTimeout(() => {
+      if (isSuccess) {
+        console.log(`[${roomCode}] Psychic ability SUCCEEDED.`);
+        targetIds.forEach(targetId => {
+          const target = room.players.find(p => p.id === targetId);
+          if (target) {
+            target.revealedRole = target.role;
+            target.revealedBy = 'psychic';
+          }
+        });
+      } else {
+        console.log(`[${roomCode}] Psychic ability FAILED.`);
+        const psychicGroup = room.players.filter(p => p.status === 'alive' && p.group === psychic.group);
+        const psychicIndex = psychicGroup.findIndex(p => p.id === psychic.id);
+
+        if (psychicIndex !== -1) { // 초능력자가 그룹에 확실히 포함되어 있는지 확인
+          const playersToEliminate = new Set();
+          playersToEliminate.add(psychic.id);
+
+          if (psychicGroup.length > 1) {
+            const leftPlayer = psychicGroup[(psychicIndex - 1 + psychicGroup.length) % psychicGroup.length];
+            playersToEliminate.add(leftPlayer.id);
+
+            const rightPlayer = psychicGroup[(psychicIndex + 1) % psychicGroup.length];
+            playersToEliminate.add(rightPlayer.id);
+          }
+
+          playersToEliminate.forEach(playerId => {
+            eliminatePlayer(roomCode, playerId, 'psychic_fail');
+          });
+        }
+      }
+      // ★★★ broadcastUpdates는 한 번만 호출하도록 위치 조정 ★★★
+      broadcastUpdates(roomCode);
+    }, 3000);
+  });
+
   // ★★★ 위 함수를 아래의 완전한 코드로 교체해주세요. ★★★
   socket.on('endNightAndStartMeeting', (data) => {
     const { code } = data;

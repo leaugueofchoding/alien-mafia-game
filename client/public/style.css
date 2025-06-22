@@ -244,6 +244,14 @@ li.dead {
     border: 1px solid #ffc107;
 }
 
+/* style.css의 기존 .role-revealed-psychic 규칙을 지우고 이 코드를 붙여넣어 주세요. */
+
+.player-grid-list li.role-revealed-psychic {
+    color: #28a745 !important;
+    font-weight: bold;
+    border: 1px solid #28a745 !important;
+}
+
 .kick-btn {
     padding: 5px 10px;
     border: none;
