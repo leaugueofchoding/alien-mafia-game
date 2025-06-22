@@ -224,6 +224,15 @@
                     const targets = room.players.filter(p => p.status === 'alive' && p.id !== me.id);
                     abilityContent = `<h4>저격할 대상을 선택하세요. <span style="font-weight:normal;">(남은 총알: ${me.bullets}발)</span></h4>
                               <ul class="player-grid-list">${targets.map(t => `<li><button class="target-btn" data-ability="soldier" data-target-id="${t.id}">${t.name}</button></li>`).join('')}</ul>`;
+                } else if (me.role === '수다쟁이' && me.abilityUsedDay !== room.day) {
+                    // 자신을 제외한 다른 생존자를 타겟으로 설정
+                    const targets = room.players.filter(p => p.status === 'alive' && p.id !== me.id);
+                    abilityContent = `<h4>역할을 폭로할 대상을 선택하세요.</h4>
+                          <p>(선택된 대상의 역할은 다음날부터 모두에게 공개됩니다.)</p>
+                          <ul class="player-grid-list">
+                              ${targets.map(t => `<li><button class="target-btn" data-ability="chatterbox" data-target-id="${t.id}">${t.name}</button></li>`).join('')}
+                          </ul>`;
+
                 } else {
                     abilityContent = `<h4>사용할 수 있는 능력이 없거나 이미 사용했습니다.</h4>`;
                 }
@@ -665,6 +674,9 @@
                             break;
                         case 'captain':
                             socket.emit('useCaptainAbility', { targetId });
+                            break;
+                        case 'chatterbox':
+                            socket.emit('useChatterboxAbility', { targetId });
                             break;
                     }
                 }

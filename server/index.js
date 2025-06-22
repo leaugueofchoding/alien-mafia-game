@@ -959,9 +959,44 @@ io.on('connection', (socket) => {
     console.log(`[${roomCode}] 엔지니어가 비상탈출을 선택했습니다.`);
   });
 
-  // server/index.js
 
-  // 4. 이 함수로 교체해주세요.
+  socket.on('useChatterboxAbility', (data) => {
+    const { targetId } = data;
+    const selectorId = socket.id;
+    let roomCode = '';
+
+    // 요청을 보낸 플레이어가 속한 방을 찾습니다.
+    for (const code in gameRooms) {
+      if (gameRooms[code].players.some(p => p.id === selectorId)) {
+        roomCode = code;
+        break;
+      }
+    }
+
+    if (roomCode) {
+      const room = gameRooms[roomCode];
+      const chatterbox = room.players.find(p => p.id === selectorId);
+      const target = room.players.find(p => p.id === targetId);
+
+      // 수다쟁이가 맞는지, 하룻밤에 한 번만 사용했는지, 대상이 유효한지 확인
+      if (chatterbox && chatterbox.role === '수다쟁이' && target && chatterbox.abilityUsedDay !== room.day) {
+
+        // 능력 사용 기록 (같은 날 중복 사용 방지)
+        chatterbox.abilityUsedDay = room.day;
+
+        // 대상의 역할을 공개 상태로 변경
+        target.revealedRole = target.role;
+        console.log(`[${roomCode}] Chatterbox ${chatterbox.name} revealed ${target.name}'s role as ${target.role}.`);
+
+        // 능력 사용이 완료되었음을 클라이언트에 알림
+        io.to(selectorId).emit('actionConfirmed');
+
+        // 변경된 상태를 모든 클라이언트에 전파
+        broadcastUpdates(roomCode);
+      }
+    }
+  });
+
   // ★★★ 위 함수를 아래의 완전한 코드로 교체해주세요. ★★★
   socket.on('endNightAndStartMeeting', (data) => {
     const { code } = data;
