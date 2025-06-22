@@ -18,6 +18,15 @@
             vertical-align: bottom;
         }
 
+        .group-info-header {
+            background-color: rgba(0, 209, 255, 0.1);
+            border: 1px solid #00d1ff;
+            padding: 10px;
+            margin-bottom: 20px;
+            border-radius: 8px;
+            text-align: left;
+        }
+
         @keyframes blink {
             50% {
                 opacity: 0;
@@ -71,15 +80,22 @@
             adminContainer.style.display = 'block';
         }
 
+        // index.html의 <script> 태그 안
+
+        // ★★★ 기존 showLobby 함수를 아래 코드로 교체해주세요. ★★★
         function showLobby(room, container) {
             const targetContainer = container || playerContainer;
+            // ★★★ 수정: 모둠 정보를 표시하도록 li 태그 내용 변경 ★★★
             const playerList = room.players.map(player => {
                 const revealedRole = player.revealedRole ? ` (${player.revealedRole})` : '';
-                return `<li class="${player.status === 'dead' ? 'dead' : ''}">${player.name}${revealedRole}</li>`;
+                const groupInfo = player.group ? ` (${player.group}모둠)` : '';
+                return `<li class="${player.status === 'dead' ? 'dead' : ''}">${player.name}${groupInfo}${revealedRole}</li>`;
             }).join('');
+
             targetContainer.innerHTML = `
-                <h2>참가자 목록</h2>
-                <ul>${playerList}</ul>`;
+        <h2>참가자 목록</h2>
+        <ul class="player-grid-list">${playerList}</ul>
+    `;
         }
 
         function showRoleScreen(role, description) {
@@ -363,6 +379,27 @@
         // index.html의 <script> 태그 안에 있는 socket.on('updateRoom', ...) 핸들러를 아래 코드로 통째로 교체해주세요.
 
         socket.on('updateRoom', (room) => {
+            const headerContainer = document.getElementById('header-container');
+            if (headerContainer) headerContainer.innerHTML = ''; // 기존 헤더 내용 초기화
+
+            const meForHeader = room.players.find(p => p.id === socket.id);
+            if (meForHeader && meForHeader.group) {
+                const myGroupMembers = room.players
+                    .filter(p => p.status === 'alive' && p.group === meForHeader.group)
+                    .map(p => p.name)
+                    .join(', ');
+
+                if (!headerContainer) {
+                    const newHeader = document.createElement('div');
+                    newHeader.id = 'header-container';
+                    playerContainer.before(newHeader); // playerContainer 앞에 추가
+                }
+                document.getElementById('header-container').innerHTML = `
+            <div class="group-info-header">
+                <strong>나의 모둠 (${meForHeader.group}모둠):</strong> ${myGroupMembers}
+            </div>
+        `;
+            }
             if (!amIAlive || room.status === 'game_over') return;
 
             const me = room.players.find(p => p.id === socket.id);
@@ -432,7 +469,14 @@
         socket.on('youAreDead', () => { amIAlive = false; showDeathScreen(); });
         socket.on('youAreAlive', () => { amIAlive = true; alert('당신은 부활했습니다!'); });
         socket.on('gameOver', (data) => showGameOverScreen(data));
-
+        socket.on('endingSequenceStart', (data) => {
+            clearContainer();
+            playerContainer.innerHTML = `
+        <div id="ending-reason-container" style="font-size: 1.5em; line-height: 1.8;"></div>
+    `;
+            const reasonContainer = document.getElementById('ending-reason-container');
+            typewriter(reasonContainer, data.reason, 50);
+        });
         socket.on('alienAction', (data) => {
             if (!amIAlive || data.targets.length === 0) return;
             clearContainer();

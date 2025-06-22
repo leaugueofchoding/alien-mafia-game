@@ -70,9 +70,12 @@ const ENDING_MESSAGES = {
   }
 };
 
+// index.js
+
+// ★★★ 기존 endGame 함수를 아래 코드로 교체해주세요. ★★★
 function endGame(roomCode, endingKey, detailLog = '') {
   const room = gameRooms[roomCode];
-  if (!room || room.status === 'game_over') return; // 이미 종료된 경우 중복 실행 방지
+  if (!room || room.status === 'game_over') return;
 
   const ending = ENDING_MESSAGES[endingKey];
   if (!ending) {
@@ -85,18 +88,21 @@ function endGame(roomCode, endingKey, detailLog = '') {
   room.status = 'game_over';
   room.winner = ending.winner;
 
-  // ★★★ 모든 플레이어의 이름과 역할을 배열로 만듭니다. ★★★
-  const rolesPayload = room.players.map(p => ({ name: p.name, role: p.role || '역할 미정' }));
+  // 1. 엔딩 이유를 타이핑 애니메이션으로 먼저 보여주기 위한 이벤트 전송
+  io.to(roomCode).emit('endingSequenceStart', { reason: ending.reason });
 
-  const gameOverPayload = {
-    winner: ending.winner,
-    reason: ending.reason,
-    detailLog: detailLog,
-    roles: rolesPayload // ★★★ 역할 정보 추가 ★★★
-  };
-
-  io.to(roomCode).emit('gameOver', gameOverPayload);
-  broadcastUpdates(roomCode);
+  // 2. 4.5초 후, 역할 공개 등이 포함된 최종 게임 오버 화면 전송
+  setTimeout(() => {
+    const rolesPayload = room.players.map(p => ({ name: p.name, role: p.role || '역할 미정' }));
+    const gameOverPayload = {
+      winner: ending.winner,
+      reason: ending.reason,
+      detailLog: detailLog,
+      roles: rolesPayload
+    };
+    io.to(roomCode).emit('gameOver', gameOverPayload);
+    broadcastUpdates(roomCode);
+  }, 4500); // 4.5초 지연
 }
 
 function shuffle(array) {
@@ -230,30 +236,40 @@ io.on('connection', (socket) => {
     broadcastUpdates(code);
   });
 
+  // index.js
+
   socket.on('startGame', (data) => {
     const { code, settings, groupCount } = data;
     const room = gameRooms[code];
     if (!room || room.status === 'playing') return;
+
     room.groupCount = groupCount;
+
     const roles = [];
     for (const roleName in settings) {
       for (let i = 0; i < settings[roleName]; i++) { roles.push(roleName); }
     }
     const players = room.players;
     const shuffledRoles = shuffle(roles);
+
     players.forEach((player, index) => {
       player.role = shuffledRoles[index];
       player.description = ROLE_DESCRIPTIONS[shuffledRoles[index]] || '';
       player.abilityUsed = false;
+      if (player.role === '함장') player.bullets = 2;
+      else if (player.role === '군인') player.bullets = 1;
 
-      if (player.role === '함장') {
-        player.bullets = 2;
-      } else if (player.role === '군인') {
-        player.bullets = 1;
-      }
+      // ★★★ 추가: 모든 플레이어의 모둠 정보 초기화 ★★★
+      delete player.group;
     });
+
     room.status = 'playing';
     room.phase = 'role_reveal';
+    room.day = 1; // ★★★ 추가: 게임 시작 시 1일차로 명시적 설정 ★★★
+
+    // ★★★ 추가: 게임 시작과 동시에 모둠 선택이 필요함을 알림 ★★★
+    room.needsGroupSelection = true;
+
     broadcastUpdates(code);
   });
 
