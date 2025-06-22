@@ -257,24 +257,31 @@ io.on('connection', (socket) => {
     broadcastUpdates(code);
   });
 
+  // 그룹 선택 핸들러
   socket.on('selectGroup', (data) => {
-    const { groupNumber } = data;
-    let roomCode = '';
-    let player = null;
-    for (const code in gameRooms) {
-      const p = gameRooms[code].players.find(p => p.id === socket.id);
-      if (p) {
-        roomCode = code;
-        player = p;
-        break;
-      }
-    }
-    if (player && roomCode) {
+    const { roomCode, groupNumber } = data;
+    const room = gameRooms[roomCode];
+    if (!room) return;
+
+    const player = room.players.find(p => p.id === socket.id);
+    if (player) {
       player.group = groupNumber;
+      console.log(`[${roomCode}] Player ${player.name} selected group ${player.group}`);
+
+      // 모든 생존자가 그룹 선택을 완료했는지 확인
+      const allAlivePlayers = room.players.filter(p => p.status === 'alive');
+      const allSelected = allAlivePlayers.every(p => !!p.group);
+
+      if (allSelected) {
+        console.log(`[${roomCode}] All players have selected their group.`);
+        delete room.needsGroupSelection;
+      }
+
       broadcastUpdates(roomCode);
     }
   });
 
+  // ... 다른 핸들러들 ...
   // server/index.js
 
   // 1. 이 함수로 교체해주세요.
@@ -634,7 +641,7 @@ io.on('connection', (socket) => {
         } else {
           resultMessage = "[2관문 통과] 에일리언의 잠입은 없었습니다. 다음 관문을 확인합니다.";
         }
-        break; 
+        break;
 
       case 2: // 3관문: 의사 체크
         const hasPlague = Math.random() < 0.5; // 50% 확률로 역병 발생
@@ -904,25 +911,30 @@ io.on('connection', (socket) => {
   // server/index.js
 
   // 4. 이 함수로 교체해주세요.
+  // ★★★ 위 함수를 아래의 완전한 코드로 교체해주세요. ★★★
   socket.on('endNightAndStartMeeting', (data) => {
     const { code } = data;
     const room = gameRooms[code];
     if (!room) return;
 
-    const gameEnded = checkWinConditions(code);
-    if (gameEnded) return;
-
-    delete room.crewActionTriggered;
-    delete room.alienActionTriggered; // ★★★ 추가
-    delete room.rampageTriggered;   // ★★★ 추가
-    room.selections = {};
-
-    room.day++;
+    room.day += 1;
     room.phase = 'meeting';
-    broadcastUpdates(code);
-  });
 
-  socket.on('disconnect', () => {
+    // ★★★ 핵심 로직 시작 ★★★
+    // 2일차 이상의 아침이 되면, 모둠을 새로 선택해야 한다는 상태를 설정합니다.
+    if (room.day > 1) {
+      room.needsGroupSelection = true;
+      // 새 날이 되었으므로 모든 생존 플레이어의 기존 모둠 정보를 초기화합니다.
+      // 이렇게 해야 플레이어 화면에서 '!player.group' 조건이 참이 되어 선택 버튼이 나타납니다.
+      room.players.forEach(p => {
+        if (p.status === 'alive') {
+          delete p.group;
+        }
+      });
+    }
+    // ★★★ 핵심 로직 끝 ★★★
+
+    broadcastUpdates(code);
   });
 });
 

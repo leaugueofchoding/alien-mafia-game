@@ -51,6 +51,7 @@
         let amIAlive = true;
         let huntSelections = [];
         let displayedLogCount = 0;
+        let currentRoomCode = '';
 
         function clearContainer() {
             playerContainer.innerHTML = '';
@@ -89,14 +90,33 @@
                 <p>${description}</p>`;
         }
 
-        function showMeetingScreen(day) {
-            clearContainer();
-            playerContainer.innerHTML = `
-                <h2>${day}일차 낮: 회의 시간</h2>
-                <p>자유롭게 토론하여 에일리언을 찾아내세요.</p>
-                <h1 class="timer" id="timer-display">02:00</h1>`;
-        }
+        // ★★★ 기존 showMeetingScreen 함수를 아래 코드로 교체해주세요. ★★★
+        function showMeetingScreen(roomData, player) {
+            let groupSelectionHtml = '';
+            if (roomData.needsGroupSelection && !player.group) {
+                const groupCount = roomData.groupCount || 4;
+                let buttonsHtml = '';
+                for (let i = 1; i <= groupCount; i++) {
+                    buttonsHtml += `<button class="group-select-btn" data-group="${i}">${i}모둠</button>`;
+                }
+                groupSelectionHtml = `
+            <div id="group-selection-container">
+                <h3>자신의 모둠 번호를 선택하세요</h3>
+                <div class="button-group" style="display: flex; gap: 10px; justify-content: center; margin-top: 10px;">
+                    ${buttonsHtml}
+                </div>
+            </div>
+            <hr>
+        `;
+            }
 
+            playerContainer.innerHTML = `
+                <h2>${roomData.day}일차 - 회의</h2>
+                ${groupSelectionHtml}
+                <p>생존자들과 토론하여 에일리언을 찾아내세요. 잠시 후 투표가 진행됩니다.</p>
+                <h1 class="timer" id="timer-display"></h1>
+            `;
+        }
         function showAlienNightScreen(text = "에일리언이 활동을 시작합니다.") {
             clearContainer();
             playerContainer.innerHTML = `
@@ -383,7 +403,7 @@
                         showRoleScreen(me.role, me.description);
                         break;
                     case 'meeting':
-                        showMeetingScreen(room.day);
+                        showMeetingScreen(room, me);
                         break;
                     // ★★★ 핵심 수정 ★★★
                     case 'night_alien_action':
@@ -477,7 +497,8 @@
                 const nameInput = document.getElementById('name-input');
                 const codeInput = document.getElementById('code-input');
                 if (nameInput.value.trim() && codeInput.value.trim()) {
-                    socket.emit('joinGame', { name: nameInput.value, code: codeInput.value });
+                    currentRoomCode = codeInput.value.trim(); // ★★★ 이 코드를 새로 추가해주세요. ★★★
+                    socket.emit('joinGame', { name: nameInput.value, code: currentRoomCode });
                 } else { alert('이름과 초대 코드를 모두 입력해주세요.'); }
                 return;
             }
@@ -494,6 +515,17 @@
                 target.classList.add('active');
                 playerContainer.querySelector(`#${tabName}-content`).classList.add('active');
                 return;
+            }
+
+            else if (target.classList.contains('group-select-btn')) {
+                const groupNumber = target.dataset.group;
+                socket.emit('selectGroup', { roomCode: currentRoomCode, groupNumber: groupNumber });
+
+                // 피드백을 위해 버튼 비활성화 및 선택 표시
+                document.querySelectorAll('.group-select-btn').forEach(btn => btn.disabled = true);
+                target.style.backgroundColor = '#28a745'; // 선택된 버튼 색상 변경
+                target.textContent = '선택 완료';
+                return; // 다른 클릭 이벤트와 충돌 방지
             }
 
             if (target.dataset.choice) {
