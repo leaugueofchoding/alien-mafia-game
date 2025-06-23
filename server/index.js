@@ -644,109 +644,83 @@ io.on('connection', (socket) => {
     broadcastUpdates(code);
   });
 
+  // ★★★ 기존 resolveEscapeStep 함수 전체를 아래 코드로 교체해주세요. ★★★
   socket.on('resolveEscapeStep', (data) => {
     const { code } = data;
     const room = gameRooms[code];
-    if (!room || room.phase !== 'escape_sequence') return;
+    if (!room || room.phase !== 'escape_sequence' || room.pendingAction === 'crisis_roulette') return;
 
     let resultMessage = '';
-    let isGameOver = false;
     let nextStep = room.escapeStep + 1;
 
     switch (room.escapeStep) {
-      // ★★★ 위 case 0: 블록을 아래 코드로 완전히 교체해주세요. ★★★
-      case 0: // 1관문: 식량 창고 확인 (뚱이 체크)
+      case 0: // 1관문: 뚱이 체크
         const hasGlutton = room.escapees.some(p => p.role === '뚱이');
         if (hasGlutton) {
-          // 1. 요청된 메시지를 로그에 추가합니다.
           room.escapeLog.push(">>> 치명적인 식량 약탈자 뚱이가 잠입된 것이 확인되었습니다.");
-
-          // 2. 이 메시지를 즉시 클라이언트에 전송하여 타이핑 애니메이션을 시작시킵니다.
           broadcastUpdates(code);
-
-          // 3. 7초 후에 게임 종료 함수를 호출합니다.
-          setTimeout(() => {
-            endGame(code, 'alien_win_glutton');
-          }, 4500);
-
-          // 4. 비동기 타이머가 작동하므로, 여기서 함수의 추가 실행을 막습니다.
-          return;
+          setTimeout(() => endGame(code, 'alien_win_glutton'), 4500);
+          return; // 함수 즉시 종료
         } else {
-          resultMessage = "[1차 관문 통과] 식량 창고는 안전합니다. 다행히 굶주린 자는 없는 것 같습니다.";
+          resultMessage = "[1차 관문 통과] 식량 창고는 안전합니다.";
         }
         break;
 
       case 1: // 2관문: 에일리언 체크
         const aliensOnBoard = room.escapees.filter(p => p.role.includes('에일리언'));
         const soldierOnBoard = room.escapees.some(p => p.role === '군인');
-        if (aliensOnBoard.length > 0) {
-          if (soldierOnBoard) {
-            resultMessage = "[2관문 통과] 에일리언이 잠입했으나, 용맹한 군인의 활약으로 처치했습니다!";
-          } else {
-            resultMessage = "[2관문 실패] 군인이 없는 상황에서 에일리언이 잠입했습니다. 최후의 사투가 벌어집니다...";
-            isGameOver = true;
-            const ending = ENDING_MESSAGES['alien_win_escape_aliens'];
-            room.winner = ending.winner;
-            io.to(code).emit('gameOver', ending);
-          }
+        if (aliensOnBoard.length > 0 && !soldierOnBoard) {
+          resultMessage = "[2관문 위기] 군인 없이 에일리언이 잠입했습니다! 최후의 사투가 벌어집니다...";
+          room.pendingAction = 'crisis_roulette';
+          const isSuccess = Math.random() < 0.5;
+          const crisisOptions = ['에일리언 퇴치', '탐사대 전멸'];
+          room.crisis = { type: '최후의 사투', options: crisisOptions, result: isSuccess ? crisisOptions[0] : crisisOptions[1], failureEnding: 'alien_win_escape_aliens' };
+          room.escapeLog.push(`>>> ${resultMessage}`);
+          return broadcastUpdates(code); // ★★★ 상태 설정 후 즉시 종료 ★★★
+        } else if (aliensOnBoard.length > 0 && soldierOnBoard) {
+          resultMessage = "[2관문 통과] 에일리언이 잠입했으나, 용맹한 군인의 활약으로 처치했습니다!";
         } else {
-          resultMessage = "[2관문 통과] 에일리언의 잠입은 없었습니다. 다음 관문을 확인합니다.";
+          resultMessage = "[2관문 통과] 에일리언의 잠입은 없었습니다.";
         }
         break;
 
       case 2: // 3관문: 의사 체크
-        const hasPlague = Math.random() < 0.5; // 50% 확률로 역병 발생
+        const hasPlague = Math.random() < 0.5;
         const doctorOnBoard = room.escapees.some(p => p.role === '의사');
-        if (hasPlague) {
-          if (doctorOnBoard) {
-            resultMessage = "[3관문 통과] 역병이 창궐했으나, 유능한 의사가 모두를 치료했습니다.";
-          } else {
-            resultMessage = "[3관문 실패] 역병이 창궐했지만, 치료할 의사가 없습니다...";
-            isGameOver = true;
-            const ending = ENDING_MESSAGES['alien_win_escape_plague'];
-            room.winner = ending.winner;
-            io.to(code).emit('gameOver', ending);
-          }
+        if (hasPlague && !doctorOnBoard) {
+          resultMessage = "[3관문 위기] 역병이 창궐했지만, 치료할 의사가 없습니다...";
+          room.pendingAction = 'crisis_roulette';
+          const isSuccess = Math.random() < 0.3;
+          const crisisOptions = ['면역력 승리', '탐사대 전멸'];
+          room.crisis = { type: '역병 창궐', options: crisisOptions, result: isSuccess ? crisisOptions[0] : crisisOptions[1], failureEnding: 'alien_win_escape_plague' };
+          room.escapeLog.push(`>>> ${resultMessage}`);
+          return broadcastUpdates(code); // ★★★ 상태 설정 후 즉시 종료 ★★★
+        } else if (hasPlague && doctorOnBoard) {
+          resultMessage = "[3관문 통과] 역병이 창궐했으나, 유능한 의사가 모두를 치료했습니다.";
         } else {
-          resultMessage = "[3관문 통과] 다행히 캡슐 내부는 위생적이었습니다. 다음 관문을 확인합니다.";
+          resultMessage = "[3관문 통과] 다행히 캡슐 내부는 위생적이었습니다.";
         }
         break;
 
       case 3: // 4관문: 엔지니어 체크
-        const hasMalfunction = Math.random() < 0.5; // 50% 확률로 결함 발생
+        // (향후 캡슐 결함 룰렛을 추가할 수 있는 부분)
         const engineerOnBoard = room.escapees.some(p => p.role === '엔지니어');
-        if (hasMalfunction) {
-          if (engineerOnBoard) {
-            resultMessage = "[4관문 통과] 캡슐에 결함이 발생했지만, 엔지니어가 성공적으로 수리했습니다.";
-          } else {
-            resultMessage = "[4관문 실패] 치명적인 결함이 발생했으나, 수리할 엔지니어가 없습니다...";
-            isGameOver = true;
-            const ending = ENDING_MESSAGES['alien_win_escape_malfunction'];
-            room.winner = ending.winner;
-            io.to(code).emit('gameOver', ending);
-          }
+        if (!engineerOnBoard) { // 간단하게 엔지니어 부재 시 바로 게임오버 처리
+          endGame(code, 'alien_win_escape_malfunction');
+          return;
         } else {
-          resultMessage = "[4관문 통과] 캡슐은 아무 이상 없었습니다. 지구로 귀환합니다!";
-        }
-
-        // 마지막 관문 통과 시 탐사대 승리 처리
-        if (!isGameOver) {
-          const finalEnding = ENDING_MESSAGES['crew_win_escape_success'];
-          room.winner = finalEnding.winner;
-          io.to(code).emit('gameOver', finalEnding);
-          isGameOver = true;
+          resultMessage = "[4관문 통과] 엔지니어의 점검 결과, 캡슐은 아무 이상 없었습니다.";
         }
         break;
+
+      case 4: // 최종 관문 통과
+        endGame(code, 'crew_win_escape_success');
+        return;
     }
 
+    room.escapeStep = nextStep;
     room.escapeLog.push(`>>> ${resultMessage}`);
-    if (isGameOver) {
-      room.status = 'game_over';
-    } else {
-      room.escapeStep = nextStep;
-      room.escapeLog.push(`>>> 다음 보안 검사를 진행합니다... [ ${nextStep + 1}단계 확인] 버튼을 눌러주세요.`);
-    }
-
+    room.escapeLog.push(`>>> 관리자는 [${nextStep + 1}단계 확인] 버튼을 눌러주세요.`);
     broadcastUpdates(code);
   });
 
@@ -816,6 +790,43 @@ io.on('connection', (socket) => {
     }
 
     broadcastUpdates(code);
+  });
+
+  // index.js의 기존 startCrisisRoulette 핸들러를 아래 코드로 교체해주세요.
+
+  socket.on('startCrisisRoulette', (data) => {
+    const { roomCode } = data;
+    const room = gameRooms[roomCode];
+    if (!room || !room.crisis) return;
+
+    const { type, options, result, failureEnding } = room.crisis;
+    const isSuccess = result === options[0];
+
+    const ROULETTE_DURATION = 4000;
+    const VIEW_DURATION = 2500;
+
+    io.to(roomCode).emit('showRoulette', {
+      title: type,
+      options: options.map(opt => ({ front: '?', back: opt })),
+    });
+
+    setTimeout(() => {
+      io.to(roomCode).emit('rouletteResult', { result: result });
+    }, ROULETTE_DURATION);
+
+    setTimeout(() => {
+      delete room.pendingAction;
+      delete room.crisis;
+
+      if (!isSuccess) {
+        endGame(roomCode, failureEnding);
+      } else {
+        // ★★★ 수정: 성공 시 위기 극복 메시지를 로그에 추가하고, 다음 단계를 자동으로 진행하도록 변경 ★★★
+        room.escapeLog.push(`>>> [위기 극복] 탐사대는 ${type}에서 살아남았습니다!`);
+        // 위기 상황을 유발했던 단계를 다시 실행하여, 정상적으로 통과하고 다음 단계로 넘어가게 함
+        socket.emit('resolveEscapeStep', { code: roomCode });
+      }
+    }, ROULETTE_DURATION + VIEW_DURATION);
   });
 
   socket.on('useSoldierAbility', (data) => {
@@ -959,6 +970,63 @@ io.on('connection', (socket) => {
     console.log(`[${roomCode}] 엔지니어가 비상탈출을 선택했습니다.`);
   });
 
+  // index.js의 useAlienEggAbility 핸들러를 이 코드로 교체해주세요.
+
+  socket.on('useAlienEggAbility', () => {
+    const selectorId = socket.id;
+    let roomCode = '';
+    for (const code in gameRooms) {
+      if (gameRooms[code].players.some(p => p.id === selectorId)) { roomCode = code; break; }
+    }
+    if (!roomCode) return;
+
+    const room = gameRooms[roomCode];
+    const alienEgg = room.players.find(p => p.id === selectorId);
+
+    if (!alienEgg || alienEgg.role !== '에일리언 알' || room.day !== 3 || alienEgg.abilityUsed) {
+      return;
+    }
+
+    alienEgg.abilityUsed = true;
+    const isHatch = Math.random() < 0.5;
+    const result = isHatch ? '부화' : '오염';
+    const ROULETTE_DURATION = 8000;
+    const VIEW_DURATION = 5000;
+
+    io.to(roomCode).emit('showRoulette', {
+      title: '에일리언 알 부화 시퀀스',
+      options: [{ front: '?', back: '부화' }, { front: '?', back: '오염' }],
+    });
+
+    setTimeout(() => {
+      io.to(roomCode).emit('rouletteResult', { result: result });
+    }, ROULETTE_DURATION);
+
+    setTimeout(() => {
+      if (isHatch) {
+        console.log(`[${roomCode}] Alien Egg hatched successfully.`);
+        alienEgg.role = '에일리언';
+        alienEgg.description = ROLE_DESCRIPTIONS['에일리언'];
+      } else { // [오염] 발생 시
+        console.log(`[${roomCode}] Alien Egg CONTAMINATED the group.`);
+        if (alienEgg.group) {
+          // ★★★ 핵심 수정: 자기 자신을 제외하는 조건을 삭제하여 '알'도 사망자에 포함시킵니다. ★★★
+          const playersToEliminate = room.players.filter(p =>
+            p.status === 'alive' &&
+            p.group === alienEgg.group &&
+            p.role !== '에일리언' &&
+            p.role !== '에일리언 여왕'
+            // p.id !== alienEgg.id  <- 이 줄이 삭제되었습니다.
+          );
+
+          playersToEliminate.forEach(player => {
+            eliminatePlayer(roomCode, player.id, 'egg_contamination');
+          });
+        }
+      }
+      broadcastUpdates(roomCode);
+    }, ROULETTE_DURATION + VIEW_DURATION);
+  });
 
   socket.on('useChatterboxAbility', (data) => {
     const { targetId } = data;
