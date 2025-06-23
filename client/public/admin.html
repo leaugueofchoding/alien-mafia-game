@@ -168,6 +168,11 @@
             font-weight: bold;
             margin-top: 10px;
         }
+
+        .crisis-roulette-result-text {
+            text-align: center;
+            /* [최후의 사투] 텍스트 가운데 정렬 */
+        }
     </style>
 </head>
 
@@ -214,6 +219,25 @@
 
         // ★★★ 이 함수를 완전한 버전으로 교체합니다 ★★★
         // ★★★ 기존 renderAdminView 함수 전체를 아래 코드로 완전히 교체해주세요. ★★★
+
+        socket.on('crisisRouletteResult', (data) => {
+            const { roomCode, result } = data;
+            const roomElement = document.querySelector(`.room-item\[data-code="${roomCode}"]`);
+            if (!roomElement) return;
+
+            const crisisDisplay = roomElement.querySelector('.crisis-display');
+            if (crisisDisplay) {
+                crisisDisplay.innerHTML = `<div class="crisis-roulette-result-text">${result}</div>`;
+                crisisDisplay.style.display = 'block';
+                setTimeout(() => {
+                    crisisDisplay.style.display = 'none';
+                    const resolveButton = roomElement.querySelector('.resolve-escape-step-btn');
+                    if (resolveButton) {
+                        resolveButton.disabled = false; // 필요하다면 다음 단계 진행 버튼 활성화
+                    }
+                }, 2500);
+            }
+        });
 
         function renderAdminView() {
             roomsContainer.innerHTML = '';
@@ -567,6 +591,8 @@
                 }
             } else if (classList.contains('revive-btn')) {
                 if (confirm('정말로 이 처리를 취소하고 플레이어를 부활시키겠습니까?')) {
+                    // 참고: 'revivePlayer' 기능은 아직 서버(index.js)에 구현되지 않았습니다.
+                    // 추후 이 기능이 필요할 때 말씀해주시면 서버 로직을 추가해 드리겠습니다.
                     socket.emit('revivePlayer', { roomCode, playerId: target.dataset.playerId });
                 }
             } else if (classList.contains('next-phase-btn')) {
@@ -591,16 +617,22 @@
                 }
                 const survivorIds = Array.from(checkedBoxes).map(box => box.value);
                 socket.emit('startEscapeSequence', { code: roomCode, survivorIds: survivorIds });
-            } else if (classList.contains('escape-timer-btn')) { // ★★★ 추가된 부분
+            } else if (classList.contains('escape-timer-btn')) {
                 socket.emit('startEscapeTimer', roomCode);
                 target.textContent = '타이머 작동 중...';
                 target.disabled = true;
-            } else if (classList.contains('force-escape-fail-btn')) { // ★★★ 추가된 부분
+            } else if (classList.contains('force-escape-fail-btn')) {
                 if (confirm('정말로 시간 초과로 비상탈출을 실패 처리하시겠습니까?')) {
                     socket.emit('forceEscapeFailure', { code: roomCode });
                 }
-            } else if (classList.contains('resolve-escape-step-btn')) { // ★★★ 추가된 부분
+            } else if (classList.contains('resolve-escape-step-btn')) {
                 socket.emit('resolveEscapeStep', { code: roomCode });
+            } else if (classList.contains('start-crisis-roulette-btn')) {
+                const crisis = gameRoomsState[roomCode]?.crisis;
+                const crisisType = crisis ? `[${crisis.type}]` : '';
+                if (confirm(`${crisisType} 룰렛을 시작하면 모든 참가자에게 결과가 공개됩니다. 정말 진행하시겠습니까?`)) {
+                    socket.emit('startCrisisRoulette', { roomCode });
+                }
             } else if (classList.contains('kick-btn')) {
                 const playerName = target.dataset.playerName;
                 if (confirm(`정말로 '${playerName}' 님을 대기실에서 퇴장시키겠습니까?`)) {
