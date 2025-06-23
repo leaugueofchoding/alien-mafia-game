@@ -252,6 +252,11 @@
                           </ul>
                           <button id="confirm-psychic-ability" disabled>선택 완료 (0/4)</button>`;
 
+                } else if (me.role === '에일리언 알' && room.day === 3 && !me.abilityUsed) {
+                    abilityContent = `<h4>알에서 깨어날 시간입니다...</h4>
+                          <p>(룰렛 결과에 따라 '부화'하여 동료가 되거나, 주변을 '오염'시켜 적을 제거합니다.)</p>
+                          <button id="start-hatch-btn" class="target-btn" style="width: 100%; background-color:#6f42c1;">부화 시작</button>`;
+
                 } else {
                     abilityContent = `<h4>사용할 수 있는 능력이 없거나 이미 사용했습니다.</h4>`;
                 }
@@ -693,6 +698,15 @@
                 socket.emit('useQueenRampage', { targetIds: huntSelections });
                 target.textContent = '선택 완료';
                 target.disabled = true;
+                return;
+            }
+
+            if (target.id === 'start-hatch-btn') {
+                if (confirm('부화를 시작하면 돌이킬 수 없습니다. 진행하시겠습니까?')) {
+                    socket.emit('useAlienEggAbility');
+                    target.textContent = '부화 진행 중...';
+                    target.disabled = true;
+                }
                 return;
             }
 
