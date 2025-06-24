@@ -627,6 +627,12 @@
             }
         });
 
+        socket.on('hideRoulette', () => {
+            const overlay = document.getElementById('roulette-overlay');
+            if (overlay) {
+                overlay.remove();
+            }
+        });
 
         rootDiv.addEventListener('click', function (event) {
             const target = event.target;
@@ -793,6 +799,9 @@
                 }
             }
         });
+
+
+
     </script>
 </body>
 

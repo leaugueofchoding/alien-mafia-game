@@ -456,18 +456,25 @@
                                 survivorList.appendChild(item);
                             });
                             settingsColumn.appendChild(survivorList);
+
                             const timerBtn = document.createElement('button');
                             timerBtn.className = 'escape-timer-btn';
                             timerBtn.textContent = '3분 30초 타이머 시작';
+                            timerBtn.style.cssText = 'background-color: #ffc107; color: #212529;'; // 노란색
                             settingsColumn.appendChild(timerBtn);
+
                             const forceFailBtn = document.createElement('button');
                             forceFailBtn.className = 'force-escape-fail-btn';
                             forceFailBtn.textContent = '시간 초과로 실패 처리';
+                            forceFailBtn.style.backgroundColor = '#dc3545'; // 빨간색
                             settingsColumn.appendChild(forceFailBtn);
+
                             const startEscapeBtn = document.createElement('button');
                             startEscapeBtn.className = 'start-escape-sequence-btn';
                             startEscapeBtn.textContent = '비상탈출 시퀀스 시작';
+                            startEscapeBtn.style.backgroundColor = '#6f42c1'; // 보라색
                             settingsColumn.appendChild(startEscapeBtn);
+
                         } else if (roomData.pendingAction === 'queen_rampage') {
                             if (roomData.rampageTriggered) {
                                 const resolveBtn = document.createElement('button');

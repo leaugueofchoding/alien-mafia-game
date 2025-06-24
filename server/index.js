@@ -67,10 +67,17 @@ const ENDING_MESSAGES = {
   alien_win_escape_malfunction: {
     winner: '에일리언',
     reason: '캡슐에 치명적인 결함이 발생했지만, 엔지니어의 부재로 수리할 수 없었습니다. 캡슐은 우주의 미아가 되었습니다.'
+  },
+  biochem_weapon_success: {
+    winner: '탐사대',
+    reason: '위대한 의사들이 마침내 에일리언에게만 치명적인 생화학 무기를 개발하는 데 성공했습니다! 함선 전체에 무기가 살포되고 에일리언들은 흔적도 없이 사라졌습니다.'
+  },
+  salvation_success: {
+    winner: '탐사대',
+    reason: '신의 사도의 굳건한 믿음이 마침내 하늘에 닿았습니다. 성스러운 빛이 함선을 감싸자 모든 에일리언이 소멸하였고, 탐사대는 구원받았습니다.'
   }
 };
 
-// index.js
 
 // ★★★ 기존 endGame 함수를 아래 코드로 교체해주세요. ★★★
 function endGame(roomCode, endingKey, detailLog = '') {
@@ -173,9 +180,40 @@ function checkWinConditions(roomCode) {
   return false;
 }
 
-// server/index.js
+function checkSpecialVictoryConditions(roomCode) {
+  const room = gameRooms[roomCode];
+  // ★★★ 핵심 수정: '== 5' 가 아닌 '>= 5' 로 변경하여 5일차 이후에도 계속 승리 판정을 하던 오류 수정
+  if (!room || room.status !== 'playing' || room.day < 5) return false;
 
-// server/index.js
+  // --- 의사 승리 조건 (우선순위 1) ---
+  const initialDoctorCount = room.initialSettings['의사'] || 0;
+  if (initialDoctorCount > 0) {
+    const aliveDoctors = room.players.filter(p => p.role === '의사' && p.status === 'alive').length;
+    if (aliveDoctors === initialDoctorCount) {
+      console.log(`[${roomCode}] Doctor victory condition met.`);
+      endGame(roomCode, 'biochem_weapon_success');
+      return true; // 의사 승리로 게임 종료
+    }
+  }
+
+  // --- 신의 사도 승리 조건 (우선순위 2) ---
+  const apostle = room.players.find(p => p.role === '신의 사도');
+  if (apostle && apostle.status === 'alive') {
+    const history = room.playerGroupHistory[apostle.id];
+    // 4일간의 기록이 있고 (1,2,3,4일차), 모든 기록이 첫날의 선택과 동일한지 확인
+    if (history && history.length >= 4) {
+      const firstChoice = history[0];
+      const isConsistent = history.slice(0, 4).every(choice => choice === firstChoice);
+      if (isConsistent) {
+        console.log(`[${roomCode}] Apostle of God victory condition met.`);
+        endGame(roomCode, 'salvation_success');
+        return true; // 신의 사도 승리로 게임 종료
+      }
+    }
+  }
+
+  return false;
+}
 
 // 이 함수 전체를 아래 코드로 교체해주세요.
 function eliminatePlayer(roomCode, playerId, cause = 'unknown') {
@@ -263,12 +301,15 @@ io.on('connection', (socket) => {
     broadcastUpdates(roomCode);
   });
 
+  // ★★★ 기존 startGame 함수를 이 코드로 교체해주세요. ★★★
   socket.on('startGame', (data) => {
     const { code, settings, groupCount } = data;
     const room = gameRooms[code];
     if (!room || room.status === 'playing') return;
 
     room.groupCount = groupCount;
+    room.initialSettings = settings; // ★★★ 추가: 시작 시 역할 설정 저장
+    room.playerGroupHistory = {}; // ★★★ 추가: 플레이어 모둠 선택 기록 초기화
 
     const roles = [];
     for (const roleName in settings) {
@@ -284,21 +325,19 @@ io.on('connection', (socket) => {
       if (player.role === '함장') player.bullets = 2;
       else if (player.role === '군인') player.bullets = 1;
 
-      // ★★★ 추가: 모든 플레이어의 모둠 정보 초기화 ★★★
+      room.playerGroupHistory[player.id] = []; // ★★★ 추가: 플레이어별 기록 배열 생성
       delete player.group;
     });
 
     room.status = 'playing';
     room.phase = 'role_reveal';
-    room.day = 1; // ★★★ 추가: 게임 시작 시 1일차로 명시적 설정 ★★★
-
-    // ★★★ 추가: 게임 시작과 동시에 모둠 선택이 필요함을 알림 ★★★
+    room.day = 1;
     room.needsGroupSelection = true;
 
     broadcastUpdates(code);
   });
-
   // 그룹 선택 핸들러
+  // ★★★ 기존 selectGroup 핸들러를 이 코드로 교체해주세요. ★★★
   socket.on('selectGroup', (data) => {
     const { roomCode, groupNumber } = data;
     const room = gameRooms[roomCode];
@@ -307,9 +346,13 @@ io.on('connection', (socket) => {
     const player = room.players.find(p => p.id === socket.id);
     if (player) {
       player.group = groupNumber;
-      console.log(`[${roomCode}] Player ${player.name} selected group ${player.group}`);
 
-      // 모든 생존자가 그룹 선택을 완료했는지 확인
+      // ★★★ 추가: 신의 사도를 포함한 모든 플레이어의 모둠 선택을 기록
+      if (room.playerGroupHistory && room.playerGroupHistory[player.id]) {
+        room.playerGroupHistory[player.id].push(groupNumber);
+      }
+      console.log(`[${roomCode}] Player ${player.name} selected group ${player.group}. History:`, room.playerGroupHistory[player.id]);
+
       const allAlivePlayers = room.players.filter(p => p.status === 'alive');
       const allSelected = allAlivePlayers.every(p => !!p.group);
 
@@ -593,7 +636,7 @@ io.on('connection', (socket) => {
     broadcastUpdates(roomCode);
   });
 
-  // 'startEscapeSequence' 핸들러를 아래 코드로 교체해주세요.
+  // ★★★ 기존 startEscapeSequence 함수를 이 코드로 교체해주세요. ★★★
   socket.on('startEscapeSequence', (data) => {
     const { code, survivorIds } = data;
     const room = gameRooms[code];
@@ -608,7 +651,8 @@ io.on('connection', (socket) => {
     delete room.pendingAction;
 
     room.escapeLog.push(">>> 비상탈출 시퀀스 가동. 캡슐 인원 확인 시작...");
-    room.escapeLog.push(">>> 다음 보안 검사를 진행합니다... [ 1단계 확인] 버튼을 눌러주세요.");
+    // ★★★ 수정: 불필요하고 혼란을 주던 로그를 아래의 명확한 로그로 변경
+    room.escapeLog.push(`>>> 관리자는 [관문 1단계 확인] 버튼을 눌러 다음 검사를 진행하세요.`);
 
     broadcastUpdates(code);
   });
@@ -687,14 +731,17 @@ io.on('connection', (socket) => {
       case 2: // 3관문: 의사 체크
         const hasPlague = Math.random() < 0.5;
         const doctorOnBoard = room.escapees.some(p => p.role === '의사');
+
         if (hasPlague && !doctorOnBoard) {
-          resultMessage = "[3관문 위기] 역병이 창궐했지만, 치료할 의사가 없습니다...";
+          resultMessage = "[3관문 위기] 역병이 창궐했지만, 치료할 의사가 없습니다! 룰렛으로 생존자를 결정합니다.";
           room.pendingAction = 'crisis_roulette';
-          const isSuccess = Math.random() < 0.3;
+          // isSuccess의 확률을 30%에서 50%로 조정하여 테스트 용이하게 변경
+          const isSuccess = Math.random() < 0.5;
           const crisisOptions = ['면역력 승리', '탐사대 전멸'];
           room.crisis = { type: '역병 창궐', options: crisisOptions, result: isSuccess ? crisisOptions[0] : crisisOptions[1], failureEnding: 'alien_win_escape_plague' };
           room.escapeLog.push(`>>> ${resultMessage}`);
-          return broadcastUpdates(code); // ★★★ 상태 설정 후 즉시 종료 ★★★
+          // 상태 변경 후 즉시 전파하고 함수 종료 (관리자가 룰렛 버튼 누르기를 기다림)
+          return broadcastUpdates(code);
         } else if (hasPlague && doctorOnBoard) {
           resultMessage = "[3관문 통과] 역병이 창궐했으나, 유능한 의사가 모두를 치료했습니다.";
         } else {
@@ -720,7 +767,9 @@ io.on('connection', (socket) => {
 
     room.escapeStep = nextStep;
     room.escapeLog.push(`>>> ${resultMessage}`);
-    room.escapeLog.push(`>>> 관리자는 [${nextStep + 1}단계 확인] 버튼을 눌러주세요.`);
+    if (nextStep < 4) { // 마지막 단계가 아닐 때만 다음 단계 안내 메시지 추가
+      room.escapeLog.push(`>>> 관리자는 [관문 ${nextStep + 1}단계 확인] 버튼을 눌러주세요.`);
+    }
     broadcastUpdates(code);
   });
 
@@ -792,8 +841,7 @@ io.on('connection', (socket) => {
     broadcastUpdates(code);
   });
 
-  // index.js의 기존 startCrisisRoulette 핸들러를 아래 코드로 교체해주세요.
-
+  // ★★★ 기존 startCrisisRoulette 함수를 이 코드로 교체해주세요. ★★★
   socket.on('startCrisisRoulette', (data) => {
     const { roomCode } = data;
     const room = gameRooms[roomCode];
@@ -804,6 +852,7 @@ io.on('connection', (socket) => {
 
     const ROULETTE_DURATION = 4000;
     const VIEW_DURATION = 2500;
+    const HIDE_DELAY = ROULETTE_DURATION + VIEW_DURATION;
 
     io.to(roomCode).emit('showRoulette', {
       title: type,
@@ -815,18 +864,26 @@ io.on('connection', (socket) => {
     }, ROULETTE_DURATION);
 
     setTimeout(() => {
+      io.to(roomCode).emit('hideRoulette');
+
       delete room.pendingAction;
       delete room.crisis;
 
       if (!isSuccess) {
         endGame(roomCode, failureEnding);
       } else {
-        // ★★★ 수정: 성공 시 위기 극복 메시지를 로그에 추가하고, 다음 단계를 자동으로 진행하도록 변경 ★★★
+        // ★★★ 핵심 수정 ★★★
+        // 위기 극복 시, 서버가 직접 다음 단계로 진행시키고 그 결과를 모두에게 알려줍니다.
+        // 이렇게 하면 관리자가 버튼을 한 번 더 누를 필요가 없습니다.
         room.escapeLog.push(`>>> [위기 극복] 탐사대는 ${type}에서 살아남았습니다!`);
-        // 위기 상황을 유발했던 단계를 다시 실행하여, 정상적으로 통과하고 다음 단계로 넘어가게 함
-        socket.emit('resolveEscapeStep', { code: roomCode });
+
+        room.escapeStep += 1; // 다음 단계로 수동 증가
+        const nextStep = room.escapeStep;
+        room.escapeLog.push(`>>> 관리자는 [관문 ${nextStep + 1}단계 확인] 버튼을 눌러주세요.`);
+
+        broadcastUpdates(code); // 변경된 최종 상태를 전파
       }
-    }, ROULETTE_DURATION + VIEW_DURATION);
+    }, HIDE_DELAY);
   });
 
   socket.on('useSoldierAbility', (data) => {
@@ -1124,6 +1181,7 @@ io.on('connection', (socket) => {
   });
 
   // ★★★ 위 함수를 아래의 완전한 코드로 교체해주세요. ★★★
+  // ★★★ 기존 endNightAndStartMeeting 함수를 이 코드로 교체해주세요. ★★★
   socket.on('endNightAndStartMeeting', (data) => {
     const { code } = data;
     const room = gameRooms[code];
@@ -1132,19 +1190,21 @@ io.on('connection', (socket) => {
     room.day += 1;
     room.phase = 'meeting';
 
-    // ★★★ 핵심 로직 시작 ★★★
-    // 2일차 이상의 아침이 되면, 모둠을 새로 선택해야 한다는 상태를 설정합니다.
+    // 5일차 아침이 되면 특별 승리 조건을 먼저 확인
+    const gameEnded = checkSpecialVictoryConditions(code);
+    if (gameEnded) {
+      return; // 특별 승리로 게임이 종료되었다면 더 이상 진행하지 않음
+    }
+
+    // 2일차 이상의 아침이 되면, 모든 생존 플레이어의 모둠 정보를 초기화
     if (room.day > 1) {
       room.needsGroupSelection = true;
-      // 새 날이 되었으므로 모든 생존 플레이어의 기존 모둠 정보를 초기화합니다.
-      // 이렇게 해야 플레이어 화면에서 '!player.group' 조건이 참이 되어 선택 버튼이 나타납니다.
       room.players.forEach(p => {
         if (p.status === 'alive') {
           delete p.group;
         }
       });
     }
-    // ★★★ 핵심 로직 끝 ★★★
 
     broadcastUpdates(code);
   });
