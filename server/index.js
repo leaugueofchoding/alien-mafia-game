@@ -12,7 +12,7 @@ const io = new Server(server, {
   cors: { origin: "*", methods: ["GET", "POST"] }
 });
 
-const PORT = 3001;
+const PORT = process.env.PORT || 3001;
 const gameRooms = {};
 const ADMIN_ROOM = 'admin_room';
 const timerIntervals = {};
