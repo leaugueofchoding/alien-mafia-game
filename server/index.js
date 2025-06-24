@@ -75,6 +75,14 @@ const ENDING_MESSAGES = {
   salvation_success: {
     winner: '탐사대',
     reason: '신의 사도의 굳건한 믿음이 마침내 하늘에 닿았습니다. 성스러운 빛이 함선을 감싸자 모든 에일리언이 소멸하였고, 탐사대는 구원받았습니다.'
+  },
+  crew_win_hero: {
+    winner: '탐사대',
+    reason: '영웅은 천재적인 두뇌나 특별한 능력으로 만들어지는 게 아닙니다. 우리와 같은 평범한 사람들이 강인한 의지를 갖고 서로의 힘을 모을 때, 우리 모두는 영웅이 되는 겁니다.'
+  },
+  crew_win_cold_survivors: {
+    winner: '생존자',
+    reason: '뛰어난 자질을 갖춘 생존자들은 위협 속에서 살아남았습니다. 하지만 특별한 능력이 없다고 상대를 가벼이 여겨서는 안 됩니다. 그런 냉정함 덕분에 살아남았다고 하면, 달리 할 말은 없겠습니다.'
   }
 };
 
@@ -110,6 +118,22 @@ function endGame(roomCode, endingKey, detailLog = '') {
     io.to(roomCode).emit('gameOver', gameOverPayload);
     broadcastUpdates(roomCode);
   }, 4500); // 4.5초 지연
+}
+
+function resolveEscapeEnding(roomCode) {
+  const room = gameRooms[roomCode];
+  if (!room) return;
+
+  // 탈출 성공자 중에 '일반 승객'이 있는지 확인
+  const hasOrdinaryPassenger = room.escapees.some(p => p.role === '일반 승객');
+
+  if (hasOrdinaryPassenger) {
+    // 일반 승객이 있으면 '영웅' 엔딩
+    endGame(roomCode, 'crew_win_hero');
+  } else {
+    // 일반 승객이 없으면 '냉정한 생존자들' 엔딩
+    endGame(roomCode, 'crew_win_cold_survivors');
+  }
 }
 
 function shuffle(array) {
@@ -254,9 +278,19 @@ function eliminatePlayer(roomCode, playerId, cause = 'unknown') {
   return false;
 }
 
-app.use(express.static(path.join(__dirname, '../client/public')));
-app.get('/', (req, res) => { res.sendFile(path.join(__dirname, '../client/public', 'index.html')); });
-app.get('/admin', (req, res) => { res.sendFile(path.join(__dirname, '../client/public', 'admin.html')); });
+aapp.use(express.static(path.join(__dirname, '../client')));
+
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, '../client', 'index.html'));
+});
+
+app.get('/admin', (req, res) => {
+  res.sendFile(path.join(__dirname, '../client', 'admin.html'));
+});
+
+app.get('/situation-board.html', (req, res) => {
+  res.sendFile(path.join(__dirname, '../client', 'situation-board.html'));
+});
 
 io.on('connection', (socket) => {
 
@@ -771,7 +805,7 @@ io.on('connection', (socket) => {
         break;
 
       case 4: // 최종 관문 통과
-        endGame(code, 'crew_win_escape_success');
+        resolveEscapeEnding(code);
         return;
     }
 
