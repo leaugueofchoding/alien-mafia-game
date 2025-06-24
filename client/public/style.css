@@ -359,6 +359,10 @@ li.dead {
     background-color: #1a1a2e;
     border: 3px solid #ffc107;
     transform: rotateY(180deg);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    text-align: center;
 }
 
 /* 셔플 애니메이션 키프레임 */

@@ -120,6 +120,16 @@ function shuffle(array) {
   return array;
 }
 
+function broadcastAlienSelections(roomCode) {
+  const room = gameRooms[roomCode];
+  if (!room || !room.selections) return;
+
+  const allAliens = room.players.filter(p => p.role.includes('에일리언'));
+  allAliens.forEach(alienPlayer => {
+    io.to(alienPlayer.id).emit('nightSelectionUpdate', { selections: room.selections });
+  });
+}
+
 function broadcastUpdates(roomCode) {
   if (gameRooms[roomCode]) {
     const room = gameRooms[roomCode];
@@ -519,15 +529,15 @@ io.on('connection', (socket) => {
     }
     if (roomCode) {
       const room = gameRooms[roomCode];
+      // ★★★ 핵심 수정: 선택 정보를 덮어쓰지 않고, selectorId를 키로 저장합니다.
       if (targetId) {
+        // targetId가 null이면 선택 취소, 아니면 선택
         room.selections[selectorId] = targetId;
       } else {
+        // 선택 취소 시 해당 플레이어의 선택만 제거
         delete room.selections[selectorId];
       }
-      const allAliens = room.players.filter(p => p.role.includes('에일리언'));
-      allAliens.forEach(alienPlayer => {
-        io.to(alienPlayer.id).emit('nightSelectionUpdate', { selections: room.selections });
-      });
+      broadcastAlienSelections(roomCode);
     }
   });
 
@@ -729,33 +739,33 @@ io.on('connection', (socket) => {
         break;
 
       case 2: // 3관문: 의사 체크
-        const hasPlague = Math.random() < 0.5;
         const doctorOnBoard = room.escapees.some(p => p.role === '의사');
 
-        if (hasPlague && !doctorOnBoard) {
-          resultMessage = "[3관문 위기] 역병이 창궐했지만, 치료할 의사가 없습니다! 룰렛으로 생존자를 결정합니다.";
+        if (!doctorOnBoard) { // 의사가 없으면 100% 확률로 위기 발생
+          resultMessage = "[3관문 위기] 캡슐에 의사가 없어 역병이 창궐했습니다! 룰렛으로 생존자를 결정합니다.";
           room.pendingAction = 'crisis_roulette';
-          // isSuccess의 확률을 30%에서 50%로 조정하여 테스트 용이하게 변경
-          const isSuccess = Math.random() < 0.5;
+          const isSuccess = Math.random() < 0.5; // 위기 상황에서 생존할 확률 50%
           const crisisOptions = ['면역력 승리', '탐사대 전멸'];
           room.crisis = { type: '역병 창궐', options: crisisOptions, result: isSuccess ? crisisOptions[0] : crisisOptions[1], failureEnding: 'alien_win_escape_plague' };
           room.escapeLog.push(`>>> ${resultMessage}`);
-          // 상태 변경 후 즉시 전파하고 함수 종료 (관리자가 룰렛 버튼 누르기를 기다림)
           return broadcastUpdates(code);
-        } else if (hasPlague && doctorOnBoard) {
-          resultMessage = "[3관문 통과] 역병이 창궐했으나, 유능한 의사가 모두를 치료했습니다.";
-        } else {
-          resultMessage = "[3관문 통과] 다행히 캡슐 내부는 위생적이었습니다.";
+        } else { // 의사가 있으면 100% 확률로 통과
+          resultMessage = "[3관문 통과] 다행히 캡슐에 유능한 의사가 있어 역병을 예방했습니다.";
         }
         break;
 
       case 3: // 4관문: 엔지니어 체크
-        // (향후 캡슐 결함 룰렛을 추가할 수 있는 부분)
         const engineerOnBoard = room.escapees.some(p => p.role === '엔지니어');
-        if (!engineerOnBoard) { // 간단하게 엔지니어 부재 시 바로 게임오버 처리
-          endGame(code, 'alien_win_escape_malfunction');
-          return;
-        } else {
+
+        if (!engineerOnBoard) { // 엔지니어가 없으면 100% 확률로 위기 발생
+          resultMessage = "[4관문 위기] 캡슐에 치명적인 결함이 발생했습니다! 엔지니어가 없는 절망적인 상황... 하지만 잠재된 영웅이 기적을 만들 수 있을까요?";
+          room.pendingAction = 'crisis_roulette';
+          const isSuccess = Math.random() < 0.7; // 숨겨진 영웅이 수리에 성공할 확률 70%
+          const crisisOptions = ['수리 성공', '수리 실패'];
+          room.crisis = { type: '치명적인 캡슐 결함', options: crisisOptions, result: isSuccess ? crisisOptions[0] : crisisOptions[1], failureEnding: 'alien_win_escape_malfunction' };
+          room.escapeLog.push(`>>> ${resultMessage}`);
+          return broadcastUpdates(code);
+        } else { // 엔지니어가 있으면 100% 확률로 통과
           resultMessage = "[4관문 통과] 엔지니어의 점검 결과, 캡슐은 아무 이상 없었습니다.";
         }
         break;
@@ -872,16 +882,22 @@ io.on('connection', (socket) => {
       if (!isSuccess) {
         endGame(roomCode, failureEnding);
       } else {
-        // ★★★ 핵심 수정 ★★★
-        // 위기 극복 시, 서버가 직접 다음 단계로 진행시키고 그 결과를 모두에게 알려줍니다.
-        // 이렇게 하면 관리자가 버튼을 한 번 더 누를 필요가 없습니다.
-        room.escapeLog.push(`>>> [위기 극복] 탐사대는 ${type}에서 살아남았습니다!`);
+        // ★★★ 핵심 수정: 위기 종류에 따라 다른 성공 메시지를 출력합니다. ★★★
+        if (type === '치명적인 캡슐 결함') {
+          room.escapeLog.push(">>> 기적이 일어났습니다! 평소 기계 만지기를 좋아했던 일반 승객이 필사적인 노력 끝에 캡슐을 수리하는 데 성공했습니다! 모두가 그를 영웅으로 부릅니다.");
+        } else {
+          // 기존의 다른 위기 상황들을 위한 기본 성공 메시지
+          room.escapeLog.push(`>>> [위기 극복] 탐사대는 ${type}에서 살아남았습니다!`);
+        }
 
-        room.escapeStep += 1; // 다음 단계로 수동 증가
+        // 룰렛 성공 후 다음 단계로 진행
+        room.escapeStep += 1;
         const nextStep = room.escapeStep;
-        room.escapeLog.push(`>>> 관리자는 [관문 ${nextStep + 1}단계 확인] 버튼을 눌러주세요.`);
-
-        broadcastUpdates(code); // 변경된 최종 상태를 전파
+        // 4관문(step:3) 통과 시 최종 성공이므로 다음 단계 안내는 필요 없음
+        if (nextStep < 4) {
+          room.escapeLog.push(`>>> 관리자는 [관문 ${nextStep + 1}단계 확인] 버튼을 눌러주세요.`);
+        }
+        broadcastUpdates(roomCode);
       }
     }, HIDE_DELAY);
   });
@@ -944,12 +960,9 @@ io.on('connection', (socket) => {
       const queen = room.players.find(p => p.id === socket.id);
       if (room && queen && queen.role === '에일리언 여왕' && !queen.abilityUsed && targetIds && targetIds.length === 2) {
         queen.abilityUsed = true;
+        // ★★★ 핵심 수정: 여왕의 선택(배열)도 selectorId를 키로 저장합니다.
         room.selections[selectorId] = targetIds;
-
-        const allAliens = room.players.filter(p => p.role.includes('에일리언'));
-        allAliens.forEach(alienPlayer => {
-          io.to(alienPlayer.id).emit('nightSelectionUpdate', { selections: room.selections });
-        });
+        broadcastAlienSelections(roomCode);
       }
     }
   });
@@ -976,7 +989,6 @@ io.on('connection', (socket) => {
 
   // server/index.js
 
-  // 3. 이 함수로 교체해주세요.
   socket.on('useQueenRampage', (data) => {
     const { targetIds } = data;
     const selectorId = socket.id;
@@ -988,19 +1000,11 @@ io.on('connection', (socket) => {
     if (roomCode) {
       const room = gameRooms[roomCode];
       const queen = room.players.find(p => p.id === socket.id);
-      // ★★★ 수정: 0명 이상, 4명 이하 선택을 허용하도록 조건 변경 ★★★
       if (room && queen && queen.role === '에일리언 여왕' && targetIds && targetIds.length >= 0 && targetIds.length <= 4) {
         room.selections[selectorId] = targetIds;
-
         console.log(`[${roomCode}] 여왕 만찬 선택 기록:`, room.selections);
         io.to(selectorId).emit('actionConfirmed');
-
-        const allAliens = room.players.filter(p => p.role.includes('에일리언'));
-        allAliens.forEach(alienPlayer => {
-          io.to(alienPlayer.id).emit('nightSelectionUpdate', { selections: room.selections });
-        });
-
-        broadcastUpdates(roomCode);
+        broadcastAlienSelections(roomCode); // 도우미 함수 호출
       }
     }
   });
