@@ -1,4 +1,4 @@
-// 기존 index.js 파일의 모든 내용을 이 코드로 교체해주세요.
+// server/index.js 파일의 전체 코드를 이 내용으로 교체해주세요.
 
 const express = require('express');
 const http = require('http');
@@ -12,15 +12,29 @@ const io = new Server(server, {
   cors: { origin: "*", methods: ["GET", "POST"] }
 });
 
-const PORT = process.env.PORT || 3001;
+const PORT = process.env.PORT || 3001; // Glitch 호환성을 위해 포트 설정 변경
 const gameRooms = {};
 const ADMIN_ROOM = 'admin_room';
 const timerIntervals = {};
 
-const presetsPath = path.join(__dirname, 'presets.json');
+// --- 경로 설정 시작 ---
+// __dirname은 현재 파일(index.js)이 있는 'server' 폴더를 가리킵니다.
+const serverPath = __dirname;
+// 여기서 한 단계 위로 올라가면 프로젝트의 루트 폴더입니다.
+const rootPath = path.join(serverPath, '..');
+
+// JSON 파일과 public 폴더의 정확한 경로를 지정합니다.
+const presetsPath = path.join(serverPath, 'presets.json');
+const missionsPath = path.join(serverPath, 'missions.json');
+const publicPath = path.join(rootPath, 'client/public');
+// --- 경로 설정 끝 ---
+
+// 파일 로드
 const presetsData = fs.readFileSync(presetsPath, 'utf8');
 const PRESETS = JSON.parse(presetsData);
+const MISSIONS = JSON.parse(fs.readFileSync(missionsPath, 'utf8'));
 
+// 직업 설명 및 엔딩 메시지 (생략 - 기존 코드와 동일)
 const ROLE_DESCRIPTIONS = {
   '에일리언 여왕': '게임 중 단 한 번, [사냥] 능력으로 두 명을 제거할 수 있습니다. 특정 위기 상황에서는 네 명을 잡아먹기도 합니다.',
   '에일리언': '여왕의 부하입니다. 매일 밤 한 명을 [포식]할 수 있습니다.',
@@ -35,7 +49,6 @@ const ROLE_DESCRIPTIONS = {
   '군인': '1발의 총알로 의심되는 참가자 한 명을 [저격]하여 탈락시킬 수 있습니다.',
   '일반 승객': '특별한 능력은 없지만, 투표를 통해 진실을 밝혀내야 합니다.'
 };
-
 const ENDING_MESSAGES = {
   crew_win_queen_eliminated: {
     winner: '탐사대',
@@ -87,7 +100,28 @@ const ENDING_MESSAGES = {
 };
 
 
-// ★★★ 기존 endGame 함수를 아래 코드로 교체해주세요. ★★★
+// --- 라우팅 설정 시작 (가장 중요한 부분) ---
+// client/public 폴더를 정적 파일 제공 폴더로 설정합니다.
+app.use(express.static(publicPath));
+
+// 루트 URL('/') 요청 시 index.html 파일을 보냅니다.
+app.get('/', (req, res) => {
+  res.sendFile(path.join(publicPath, 'index.html'));
+});
+
+// '/admin' URL 요청 시 admin.html 파일을 보냅니다.
+app.get('/admin', (req, res) => {
+  res.sendFile(path.join(publicPath, 'admin.html'));
+});
+
+// '/situation-board.html' URL 요청 시 situation-board.html 파일을 보냅니다.
+app.get('/situation-board.html', (req, res) => {
+  res.sendFile(path.join(publicPath, 'situation-board.html'));
+});
+// --- 라우팅 설정 끝 ---
+
+
+// --- 게임 로직 함수들 (생략 - 기존 코드와 동일) ---
 function endGame(roomCode, endingKey, detailLog = '') {
   const room = gameRooms[roomCode];
   if (!room || room.status === 'game_over') return;
@@ -119,7 +153,6 @@ function endGame(roomCode, endingKey, detailLog = '') {
     broadcastUpdates(roomCode);
   }, 4500); // 4.5초 지연
 }
-
 function resolveEscapeEnding(roomCode) {
   const room = gameRooms[roomCode];
   if (!room) return;
@@ -135,7 +168,6 @@ function resolveEscapeEnding(roomCode) {
     endGame(roomCode, 'crew_win_cold_survivors');
   }
 }
-
 function shuffle(array) {
   for (let i = array.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
@@ -143,7 +175,6 @@ function shuffle(array) {
   }
   return array;
 }
-
 function broadcastAlienSelections(roomCode) {
   const room = gameRooms[roomCode];
   if (!room || !room.selections) return;
@@ -153,7 +184,6 @@ function broadcastAlienSelections(roomCode) {
     io.to(alienPlayer.id).emit('nightSelectionUpdate', { selections: room.selections });
   });
 }
-
 function broadcastUpdates(roomCode) {
   if (gameRooms[roomCode]) {
     const room = gameRooms[roomCode];
@@ -162,7 +192,6 @@ function broadcastUpdates(roomCode) {
     io.to(roomCode).emit('updateRoom', room);
   }
 }
-
 function checkWinConditions(roomCode) {
   const room = gameRooms[roomCode];
   if (!room || room.status !== 'playing') return false;
@@ -213,7 +242,6 @@ function checkWinConditions(roomCode) {
 
   return false;
 }
-
 function checkSpecialVictoryConditions(roomCode) {
   const room = gameRooms[roomCode];
   // ★★★ 핵심 수정: '== 5' 가 아닌 '>= 5' 로 변경하여 5일차 이후에도 계속 승리 판정을 하던 오류 수정
@@ -248,8 +276,6 @@ function checkSpecialVictoryConditions(roomCode) {
 
   return false;
 }
-
-// 이 함수 전체를 아래 코드로 교체해주세요.
 function eliminatePlayer(roomCode, playerId, cause = 'unknown') {
   const room = gameRooms[roomCode];
   if (!room) return false;
@@ -278,25 +304,16 @@ function eliminatePlayer(roomCode, playerId, cause = 'unknown') {
   return false;
 }
 
-app.use(express.static(path.join(__dirname, '../client')));
 
-app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, '../client', 'index.html'));
-});
-
-app.get('/admin', (req, res) => {
-  res.sendFile(path.join(__dirname, '../client', 'admin.html'));
-});
-
-app.get('/situation-board.html', (req, res) => {
-  res.sendFile(path.join(__dirname, '../client', 'situation-board.html'));
-});
-
+// --- io.on('connection', ...) 리스너 및 서버 실행 ---
+// (이하 모든 소켓 이벤트 핸들러는 생략 - 기존 코드와 동일)
 io.on('connection', (socket) => {
 
   socket.on('adminConnect', () => {
     socket.join(ADMIN_ROOM);
-    socket.emit('updateAdmin', { rooms: gameRooms, presets: PRESETS });
+    // MISSIONS 객체의 키(프리셋 이름) 목록을 함께 전송하도록 수정
+    const missionPresetNames = Object.keys(MISSIONS);
+    socket.emit('updateAdmin', { rooms: gameRooms, presets: PRESETS, missionPresets: missionPresetNames });
   });
 
   socket.on('boardConnect', (data) => {
@@ -345,15 +362,42 @@ io.on('connection', (socket) => {
     broadcastUpdates(roomCode);
   });
 
-  // ★★★ 기존 startGame 함수를 이 코드로 교체해주세요. ★★★
+  // ★★★ 기존 startGame 핸들러를 아래 코드로 통째로 교체해주세요. ★★★
+  // server/index.js의 'startGame' 핸들러
+  // ★★★ 기존 코드를 아래 코드로 통째로 교체해주세요. ★★★
   socket.on('startGame', (data) => {
-    const { code, settings, groupCount } = data;
+    const { code, settings, groupCount, selectedPreset } = data; // selectedPreset 추가
     const room = gameRooms[code];
     if (!room || room.status === 'playing') return;
 
     room.groupCount = groupCount;
-    room.initialSettings = settings; // ★★★ 추가: 시작 시 역할 설정 저장
-    room.playerGroupHistory = {}; // ★★★ 추가: 플레이어 모둠 선택 기록 초기화
+    room.initialSettings = settings;
+    room.playerGroupHistory = {};
+
+    // --- 미션 보드 생성 로직 (프리셋 기반으로 변경) ---
+    const missionSet = MISSIONS[selectedPreset]; // 선택된 프리셋의 문제 목록을 가져옴
+
+    if (missionSet && missionSet.length >= 25) {
+      const shuffledMissions = shuffle([...missionSet]); // 해당 프리셋 내에서만 섞음
+      const selectedMissions = shuffledMissions.slice(0, 25);
+
+      room.missionBoard = {
+        progress: 0,
+        problems: selectedMissions.map(mission => ({
+          id: mission.id,
+          question: mission.question,
+          answer: mission.answer,
+          status: 'unsolved',
+          solvedBy: null,
+          failedBy: null
+        }))
+      };
+      console.log(`[${code}] Mission board created with preset: ${selectedPreset}`);
+    } else {
+      room.missionBoard = null;
+      console.warn(`[${code}] Warning: Selected preset '${selectedPreset}' has less than 25 questions. Starting without mission board.`);
+    }
+    // --- 미션 보드 로직 끝 ---
 
     const roles = [];
     for (const roleName in settings) {
@@ -369,7 +413,7 @@ io.on('connection', (socket) => {
       if (player.role === '함장') player.bullets = 2;
       else if (player.role === '군인') player.bullets = 1;
 
-      room.playerGroupHistory[player.id] = []; // ★★★ 추가: 플레이어별 기록 배열 생성
+      room.playerGroupHistory[player.id] = [];
       delete player.group;
     });
 
@@ -380,7 +424,7 @@ io.on('connection', (socket) => {
 
     broadcastUpdates(code);
   });
-  // 그룹 선택 핸들러
+
   // ★★★ 기존 selectGroup 핸들러를 이 코드로 교체해주세요. ★★★
   socket.on('selectGroup', (data) => {
     const { roomCode, groupNumber } = data;
@@ -408,12 +452,6 @@ io.on('connection', (socket) => {
       broadcastUpdates(roomCode);
     }
   });
-
-  // ... 다른 핸들러들 ...
-  // server/index.js
-
-  // 1. 이 함수로 교체해주세요.
-  // io.on('connection', (socket) => { ... 안에 있는 핸들러입니다 ...
 
   // ★★★ 기존 코드를 아래 코드로 완전히 교체해주세요. ★★★
   socket.on('nextPhase', (data) => {
@@ -513,8 +551,6 @@ io.on('connection', (socket) => {
     broadcastUpdates(code);
   });
 
-  // io.on('connection', (socket) => { ... 안에 있는 핸들러입니다 ...
-
   // ★★★ 기존 코드를 아래 코드로 완전히 교체해주세요. ★★★
   socket.on('startMeetingTimer', (roomCode) => {
     console.log(`[${roomCode}] Received startMeetingTimer event.`); // 디버깅 로그 추가
@@ -575,10 +611,6 @@ io.on('connection', (socket) => {
     }
   });
 
-  // server/index.js
-
-  // server/index.js
-
   // 이 함수를 아래 코드로 통째로 교체해주세요.
   socket.on('resolveNightActions', (data) => {
     const { code } = data;
@@ -625,7 +657,6 @@ io.on('connection', (socket) => {
     broadcastUpdates(code);
   });
 
-  // 3. 이 함수로 교체해주세요.
   socket.on('triggerCrewAction', (data) => {
     const { code } = data;
     const room = gameRooms[code];
@@ -651,8 +682,6 @@ io.on('connection', (socket) => {
     // ★★★ 추가된 부분: 변경된 상태를 모든 클라이언트에 전파하여 UI를 갱신 ★★★
     broadcastUpdates(code);
   });
-
-  // server/index.js
 
   // 'engineerChoseEscape' 핸들러 추가
   socket.on('engineerChoseEscape', () => {
@@ -1050,11 +1079,30 @@ io.on('connection', (socket) => {
     }
     if (!roomCode) return;
 
-    console.log(`[${roomCode}] 엔지니어가 싸움을 선택했습니다. 여왕의 만찬을 준비합니다.`);
     const room = gameRooms[roomCode];
-    room.pendingAction = 'queen_rampage';
-    io.to(roomCode).emit('feastAnnounced');
-    broadcastUpdates(roomCode);
+
+    // ★★★ 미션 성공 보상 적용 로직 (80% 이상 조건으로 변경) ★★★
+    if (room.missionBoard && room.missionBoard.progress >= 0.8) {
+      console.log(`[${roomCode}] Queen's Rampage cancelled by mission success (Progress: ${room.missionBoard.progress * 100}%)`);
+
+      // 보상 사용 후 진행률을 0으로 만들어 중복 사용 방지
+      room.missionBoard.progress = 0;
+
+      io.to(roomCode).emit('globalAlert', {
+        title: "미션 성공!",
+        message: `탐사대가 미션의 80% 이상을 해결하여 여왕의 광란을 잠재웠습니다! 위기는 일단 지나갔습니다.`
+      });
+
+      delete room.pendingAction;
+      broadcastUpdates(roomCode);
+
+    } else {
+      // 미션 보상 조건 미달 시 기존 로직대로 '여왕의 만찬'을 준비합니다.
+      console.log(`[${roomCode}] 엔지니어가 싸움을 선택했습니다. 여왕의 만찬을 준비합니다.`);
+      room.pendingAction = 'queen_rampage';
+      io.to(roomCode).emit('feastAnnounced');
+      broadcastUpdates(roomCode);
+    }
   });
 
   socket.on('engineerChoseEscape', () => {
@@ -1064,8 +1112,6 @@ io.on('connection', (socket) => {
     }
     console.log(`[${roomCode}] 엔지니어가 비상탈출을 선택했습니다.`);
   });
-
-  // index.js의 useAlienEggAbility 핸들러를 이 코드로 교체해주세요.
 
   socket.on('useAlienEggAbility', () => {
     const selectorId = socket.id;
@@ -1218,7 +1264,6 @@ io.on('connection', (socket) => {
     }, ROULETTE_DURATION + VIEW_DURATION);
   });
 
-  // ★★★ 위 함수를 아래의 완전한 코드로 교체해주세요. ★★★
   // ★★★ 기존 endNightAndStartMeeting 함수를 이 코드로 교체해주세요. ★★★
   socket.on('endNightAndStartMeeting', (data) => {
     const { code } = data;
@@ -1243,13 +1288,46 @@ io.on('connection', (socket) => {
         }
       });
     }
-
     broadcastUpdates(code);
+  });
+
+  socket.on('submitMissionAnswer', (data) => {
+    const { problemIndex, answer } = data;
+    const playerId = socket.id;
+    let roomCode = '';
+    for (const code in gameRooms) {
+      if (gameRooms[code].players.some(p => p.id === playerId)) {
+        roomCode = code;
+        break;
+      }
+    }
+
+    if (roomCode) {
+      const room = gameRooms[roomCode];
+      const player = room.players.find(p => p.id === playerId);
+      const problem = room.missionBoard.problems[problemIndex];
+
+      if (!player || !problem || problem.status !== 'unsolved') return;
+
+      const isCorrect = answer.trim().toLowerCase() === problem.answer.trim().toLowerCase();
+
+      if (isCorrect) {
+        problem.status = 'solved';
+        problem.solvedBy = player.name;
+      } else {
+        problem.status = 'failed';
+        problem.failedBy = player.name;
+      }
+
+      const solvedCount = room.missionBoard.problems.filter(p => p.status === 'solved').length;
+      room.missionBoard.progress = solvedCount / 25;
+
+      console.log(`[${roomCode}] Mission Progress: ${solvedCount}/25 (${room.missionBoard.progress * 100}%)`);
+      broadcastUpdates(roomCode);
+    }
   });
 });
 
 server.listen(PORT, () => {
   console.log(`서버가 ${PORT}번 포트에서 실행 중입니다.`);
 });
-
-// 테스트용 주석

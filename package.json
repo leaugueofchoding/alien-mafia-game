@@ -1,14 +1,18 @@
 {
-  "name": "alien-mafia-game",
+  "name": "alien-mafia-game-root",
   "version": "1.0.0",
-  "description": "Interactive alien-themed mafia game",
+  "description": "",
   "main": "server/index.js",
   "scripts": {
-    "start": "node server/index.js"
+    "start": "node server/index.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
   },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
   "dependencies": {
-    "express": "^4.18.2",
-    "socket.io": "^4.7.4"
+    "express": "^4.19.2",
+    "socket.io": "^4.7.5"
   },
   "engines": {
     "node": "16.x"

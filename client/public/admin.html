@@ -178,20 +178,14 @@
 
 <body>
     <h1>에일리언 마피아 - 관리자 대시보드</h1>
-    <div
-        style="margin-bottom: 20px; padding: 10px; background-color: #dff9fb; border: 1px solid #c7ecee; text-align: center;">
-        <p style="margin: 0; color: #333; font-weight: bold;">개발자용 테스트 기능</p>
-        <button id="debug-start-btn"
-            style="width: auto; padding: 10px 20px; font-size: 1em; background-color: #5f27cd; color: white;">4인 테스트 게임
-            즉시 시작</button>
-    </div>
     <div id="game-rooms-container"></div>
     <script>
-        const socket = io('https://pinto-amethyst-boursin.glitch.me');
+        const socket = io();
         const roomsContainer = document.getElementById('game-rooms-container');
         const ALL_ROLES = ['에일리언 여왕', '에일리언', '에일리언 알', '함장', '엔지니어', '의사', '초능력자', '수다쟁이', '뚱이', '신의 사도', '군인', '일반 승객'];
         let gameRoomsState = {};
         let presetsState = {};
+        let missionPresetsState = []; // ★★★ 이 줄을 새로 추가해주세요. ★★★
 
         function getDefaultRoleCounts(playerCount) {
             const defaults = {
@@ -210,15 +204,13 @@
         socket.on('updateAdmin', (data) => {
             gameRoomsState = data.rooms;
             presetsState = data.presets ?? {};
+            missionPresetsState = data.missionPresets || []; // 프리셋 이름 목록을 저장
             renderAdminView();
         });
 
         socket.on('adminError', (message) => {
             alert(message);
         });
-
-        // ★★★ 이 함수를 완전한 버전으로 교체합니다 ★★★
-        // ★★★ 기존 renderAdminView 함수 전체를 아래 코드로 완전히 교체해주세요. ★★★
 
         socket.on('crisisRouletteResult', (data) => {
             const { roomCode, result } = data;
@@ -300,6 +292,27 @@
                     helpBox.style.cssText = 'padding: 10px; margin-top: 15px; border: 1px solid #28a745; border-radius: 5px; background-color: #f8f9fa; text-align: left; color: #333;';
                     helpBox.innerHTML = '<b>[진행 가이드]</b> 모든 학생이 참가했는지 확인 후, 역할 인원을 맞추고 <b>\'게임 시작\'</b> 버튼을 누르세요.';
                     settingsColumn.appendChild(helpBox);
+
+                    const missionPresetDiv = document.createElement('div');
+                    missionPresetDiv.className = 'mission-preset-settings';
+                    missionPresetDiv.style.marginTop = '15px';
+                    missionPresetDiv.innerHTML = '<h4>미션 프리셋 설정</h4>';
+
+                    if (missionPresetsState.length > 0) {
+                        const presetSelect = document.createElement('select');
+                        presetSelect.className = 'preset-select';
+                        presetSelect.id = `mission-preset-select-${code}`;
+                        missionPresetsState.forEach(presetName => {
+                            const option = document.createElement('option');
+                            option.value = presetName;
+                            option.textContent = presetName;
+                            presetSelect.appendChild(option);
+                        });
+                        missionPresetDiv.appendChild(presetSelect);
+                    } else {
+                        missionPresetDiv.innerHTML += '<p>사용 가능한 미션 프리셋이 없습니다.</p>';
+                    }
+                    settingsColumn.appendChild(missionPresetDiv);
 
                     const groupSettingsDiv = document.createElement('div');
                     groupSettingsDiv.className = 'group-settings';
@@ -561,7 +574,8 @@
             }
         });
 
-        // ★★★ 이 이벤트 리스너도 완전한 버전으로 교체합니다 ★★★
+        /// admin.html의 <script> 태그 안
+        // ★★★ 기존 roomsContainer.addEventListener를 아래 코드로 통째로 교체해주세요. ★★★
         roomsContainer.addEventListener('click', (event) => {
             const target = event.target;
             const roomDiv = target.closest('.room');
@@ -573,6 +587,7 @@
             if (classList.contains('start-game-btn')) {
                 const players = gameRoomsState[roomCode].players;
                 if (players.length < 4) { alert(`최소 인원(4명)이 모이지 않아 시작할 수 없습니다.`); return; }
+
                 const roleSettings = {};
                 let totalRoles = 0;
                 const roleItems = roomDiv.querySelectorAll('.role-controls input');
@@ -582,15 +597,20 @@
                     if (roleCount > 0) roleSettings[roleName] = roleCount;
                     totalRoles += roleCount;
                 });
+
                 if (totalRoles > 0 && totalRoles !== players.length) {
                     alert('설정된 역할의 합계가 총 플레이어 수와 일치하지 않습니다.');
                     return;
                 }
+
                 const groupCountInput = document.getElementById(`group-count-${roomCode}`);
+                const presetSelect = document.getElementById(`mission-preset-select-${roomCode}`); // ★★★ 새로 추가
+
                 socket.emit('startGame', {
                     code: roomCode,
                     settings: roleSettings,
-                    groupCount: parseInt(groupCountInput.value, 10) || 4
+                    groupCount: parseInt(groupCountInput.value, 10) || 4,
+                    selectedPreset: presetSelect.value // ★★★ 선택된 프리셋 값을 함께 전송
                 });
             } else if (classList.contains('eliminate-btn')) {
                 if (confirm('정말로 이 플레이어를 사망 처리하시겠습니까?')) {
@@ -598,8 +618,6 @@
                 }
             } else if (classList.contains('revive-btn')) {
                 if (confirm('정말로 이 처리를 취소하고 플레이어를 부활시키겠습니까?')) {
-                    // 참고: 'revivePlayer' 기능은 아직 서버(index.js)에 구현되지 않았습니다.
-                    // 추후 이 기능이 필요할 때 말씀해주시면 서버 로직을 추가해 드리겠습니다.
                     socket.emit('revivePlayer', { roomCode, playerId: target.dataset.playerId });
                 }
             } else if (classList.contains('next-phase-btn')) {
