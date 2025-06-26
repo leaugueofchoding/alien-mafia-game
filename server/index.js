@@ -286,6 +286,20 @@ function eliminatePlayer(roomCode, playerId, cause = 'unknown') {
     player.causeOfDeath = cause;
     io.to(playerId).emit('youAreDead');
 
+    const targetPlayer = room.players.find(p => p.id === playerId);
+    const targetName = targetPlayer ? targetPlayer.name : '누군가';
+    const causeMap = {
+      'admin_action': `[관리자]가 ${targetName}님을 사망 처리했습니다.`,
+      'alien_kill': `[에일리언]이 ${targetName}님을 포식했습니다.`,
+      'captain_shot': `[함장]이 ${targetName}님을 즉결처분했습니다.`,
+      'soldier_shot': `[군인]이 ${targetName}님을 사살했습니다.`,
+      'psychic_fail': `[초능력자]의 능력이 폭주하여 ${targetName}님이 휘말렸습니다.`,
+      'egg_contamination': `[에일리언 알]이 오염되어 ${targetName}님이 사망했습니다.`
+    };
+    if (causeMap[cause] && room.gameLog) {
+      room.gameLog.unshift(causeMap[cause]);
+    }
+
     const gameEndedByElimination = checkWinConditions(roomCode);
     if (gameEndedByElimination) return true;
 
@@ -331,36 +345,38 @@ io.on('connection', (socket) => {
       return;
     }
 
-    socket.on('resetServer', () => {
-      // 모든 게임 룸의 타이머를 정지
-      Object.keys(gameRooms).forEach(code => {
-        if (timerIntervals[code]) {
-          clearInterval(timerIntervals[code]);
-          delete timerIntervals[code];
-        }
-      });
-
-      // gameRooms 객체를 초기화
-      gameRooms = {};
-
-      console.log("SERVER RESET: All game rooms have been cleared by an admin.");
-
-      // 관리자 페이지에 즉시 변경사항 전파
-      const missionPresetNames = Object.keys(MISSIONS);
-      io.to(ADMIN_ROOM).emit('updateAdmin', { rooms: gameRooms, presets: PRESETS, missionPresets: missionPresetNames });
-    });
-
     gameRooms[code] = {
       players: [],
       status: 'waiting',
       day: 0,
       phase: 'lobby',
-      settings: {}, // 기본 설정
-      groupCount: 4 // 기본 모둠 수
+      settings: {},
+      groupCount: 4,
+      gameLog: [] // ★★★ 로그 저장 공간 추가 ★★★
     };
     console.log(`[${code}] Admin created a new room.`);
     broadcastUpdates(code);
   });
+
+  socket.on('resetServer', () => {
+    // 모든 게임 룸의 타이머를 정지
+    Object.keys(gameRooms).forEach(code => {
+      if (timerIntervals[code]) {
+        clearInterval(timerIntervals[code]);
+        delete timerIntervals[code];
+      }
+    });
+
+    // gameRooms 객체를 초기화
+    gameRooms = {};
+
+    console.log("SERVER RESET: All game rooms have been cleared by an admin.");
+
+    // 관리자 페이지에 즉시 변경사항 전파
+    const missionPresetNames = Object.keys(MISSIONS);
+    io.to(ADMIN_ROOM).emit('updateAdmin', { rooms: gameRooms, presets: PRESETS, missionPresets: missionPresetNames });
+  });
+
 
   socket.on('joinGame', (data) => {
     const { name, code } = data;
@@ -398,6 +414,7 @@ io.on('connection', (socket) => {
     room.initialSettings = settings;
     room.playerGroupHistory = {};
     room.dailyMissionSolves = {}; // ★★★ 추가
+    room.gameLog = [];
 
     // --- 미션 보드 생성 로직 (프리셋 기반으로 변경) ---
     const missionSet = MISSIONS[selectedPreset]; // 선택된 프리셋의 문제 목록을 가져옴
@@ -1250,6 +1267,7 @@ io.on('connection', (socket) => {
         console.log(`[${roomCode}] Alien Egg hatched successfully.`);
         alienEgg.role = '에일리언';
         alienEgg.description = ROLE_DESCRIPTIONS['에일리언'];
+        if (room.gameLog) room.gameLog.unshift(`[에일리언 알]이 부화했습니다. 우리 중에 에일리언이 하나 더 있습니다.`);
       } else { // [오염] 발생 시
         console.log(`[${roomCode}] Alien Egg CONTAMINATED the group.`);
         if (alienEgg.group) {
@@ -1262,6 +1280,8 @@ io.on('connection', (socket) => {
             // p.id !== alienEgg.id  <- 이 줄이 삭제되었습니다.
           );
 
+          const deadNames = playersToEliminate.map(p => p.name).join(', ');
+          if (room.gameLog) room.gameLog.unshift(`[에일리언 알]이 오염되었습니다. ${deadNames} 사망.`);
           playersToEliminate.forEach(player => {
             eliminatePlayer(roomCode, player.id, 'egg_contamination');
           });
@@ -1297,6 +1317,7 @@ io.on('connection', (socket) => {
 
         // 대상의 역할을 공개 상태로 변경
         target.revealedRole = target.role;
+        if (room.gameLog) room.gameLog.unshift(`[수다쟁이]가 ${target.name}님의 정체를 폭로했습니다!`);
         console.log(`[${roomCode}] Chatterbox ${chatterbox.name} revealed ${target.name}'s role as ${target.role}.`);
 
         // 능력 사용이 완료되었음을 클라이언트에 알림
@@ -1343,7 +1364,13 @@ io.on('connection', (socket) => {
     setTimeout(() => {
       // 성공 또는 실패 로직 적용
       if (isSuccess) {
-        targetIds.forEach(targetId => {
+        const targetNames = targetIds.map(id => {
+          const p = room.players.find(p => p.id === id);
+          return p ? p.name : '';
+        }).filter(Boolean).join(', ');
+
+        // ★★★ 로그 메시지를 이름이 포함되도록 수정 ★★★
+        if (room.gameLog) room.gameLog.unshift(`[초능력자]가 ${targetNames}님의 정체를 꿰뚫어보는 데 성공했습니다.`); targetIds.forEach(targetId => {
           const target = room.players.find(p => p.id === targetId);
           if (target) {
             target.revealedRole = target.role;
@@ -1353,12 +1380,21 @@ io.on('connection', (socket) => {
       } else {
         const psychicGroup = room.players.filter(p => p.status === 'alive' && p.group === psychic.group);
         const psychicIndex = psychicGroup.findIndex(p => p.id === psychic.id);
+
         if (psychicIndex !== -1) {
           const playersToEliminate = new Set([psychic.id]);
           if (psychicGroup.length > 1) {
             playersToEliminate.add(psychicGroup[(psychicIndex - 1 + psychicGroup.length) % psychicGroup.length].id);
             playersToEliminate.add(psychicGroup[(psychicIndex + 1) % psychicGroup.length].id);
           }
+
+          // ★★★ 사망자 이름으로 로그를 만들기 위해 아래 코드 추가 ★★★
+          const deadNames = Array.from(playersToEliminate).map(id => {
+            const p = room.players.find(p => p.id === id);
+            return p ? p.name : '';
+          }).filter(Boolean).join(', ');
+
+          if (room.gameLog) room.gameLog.unshift(`[초능력자]가 에너지를 제어하지 못하고 폭주하여 ${deadNames}님이 사망했습니다.`);
           playersToEliminate.forEach(playerId => eliminatePlayer(roomCode, playerId, 'psychic_fail'));
         }
       }

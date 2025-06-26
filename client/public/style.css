@@ -495,3 +495,28 @@ li.dead {
     width: 100%;
     box-sizing: border-box;
 }
+
+/* 파일: style.css 에 추가 */
+
+.log-box {
+    height: 80px;
+    /* 로그 박스 높이 */
+    border: 1px solid #4a4a6e;
+    border-radius: 5px;
+    padding: 10px;
+    background-color: #1a1a2e;
+    overflow-y: auto;
+    /* 내용이 길어지면 스크롤 생성 */
+    text-align: left;
+    font-size: 0.9em;
+    display: flex;
+    /* 최신 로그가 위로 오게 하기 위한 설정 */
+    flex-direction: column-reverse;
+    /* 배열 순서는 그대로 두고, 표시만 역순으로 */
+}
+
+.log-box p {
+    margin: 0 0 5px 0;
+    line-height: 1.4;
+    font-size: 1em;
+}

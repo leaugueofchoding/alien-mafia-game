@@ -197,7 +197,6 @@
                 <p class="game-over-reason">${data.reason}</p>`;
         }
 
-        // index.html 파일의 <script> 태그 안
         // ★★★ 기존 showCrewActionScreen 함수를 아래 코드로 통째로 교체해주세요. ★★★
         function showCrewActionScreen(room) {
             clearContainer();
@@ -238,7 +237,16 @@
                 const alive = room.players.filter(p => p.role === role && p.status === 'alive').length;
                 return `<tr><td>${role}</td><td>${alive} / ${total}</td></tr>`;
             }).join('');
-            const situationBoardContent = `<h4>직업별 생존 현황</h4><table class="summary-table"><thead><tr><th>직업</th><th>생존/총원</th></tr></thead><tbody>${roleSummary}</tbody></table>`;
+
+            const gameLogHtml = (room.gameLog || []).map(log => `<p>${log}</p>`).join('');
+
+            const situationBoardContent = `
+        <div class="log-box">${gameLogHtml}</div>
+        <h4 style="margin-top: 20px;">직업별 생존 현황</h4>
+        <table class="summary-table">
+            <thead><tr><th>직업</th><th>생존/총원</th></tr></thead>
+            <tbody>${roleSummary}</tbody>
+        </table>`;
 
             let missionContent = '';
             if (room.missionBoard) {
@@ -534,6 +542,9 @@
         socket.on('youAreDead', () => { amIAlive = false; showDeathScreen(); });
         socket.on('youAreAlive', () => { amIAlive = true; alert('당신은 부활했습니다!'); });
         socket.on('gameOver', (data) => showGameOverScreen(data));
+        socket.on('missionError', (message) => {
+            alert(message);
+        });
         socket.on('endingSequenceStart', (data) => {
             clearContainer();
             playerContainer.innerHTML = `
