@@ -20,7 +20,7 @@
             color: #333;
         }
 
-        .room.container {
+        .container {
             background-color: #fff;
             color: #333;
             min-width: 600px;
@@ -173,19 +173,69 @@
             text-align: center;
             /* [최후의 사투] 텍스트 가운데 정렬 */
         }
+
+        #reset-server-btn {
+            width: auto;
+            /* 너비를 자동으로 조절 */
+            padding: 8px 16px;
+            /* 내부 여백 축소 */
+            font-size: 0.9em;
+            /* 폰트 크기 축소 */
+            margin-top: 10px;
+            background-color: #6c757d;
+            /* 회색 계열로 변경 */
+        }
+
+        #reset-server-btn:hover {
+            background-color: #5a6268;
+        }
     </style>
 </head>
 
 <body>
     <h1>에일리언 마피아 - 관리자 대시보드</h1>
+
+    <div id="create-room-container" class="container" style="min-width: 600px; margin-bottom: 20px;">
+        <h3>새로운 게임방 생성</h3>
+        <input type="text" id="new-room-code-input" placeholder="사용할 초대 코드를 입력하세요"
+            style="width: 60%; font-size: 1em; padding: 10px;">
+        <button id="create-room-btn" style="width: auto; padding: 10px 20px; font-size: 1em; margin-left: 10px;">방
+            생성</button>
+    </div>
     <div id="game-rooms-container"></div>
+    <div id="server-reset-container" class="container"
+        style="min-width: 600px; margin-top: 30px; background-color: #5e2f35;">
+        <h3 style="color: #ffc107;">서버 전체 초기화</h3>
+        <p style="font-size: 0.9em; color: #eee;">
+            주의: 이 버튼을 누르면 현재 진행 중이거나 대기 중인 모든 게임방의 정보가 영구적으로 삭제됩니다.
+        </p>
+        <button id="reset-server-btn" style="background-color: #dc3545; color: white;">모든 게임 기록 삭제</button>
+    </div>
     <script>
         const socket = io();
         const roomsContainer = document.getElementById('game-rooms-container');
+        document.getElementById('create-room-btn').addEventListener('click', () => {
+            const codeInput = document.getElementById('new-room-code-input');
+            const newCode = codeInput.value.trim();
+
+            if (!newCode) {
+                alert('생성할 방의 초대 코드를 입력해주세요.');
+                return;
+            }
+
+            socket.emit('createRoom', { code: newCode });
+            codeInput.value = '';
+        });
+        document.getElementById('reset-server-btn').addEventListener('click', () => {
+            if (confirm('정말로 서버의 모든 게임 기록을 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.')) {
+                socket.emit('resetServer');
+            }
+        });
         const ALL_ROLES = ['에일리언 여왕', '에일리언', '에일리언 알', '함장', '엔지니어', '의사', '초능력자', '수다쟁이', '뚱이', '신의 사도', '군인', '일반 승객'];
         let gameRoomsState = {};
         let presetsState = {};
-        let missionPresetsState = []; // ★★★ 이 줄을 새로 추가해주세요. ★★★
+        let missionPresetsState = [];
+
 
         function getDefaultRoleCounts(playerCount) {
             const defaults = {
@@ -193,9 +243,6 @@
                 '엔지니어': 1, '의사': 0, '군인': 0, '초능력자': 0,
                 '수다쟁이': 0, '뚱이': 0, '신의 사도': 0
             };
-            // playerCount에 맞춰 일반 승객 수를 자동으로 계산할 수 있습니다.
-            // const assignedRoles = Object.values(defaults).reduce((a, b) => a + b, 0);
-            // defaults['일반 승객'] = Math.max(0, playerCount - assignedRoles);
             return defaults;
         }
 
@@ -204,7 +251,7 @@
         socket.on('updateAdmin', (data) => {
             gameRoomsState = data.rooms;
             presetsState = data.presets ?? {};
-            missionPresetsState = data.missionPresets || []; // 프리셋 이름 목록을 저장
+            missionPresetsState = data.missionPresets || [];
             renderAdminView();
         });
 
@@ -225,17 +272,25 @@
                     crisisDisplay.style.display = 'none';
                     const resolveButton = roomElement.querySelector('.resolve-escape-step-btn');
                     if (resolveButton) {
-                        resolveButton.disabled = false; // 필요하다면 다음 단계 진행 버튼 활성화
+                        resolveButton.disabled = false;
                     }
                 }, 2500);
             }
         });
 
         function renderAdminView() {
+            const createRoomContainer = document.getElementById('create-room-container');
+
             roomsContainer.innerHTML = '';
             if (Object.keys(gameRoomsState).length === 0) {
+                // ★★★★★ 2. 방이 없으면 생성 UI를 보여줍니다. ★★★★★
+                if (createRoomContainer) createRoomContainer.style.display = 'block';
+
                 roomsContainer.innerHTML = '<p>아직 활성화된 게임방이 없습니다.</p>';
                 return;
+            } else {
+                // ★★★★★ 3. 방이 하나라도 있으면 생성 UI를 숨깁니다. ★★★★★
+                if (createRoomContainer) createRoomContainer.style.display = 'none';
             }
 
             for (const code in gameRoomsState) {
@@ -244,7 +299,6 @@
                 roomDiv.className = 'room container';
                 roomDiv.dataset.code = code;
 
-                // --- 헤더 생성 (방 코드, 총 인원) ---
                 const headerDiv = document.createElement('div');
                 headerDiv.className = 'room-header';
                 const roomTitle = document.createElement('h2');
@@ -266,7 +320,6 @@
                 const settingsColumn = document.createElement('div');
                 settingsColumn.style.flex = 2;
 
-                // --- 게임 대기실 UI ---
                 if (roomData.status === 'waiting') {
                     playerColumn.innerHTML = '<h3>참가자 목록</h3>';
                     const playerList = document.createElement('ul');
@@ -354,9 +407,7 @@
                     startButton.textContent = '게임 시작';
                     settingsColumn.appendChild(startButton);
 
-                    // --- 게임 중 또는 게임 종료 UI ---
                 } else {
-                    // 참가자 현황 UI
                     const livingPlayers = roomData.players.filter(p => p.status === 'alive').length;
                     playerColumn.innerHTML = `<h3>참가자 현황 (${livingPlayers}/${roomData.players.length})</h3>`;
                     const playerList = document.createElement('ul');
@@ -389,7 +440,6 @@
                     });
                     playerColumn.appendChild(playerList);
 
-                    // 게임 진행 UI (상태 + 도움말)
                     settingsColumn.innerHTML = '<h3>게임 진행</h3>';
                     const phaseInfo = document.createElement('div');
                     phaseInfo.className = 'phase-info';
@@ -405,7 +455,6 @@
                     helpBox.style.cssText = 'padding: 10px; margin-top: 15px; border: 1px solid #007bff; border-radius: 5px; background-color: #f8f9fa; text-align: left; color: #333;';
                     let helpText = '';
 
-                    // 도움말 텍스트 로직 (사용자 정의 버전 유지)
                     if (roomData.pendingAction === 'crisis_roulette') {
                         helpText = '<b>[진행 가이드]</b> 위기 상황이 발생했습니다! 아래의 예상 결과를 확인하고, 원하는 타이밍에 <b>[룰렛 시작]</b> 버튼을 눌러 모든 플레이어와 함께 결과를 확인하세요.';
                     } else {
@@ -429,16 +478,14 @@
                     helpBox.innerHTML = helpText;
                     settingsColumn.appendChild(helpBox);
 
-                    // ★★★ 모든 버튼 생성 로직을 하나의 if 블록 안으로 통합하여 구조를 바로잡음 ★★★
                     if (roomData.status === 'playing') {
 
-                        // [우선순위 1] 특수한 상황(pendingAction) 또는 특정 단계(escape_sequence)를 먼저 확인
                         if (roomData.pendingAction === 'crisis_roulette') {
                             const crisis = roomData.crisis || {};
                             const crisisBtn = document.createElement('button');
                             crisisBtn.className = 'start-crisis-roulette-btn';
                             crisisBtn.textContent = `[${crisis.type || '위기'}] 룰렛 시작`;
-                            crisisBtn.style.backgroundColor = '#6f42c1'; // 보라색 스타일 직접 적용                            crisisBtn.textContent = `[${crisis.type || '위기'}] 룰렛 시작`;
+                            crisisBtn.style.backgroundColor = '#6f42c1';
                             const resultText = document.createElement('p');
                             resultText.style.fontWeight = 'bold';
                             resultText.innerHTML = `(예상 결과: <span style="color: #dc3545;">${crisis.result || '알 수 없음'}</span>)`;
@@ -473,38 +520,34 @@
                             const timerBtn = document.createElement('button');
                             timerBtn.className = 'escape-timer-btn';
                             timerBtn.textContent = '3분 30초 타이머 시작';
-                            timerBtn.style.cssText = 'background-color: #ffc107; color: #212529;'; // 노란색
+                            timerBtn.style.cssText = 'background-color: #ffc107; color: #212529;';
                             settingsColumn.appendChild(timerBtn);
 
                             const forceFailBtn = document.createElement('button');
                             forceFailBtn.className = 'force-escape-fail-btn';
                             forceFailBtn.textContent = '시간 초과로 실패 처리';
-                            forceFailBtn.style.backgroundColor = '#dc3545'; // 빨간색
+                            forceFailBtn.style.backgroundColor = '#dc3545';
                             settingsColumn.appendChild(forceFailBtn);
 
                             const startEscapeBtn = document.createElement('button');
                             startEscapeBtn.className = 'start-escape-sequence-btn';
                             startEscapeBtn.textContent = '비상탈출 시퀀스 시작';
-                            startEscapeBtn.style.backgroundColor = '#6f42c1'; // 보라색
+                            startEscapeBtn.style.backgroundColor = '#6f42c1';
                             settingsColumn.appendChild(startEscapeBtn);
 
-                            // 수정 후 코드
                         } else if (roomData.pendingAction === 'queen_rampage') {
-                            // "여왕의 만찬" 특별 단계일 때의 UI 로직
 
-                            // 1. 여왕이 아직 대상을 선택하지 않았을 때
                             if (!roomData.queenActionTaken) {
                                 const rampageBtn = document.createElement('button');
                                 rampageBtn.className = 'trigger-rampage-btn';
                                 rampageBtn.textContent = '여왕의 만찬 시작';
                                 settingsColumn.appendChild(rampageBtn);
                             }
-                            // 2. 여왕이 대상을 모두 선택했을 때
                             else {
                                 const resolveBtn = document.createElement('button');
                                 resolveBtn.id = 'resolve-rampage-btn';
                                 resolveBtn.textContent = '여왕의 만찬 결과 적용';
-                                resolveBtn.className = 'resolve-night-btn'; // 주황색 스타일 재사용
+                                resolveBtn.className = 'resolve-night-btn';
                                 settingsColumn.appendChild(resolveBtn);
                             }
 
@@ -581,7 +624,20 @@
             }
         });
 
-        // 수정 후 코드
+        // ★★★★★★★★★★★ 1단계 수정 내용 (버튼 이벤트 리스너 추가) ★★★★★★★★★★★
+        document.getElementById('create-room-btn').addEventListener('click', () => {
+            const codeInput = document.getElementById('new-room-code-input');
+            const newCode = codeInput.value.trim();
+
+            if (newCode) {
+                socket.emit('createRoom', { code: newCode });
+                codeInput.value = '';
+            } else {
+                alert('생성할 방의 초대 코드를 입력해주세요.');
+            }
+        });
+        // ★★★★★★★★★★★ 여기까지가 추가된 부분입니다 ★★★★★★★★★★★
+
         roomsContainer.addEventListener('click', (event) => {
             const target = event.target;
             const roomDiv = target.closest('.room');
@@ -618,11 +674,9 @@
                     selectedPreset: presetSelect.value
                 });
             }
-            // [여왕의 만찬 시작] 버튼
             else if (classList.contains('trigger-rampage-btn')) {
                 socket.emit('triggerQueenRampage', { code: roomCode });
             }
-            // [여왕의 만찬 결과 적용] 버튼
             else if (target.id === 'resolve-rampage-btn') {
                 socket.emit('resolveQueenRampage', { code: roomCode });
             }

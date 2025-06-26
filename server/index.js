@@ -12,8 +12,8 @@ const io = new Server(server, {
   cors: { origin: "*", methods: ["GET", "POST"] }
 });
 
-const PORT = process.env.PORT || 3001; // Glitch 호환성을 위해 포트 설정 변경
-const gameRooms = {};
+const PORT = process.env.PORT || 3001;
+let gameRooms = {}; // <- let 으로 변경하여 문제 해결
 const ADMIN_ROOM = 'admin_room';
 const timerIntervals = {};
 
@@ -324,50 +324,66 @@ io.on('connection', (socket) => {
     }
   });
 
+  socket.on('createRoom', (data) => {
+    const { code } = data;
+    if (gameRooms[code]) {
+      socket.emit('adminError', `오류: 초대 코드 '${code}'는 이미 사용 중입니다.`);
+      return;
+    }
+
+    socket.on('resetServer', () => {
+      // 모든 게임 룸의 타이머를 정지
+      Object.keys(gameRooms).forEach(code => {
+        if (timerIntervals[code]) {
+          clearInterval(timerIntervals[code]);
+          delete timerIntervals[code];
+        }
+      });
+
+      // gameRooms 객체를 초기화
+      gameRooms = {};
+
+      console.log("SERVER RESET: All game rooms have been cleared by an admin.");
+
+      // 관리자 페이지에 즉시 변경사항 전파
+      const missionPresetNames = Object.keys(MISSIONS);
+      io.to(ADMIN_ROOM).emit('updateAdmin', { rooms: gameRooms, presets: PRESETS, missionPresets: missionPresetNames });
+    });
+
+    gameRooms[code] = {
+      players: [],
+      status: 'waiting',
+      day: 0,
+      phase: 'lobby',
+      settings: {}, // 기본 설정
+      groupCount: 4 // 기본 모둠 수
+    };
+    console.log(`[${code}] Admin created a new room.`);
+    broadcastUpdates(code);
+  });
+
   socket.on('joinGame', (data) => {
     const { name, code } = data;
 
-    // 게임 방이 존재하고, 이미 게임이 시작되었다면 입장을 막음
-    if (gameRooms[code] && gameRooms[code].status === 'playing') {
-      // 입장 실패 이벤트를 해당 사용자에게만 보냄
+    // ★★★ 핵심 수정 ★★★
+    // 게임 방이 존재하는지 먼저 확인
+    if (!gameRooms[code]) {
+      socket.emit('joinFailed', '존재하지 않는 초대 코드입니다. 관리자에게 문의하세요.');
+      return;
+    }
+
+    // 기존 로직: 방이 이미 시작되었는지 확인
+    if (gameRooms[code].status === 'playing') {
       socket.emit('joinFailed', '이미 시작된 게임에는 참여할 수 없습니다.');
       return;
     }
 
     socket.join(code);
-    if (!gameRooms[code]) {
-      gameRooms[code] = { players: [], status: 'waiting', day: 0, phase: 'lobby' };
-    }
+    // 방 생성 로직은 삭제됨: if (!gameRooms[code]) { ... }
+
     const newPlayer = { id: socket.id, name: name, status: 'alive' };
     gameRooms[code].players.push(newPlayer);
     broadcastUpdates(code);
-  });
-
-  socket.on('kickPlayer', (data) => {
-    const { roomCode, playerId } = data;
-    const room = gameRooms[roomCode];
-    if (!room) return;
-
-    // 플레이어 목록에서 해당 플레이어의 인덱스를 찾습니다.
-    const playerIndex = room.players.findIndex(p => p.id === playerId);
-
-    if (playerIndex > -1) {
-      const kickedPlayerName = room.players[playerIndex].name;
-
-      // ★★★ 핵심: '사망' 처리하는 것이 아니라, 배열에서 플레이어 정보를 완전히 '제거'합니다. ★★★
-      room.players.splice(playerIndex, 1);
-
-      console.log(`[${roomCode}] Player ${kickedPlayerName} (${playerId}) was completely REMOVED by admin.`);
-    }
-
-    // 해당 플레이어의 소켓 연결이 남아있다면 강제 종료합니다.
-    const kickedSocket = io.sockets.sockets.get(playerId);
-    if (kickedSocket) {
-      kickedSocket.disconnect(true);
-    }
-
-    // 변경된 상태(플레이어가 제거된 목록)를 모든 클라이언트에 전파합니다.
-    broadcastUpdates(roomCode);
   });
 
   // ★★★ 기존 startGame 핸들러를 아래 코드로 통째로 교체해주세요. ★★★
@@ -381,6 +397,7 @@ io.on('connection', (socket) => {
     room.groupCount = groupCount;
     room.initialSettings = settings;
     room.playerGroupHistory = {};
+    room.dailyMissionSolves = {}; // ★★★ 추가
 
     // --- 미션 보드 생성 로직 (프리셋 기반으로 변경) ---
     const missionSet = MISSIONS[selectedPreset]; // 선택된 프리셋의 문제 목록을 가져옴
@@ -1355,6 +1372,7 @@ io.on('connection', (socket) => {
     const room = gameRooms[code];
     if (!room) return;
 
+    room.dailyMissionSolves = {};
     room.day += 1;
     room.phase = 'meeting';
 
@@ -1376,6 +1394,10 @@ io.on('connection', (socket) => {
     broadcastUpdates(code);
   });
 
+  socket.on('missionError', (message) => {
+    alert(message);
+  });
+
   socket.on('submitMissionAnswer', (data) => {
     const { problemIndex, answer } = data;
     const playerId = socket.id;
@@ -1394,20 +1416,29 @@ io.on('connection', (socket) => {
 
       if (!player || !problem || problem.status !== 'unsolved') return;
 
+      // ★★★ 추가: 일일 미션 해결 횟수 확인 (1회 제한) ★★★
+      const solvedCount = room.dailyMissionSolves[playerId] || 0;
+      if (solvedCount >= 1) {
+        return socket.emit('missionError', '오늘은 이미 미션을 해결했습니다. 내일을 기다려주세요!');
+      }
+      // ★★★ 여기까지 ★★★
+
       const isCorrect = answer.trim().toLowerCase() === problem.answer.trim().toLowerCase();
 
       if (isCorrect) {
         problem.status = 'solved';
         problem.solvedBy = player.name;
+        // ★★★ 추가: 정답 맞혔을 때 횟수 증가 ★★★
+        room.dailyMissionSolves[playerId] = solvedCount + 1;
       } else {
         problem.status = 'failed';
         problem.failedBy = player.name;
       }
 
-      const solvedCount = room.missionBoard.problems.filter(p => p.status === 'solved').length;
-      room.missionBoard.progress = solvedCount / 25;
+      const totalSolved = room.missionBoard.problems.filter(p => p.status === 'solved').length;
+      room.missionBoard.progress = totalSolved / 25;
 
-      console.log(`[${roomCode}] Mission Progress: ${solvedCount}/25 (${room.missionBoard.progress * 100}%)`);
+      console.log(`[${roomCode}] Mission Progress: ${totalSolved}/25 (${room.missionBoard.progress * 100}%)`);
       broadcastUpdates(roomCode);
     }
   });
