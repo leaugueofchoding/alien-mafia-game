@@ -488,19 +488,26 @@
                             startEscapeBtn.style.backgroundColor = '#6f42c1'; // 보라색
                             settingsColumn.appendChild(startEscapeBtn);
 
+                            // 수정 후 코드
                         } else if (roomData.pendingAction === 'queen_rampage') {
-                            if (roomData.rampageTriggered) {
-                                const resolveBtn = document.createElement('button');
-                                resolveBtn.className = 'resolve-night-btn';
-                                resolveBtn.textContent = '여왕의 만찬 결과 적용';
-                                settingsColumn.appendChild(resolveBtn);
-                            } else {
+                            // "여왕의 만찬" 특별 단계일 때의 UI 로직
+
+                            // 1. 여왕이 아직 대상을 선택하지 않았을 때
+                            if (!roomData.queenActionTaken) {
                                 const rampageBtn = document.createElement('button');
                                 rampageBtn.className = 'trigger-rampage-btn';
                                 rampageBtn.textContent = '여왕의 만찬 시작';
                                 settingsColumn.appendChild(rampageBtn);
                             }
-                            // [우선순위 2] 일반적인 게임 단계를 확인
+                            // 2. 여왕이 대상을 모두 선택했을 때
+                            else {
+                                const resolveBtn = document.createElement('button');
+                                resolveBtn.id = 'resolve-rampage-btn';
+                                resolveBtn.textContent = '여왕의 만찬 결과 적용';
+                                resolveBtn.className = 'resolve-night-btn'; // 주황색 스타일 재사용
+                                settingsColumn.appendChild(resolveBtn);
+                            }
+
                         } else if (roomData.phase === 'role_reveal') {
                             const btn = document.createElement('button');
                             btn.className = 'next-phase-btn';
@@ -574,8 +581,7 @@
             }
         });
 
-        /// admin.html의 <script> 태그 안
-        // ★★★ 기존 roomsContainer.addEventListener를 아래 코드로 통째로 교체해주세요. ★★★
+        // 수정 후 코드
         roomsContainer.addEventListener('click', (event) => {
             const target = event.target;
             const roomDiv = target.closest('.room');
@@ -586,7 +592,7 @@
 
             if (classList.contains('start-game-btn')) {
                 const players = gameRoomsState[roomCode].players;
-                if (players.length < 4) { alert(`최소 인원(4명)이 모이지 않아 시작할 수 없습니다.`); return; }
+                if (players.length < 4) { return alert(`최소 인원(4명)이 모이지 않아 시작할 수 없습니다.`); }
 
                 const roleSettings = {};
                 let totalRoles = 0;
@@ -599,20 +605,28 @@
                 });
 
                 if (totalRoles > 0 && totalRoles !== players.length) {
-                    alert('설정된 역할의 합계가 총 플레이어 수와 일치하지 않습니다.');
-                    return;
+                    return alert('설정된 역할의 합계가 총 플레이어 수와 일치하지 않습니다.');
                 }
 
                 const groupCountInput = document.getElementById(`group-count-${roomCode}`);
-                const presetSelect = document.getElementById(`mission-preset-select-${roomCode}`); // ★★★ 새로 추가
+                const presetSelect = document.getElementById(`mission-preset-select-${roomCode}`);
 
                 socket.emit('startGame', {
                     code: roomCode,
                     settings: roleSettings,
                     groupCount: parseInt(groupCountInput.value, 10) || 4,
-                    selectedPreset: presetSelect.value // ★★★ 선택된 프리셋 값을 함께 전송
+                    selectedPreset: presetSelect.value
                 });
-            } else if (classList.contains('eliminate-btn')) {
+            }
+            // [여왕의 만찬 시작] 버튼
+            else if (classList.contains('trigger-rampage-btn')) {
+                socket.emit('triggerQueenRampage', { code: roomCode });
+            }
+            // [여왕의 만찬 결과 적용] 버튼
+            else if (target.id === 'resolve-rampage-btn') {
+                socket.emit('resolveQueenRampage', { code: roomCode });
+            }
+            else if (classList.contains('eliminate-btn')) {
                 if (confirm('정말로 이 플레이어를 사망 처리하시겠습니까?')) {
                     socket.emit('eliminatePlayer', { roomCode, playerId: target.dataset.playerId, cause: 'admin_action' });
                 }
@@ -624,8 +638,6 @@
                 socket.emit('nextPhase', { code: roomCode, phase: target.dataset.phase, day: target.dataset.day });
             } else if (classList.contains('timer-btn')) {
                 socket.emit('startMeetingTimer', roomCode);
-            } else if (classList.contains('trigger-rampage-btn')) {
-                socket.emit('triggerQueenRampage', { code: roomCode });
             } else if (classList.contains('trigger-alien-action-btn')) {
                 socket.emit('triggerAlienAction', { code: roomCode });
             } else if (classList.contains('resolve-night-btn')) {
@@ -637,8 +649,7 @@
             } else if (classList.contains('start-escape-sequence-btn')) {
                 const checkedBoxes = roomDiv.querySelectorAll('.survivor-checkbox:checked');
                 if (checkedBoxes.length !== 4) {
-                    alert('반드시 4명을 선택해야 합니다.');
-                    return;
+                    return alert('반드시 4명을 선택해야 합니다.');
                 }
                 const survivorIds = Array.from(checkedBoxes).map(box => box.value);
                 socket.emit('startEscapeSequence', { code: roomCode, survivorIds: survivorIds });

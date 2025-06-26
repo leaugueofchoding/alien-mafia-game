@@ -326,6 +326,14 @@ io.on('connection', (socket) => {
 
   socket.on('joinGame', (data) => {
     const { name, code } = data;
+
+    // 게임 방이 존재하고, 이미 게임이 시작되었다면 입장을 막음
+    if (gameRooms[code] && gameRooms[code].status === 'playing') {
+      // 입장 실패 이벤트를 해당 사용자에게만 보냄
+      socket.emit('joinFailed', '이미 시작된 게임에는 참여할 수 없습니다.');
+      return;
+    }
+
     socket.join(code);
     if (!gameRooms[code]) {
       gameRooms[code] = { players: [], status: 'waiting', day: 0, phase: 'lobby' };
@@ -423,6 +431,36 @@ io.on('connection', (socket) => {
     room.needsGroupSelection = true;
 
     broadcastUpdates(code);
+  });
+
+  socket.on('disconnect', () => {
+    console.log(`Player disconnected: ${socket.id}`);
+    for (const code in gameRooms) {
+      const room = gameRooms[code];
+      const disconnectedPlayer = room.players.find(p => p.id === socket.id);
+
+      // 해당 방에서 플레이어를 찾았고, 게임이 진행 중이며, 아직 살아있는 플레이어라면
+      if (disconnectedPlayer && room.status === 'playing' && disconnectedPlayer.status === 'alive') {
+        const playerName = disconnectedPlayer.name;
+        console.log(`[${code}] Player ${playerName} is being eliminated due to disconnection.`);
+
+        // 단순히 제거하는 대신, '사망 처리' 함수를 호출
+        eliminatePlayer(code, disconnectedPlayer.id, 'disconnection');
+
+        break;
+      }
+      // 게임 시작 전 대기실에서 나간 경우, 기존처럼 제거
+      else if (disconnectedPlayer && room.status === 'waiting') {
+        const playerIndex = room.players.findIndex(p => p.id === socket.id);
+        if (playerIndex > -1) {
+          const playerName = room.players[playerIndex].name;
+          console.log(`[${code}] Removing player ${playerName} from waiting room.`);
+          room.players.splice(playerIndex, 1);
+          broadcastUpdates(code);
+          break;
+        }
+      }
+    }
   });
 
   // ★★★ 기존 selectGroup 핸들러를 이 코드로 교체해주세요. ★★★
@@ -548,6 +586,31 @@ io.on('connection', (socket) => {
     }
 
     // ★★★ 추가: 변경된 상태를 즉시 전파하여 관리자 UI 갱신
+    broadcastUpdates(code);
+  });
+
+  socket.on('resolveQueenRampage', (data) => {
+    const { code } = data;
+    const room = gameRooms[code];
+    if (!room || !room.selections) return;
+
+    console.log(`[${code}] 관리자가 여왕의 만찬 결과를 적용합니다.`);
+
+    const queenSelection = Object.values(room.selections).flat();
+    const uniqueTargets = [...new Set(queenSelection)];
+
+    uniqueTargets.forEach(targetId => {
+      // 사망 처리 시에는 업데이트를 보내지 않음 (false 인자 추가)
+      eliminatePlayer(code, targetId, 'queen_rampage', false);
+    });
+
+    // 모든 상태를 한 번에 정리
+    delete room.pendingAction;
+    delete room.rampageTriggered;
+    delete room.queenActionTaken;
+    delete room.selections;
+
+    // 모든 처리가 끝난 후, 최종 결과를 한 번만 전파
     broadcastUpdates(code);
   });
 
@@ -924,7 +987,7 @@ io.on('connection', (socket) => {
     const isSuccess = result === options[0];
 
     const ROULETTE_DURATION = 4000;
-    const VIEW_DURATION = 2500;
+    const VIEW_DURATION = 2000;
     const HIDE_DELAY = ROULETTE_DURATION + VIEW_DURATION;
 
     io.to(roomCode).emit('showRoulette', {
@@ -1050,8 +1113,7 @@ io.on('connection', (socket) => {
     broadcastUpdates(code);
   });
 
-  // server/index.js
-
+  // 수정 후 코드
   socket.on('useQueenRampage', (data) => {
     const { targetIds } = data;
     const selectorId = socket.id;
@@ -1063,11 +1125,19 @@ io.on('connection', (socket) => {
     if (roomCode) {
       const room = gameRooms[roomCode];
       const queen = room.players.find(p => p.id === socket.id);
-      if (room && queen && queen.role === '에일리언 여왕' && targetIds && targetIds.length >= 0 && targetIds.length <= 4) {
+
+      if (room && queen && queen.role === '에일리언 여왕' && room.pendingAction === 'queen_rampage' && Array.isArray(targetIds)) {
+        if (!room.selections) room.selections = {};
         room.selections[selectorId] = targetIds;
-        console.log(`[${roomCode}] 여왕 만찬 선택 기록:`, room.selections);
+
+        // ★★★ 핵심 수정: "여왕이 행동을 마쳤음" 상태를 기록
+        room.queenActionTaken = true;
+
+        console.log(`[${roomCode}] 여왕이 만찬 대상을 선택했습니다:`, targetIds);
         io.to(selectorId).emit('actionConfirmed');
-        broadcastAlienSelections(roomCode); // 도우미 함수 호출
+
+        // 변경된 상태(queenActionTaken = true)를 관리자 페이지에 알림
+        broadcastUpdates(roomCode);
       }
     }
   });
@@ -1131,8 +1201,8 @@ io.on('connection', (socket) => {
     alienEgg.abilityUsed = true;
     const isHatch = Math.random() < 0.5;
     const result = isHatch ? '부화' : '오염';
-    const ROULETTE_DURATION = 8000;
-    const VIEW_DURATION = 5000;
+    const ROULETTE_DURATION = 4000;
+    const VIEW_DURATION = 2000;
 
     io.to(roomCode).emit('showRoulette', {
       title: '에일리언 알 부화 시퀀스',
@@ -1226,8 +1296,8 @@ io.on('connection', (socket) => {
     psychic.abilityUsed = true;
     const isSuccess = Math.random() < 0.45;
     const result = isSuccess ? '성공' : '실패';
-    const ROULETTE_DURATION = 5000;
-    const VIEW_DURATION = 3000;
+    const ROULETTE_DURATION = 4000;
+    const VIEW_DURATION = 2000;
 
     io.to(roomCode).emit('showRoulette', {
       title: '초능력 판정',
