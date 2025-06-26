@@ -433,6 +433,21 @@ io.on('connection', (socket) => {
     broadcastUpdates(code);
   });
 
+  socket.on('revivePlayer', (data) => {
+    const { roomCode, playerId } = data;
+    const room = gameRooms[roomCode];
+    if (!room) return;
+
+    const player = room.players.find(p => p.id === playerId);
+    if (player && player.status === 'dead') {
+      player.status = 'alive';
+      delete player.causeOfDeath; // 사망 원인 초기화
+      io.to(playerId).emit('youAreAlive');
+      console.log(`[${roomCode}] Player ${player.name} (${playerId}) has been REVIVED by admin.`);
+      broadcastUpdates(roomCode);
+    }
+  });
+
   socket.on('disconnect', () => {
     console.log(`Player disconnected: ${socket.id}`);
     for (const code in gameRooms) {
