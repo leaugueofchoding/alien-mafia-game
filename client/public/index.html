@@ -544,8 +544,18 @@
 
             // 사망한 플레이어는 관전 화면을 표시하고 함수 종료
             if (me && me.status === 'dead' && room.status !== 'game_over') {
-                showSpectatorScreen(room);
-                return;
+                // 사망 시 룰렛 오버레이가 있다면 즉시 제거
+                const rouletteOverlay = document.getElementById('roulette-overlay');
+                if (rouletteOverlay) rouletteOverlay.remove();
+
+                // 비상탈출 단계에서는 전용 관전 화면 표시 (3번 요청사항)
+                if (room.phase === 'escape_sequence') {
+                    showSpectatorEscapeScreen(room);
+                } else {
+                    // 그 외에는 일반 관전 화면 표시
+                    showSpectatorScreen(room);
+                }
+                return; // 여기서 실행 종료
             }
 
             // 기존의 amIAlive 체크는 유지 (이미 죽었는데 위 코드를 타지 않은 경우)
@@ -607,8 +617,22 @@
             } else {
                 showInitialScreen();
             }
-            const activeButton = document.querySelector(`.tab-link[data-tab="${currentTab}"]`);
-            if (activeButton) activeButton.click();
+            // ★★★ [수정] 화면 업데이트 시 탭 상태를 결정하는 로직 ★★★
+            // 탐사대 활동이 시작되는 첫 화면에서는 '상황판'을 기본으로 보여줍니다.
+            if (!room.crewActionTriggered) {
+                document.querySelector('.tab-link[data-tab="situation"]').click();
+                currentTab = 'situation';
+            } else {
+                // 그 외의 업데이트(다른 사람의 능력 사용 등)에서는 현재 탭을 유지합니다.
+                const activeButton = document.querySelector(`.tab-link[data-tab="${currentTab}"]`);
+                if (activeButton) {
+                    activeButton.click();
+                } else {
+                    // 현재 탭이 유효하지 않을 경우(오류 방지), 상황판으로 초기화
+                    document.querySelector('.tab-link[data-tab="situation"]').click();
+                    currentTab = 'situation';
+                }
+            }
         });
 
         socket.on('youAreDead', () => {
@@ -700,6 +724,48 @@
                 }, 200);
             }
         });
+
+        let displayedSpectatorLogCount = 0; // 관전자용 로그 카운터
+
+        function showSpectatorEscapeScreen(room) {
+            const containerId = 'escape-log-container-spectator';
+            let container = document.getElementById(containerId);
+
+            // 관전 UI가 없다면 새로 그립니다.
+            if (!container) {
+                clearContainer();
+                playerContainer.innerHTML = `
+            <h2 style="color: #ffc107;">비상탈출 시퀀스 관전 중</h2>
+            <p>생존자들이 생존을 위한 마지막 관문을 통과하고 있습니다.</p>
+            <div id="${containerId}" style="text-align: left; margin-top: 20px; padding: 15px; border: 1px solid #666; background-color: #222; border-radius: 5px; height: 300px; overflow-y: auto; font-family: 'Courier New', Courier, monospace; color: #00ff41;">
+            </div>
+            <p style="margin-top: 20px;">조용히 결과를 지켜봅시다.</p>
+        `;
+                container = document.getElementById(containerId);
+                displayedSpectatorLogCount = 0; // 로그 카운트 초기화
+            }
+
+            // 새로운 로그가 있다면 타이핑 효과로 출력합니다.
+            const logs = room.escapeLog || [];
+            if (logs.length > displayedSpectatorLogCount) {
+                const newLogs = logs.slice(displayedSpectatorLogCount);
+
+                function printNextLog(index = 0) {
+                    if (index < newLogs.length) {
+                        const logEntry = document.createElement('p');
+                        logEntry.style.margin = '0 0 5px 0';
+                        container.appendChild(logEntry);
+                        container.scrollTop = container.scrollHeight; // 자동 스크롤
+
+                        typewriter(logEntry, newLogs[index], 30, () => {
+                            printNextLog(index + 1);
+                        });
+                    }
+                }
+                printNextLog();
+                displayedSpectatorLogCount = logs.length;
+            }
+        }
 
         socket.on('globalAlert', (data) => {
             alert(`[알림: ${data.title}]\n\n${data.message}`);
