@@ -175,6 +175,7 @@ function shuffle(array) {
   }
   return array;
 }
+
 function broadcastAlienSelections(roomCode) {
   const room = gameRooms[roomCode];
   if (!room || !room.selections) return;
@@ -184,14 +185,22 @@ function broadcastAlienSelections(roomCode) {
     io.to(alienPlayer.id).emit('nightSelectionUpdate', { selections: room.selections });
   });
 }
+
 function broadcastUpdates(roomCode) {
   if (gameRooms[roomCode]) {
-    const room = gameRooms[roomCode];
-    io.to(ADMIN_ROOM).emit('updateAdmin', { rooms: gameRooms });
-    io.to(roomCode).emit('boardUpdate', room);
-    io.to(roomCode).emit('updateRoom', room);
+      const room = gameRooms[roomCode];
+      const missionPresetNames = Object.keys(MISSIONS);
+      // 관리자에게 항상 rooms, presets, missionPresets 전체를 전송
+      io.to(ADMIN_ROOM).emit('updateAdmin', {
+          rooms: gameRooms,
+          presets: PRESETS,
+          missionPresets: missionPresetNames
+      });
+      io.to(roomCode).emit('boardUpdate', room);
+      io.to(roomCode).emit('updateRoom', room);
   }
 }
+
 function checkWinConditions(roomCode) {
   const room = gameRooms[roomCode];
   if (!room || room.status !== 'playing') return false;
@@ -478,6 +487,29 @@ io.on('connection', (socket) => {
       delete player.causeOfDeath; // 사망 원인 초기화
       io.to(playerId).emit('youAreAlive');
       console.log(`[${roomCode}] Player ${player.name} (${playerId}) has been REVIVED by admin.`);
+      broadcastUpdates(roomCode);
+    }
+  });
+
+  // ★★★ [추가] 관리자의 강제 퇴장 요청을 처리하는 핸들러 ★★★
+  socket.on('kickPlayer', (data) => {
+    const { roomCode, playerId } = data;
+    const room = gameRooms[roomCode];
+
+    // 대기중인 방에서만 강퇴 가능
+    if (!room || room.status !== 'waiting') {
+      return;
+    }
+
+    const playerIndex = room.players.findIndex(p => p.id === playerId);
+    if (playerIndex > -1) {
+      const kickedPlayer = room.players.splice(playerIndex, 1)[0];
+      console.log(`[${roomCode}] Admin kicked player ${kickedPlayer.name}.`);
+
+      // 강퇴당한 플레이어에게 알림
+      io.to(playerId).emit('joinFailed', '관리자에 의해 퇴장당했습니다.');
+
+      // 방의 모든 인원에게 변경사항 전파
       broadcastUpdates(roomCode);
     }
   });
