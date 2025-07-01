@@ -11,68 +11,86 @@
     <style>
         /* index.html의 <style> 태그 안 */
 
+        /* 기존 .ejection-card-btn 관련 코드를 모두 지우고 아래 코드로 교체해주세요 */
         .ejection-card-btn {
             width: 100%;
             height: 100%;
-            min-height: 60px;
-            background: linear-gradient(145deg, #2f2f58, #1a1a2e);
-            border: 2px solid #00d1ff;
-            border-radius: 8px;
-            color: #00d1ff;
-            font-size: 1.8em;
-            font-weight: bold;
-            text-shadow: 0 0 8px rgba(0, 209, 255, 0.7);
-            box-shadow: inset 0 0 10px rgba(0, 209, 255, 0.3), 0 0 15px rgba(0, 0, 0, 0.5);
+            min-height: 90px;
+            /* 버튼을 더 두툼하게 보이도록 높이 증가 */
+            background: linear-gradient(145deg, #4a4a4e, #2a2a2e);
+            /* 어두운 계기판 색 */
+            border-radius: 15px;
+            /* 더 둥글게 */
+            border: 2px solid #222;
+            border-top-color: #666;
+            /* 위쪽 테두리를 살짝 밝게하여 입체감 */
             cursor: pointer;
-            transition: all 0.2s ease-in-out;
+            transition: all 0.15s ease-out;
+
+            /* 입체 효과의 핵심: 다중 그림자 */
+            box-shadow:
+                0 6px 12px rgba(0, 0, 0, 0.5),
+                /* 바닥에 짙은 그림자 */
+                inset 0 2px 1px rgba(255, 255, 255, 0.15),
+                /* 상단 내부 하이라이트 */
+                inset 0 -3px 3px rgba(0, 0, 0, 0.3);
+            /* 하단 내부 그림자 */
+
+            /* 내부 콘텐츠(이름표) 정렬 */
             display: flex;
             justify-content: center;
             align-items: center;
-            flex-direction: column;
-            /* 이름 태그를 아래로 보내기 위함 */
-            padding: 5px;
         }
 
         .ejection-card-btn:hover:not(:disabled) {
-            background: #3a3a5e;
-            color: #8affff;
-            border-color: #8affff;
+            background: linear-gradient(145deg, #5a5a5e, #3a3a3e);
+            /* 호버 시 살짝 밝게 */
         }
 
         .ejection-card-btn:disabled {
             cursor: not-allowed;
+            filter: brightness(0.7);
+            /* 비활성화 시 어둡게 */
         }
 
-        /* ★★★ 선택되었을 때 (노란색) ★★★ */
+        /* ★★★ 선택 시 (노란색 + 움푹 들어간 효과) ★★★ */
         .ejection-card-btn.selected {
-            background: #ffc107;
-            color: #333;
-            border-color: #fff;
+            /* 눌린 효과 */
+            transform: translateY(2px);
+            /* 아래로 2px 이동 */
+            box-shadow: inset 0 4px 8px rgba(0, 0, 0, 0.6);
+            /* 안쪽으로 깊은 그림자 생성 */
+
+            /* 노란색 계기판 스타일 */
+            background: linear-gradient(145deg, #ffd600, #ffb300);
+            border: 2px solid #b37400;
+            border-top-color: #e6a100;
+        }
+
+        /* 이름표 스타일 */
+        .ejection-card-btn span {
+            font-size: 0.6em;
+            font-weight: bold;
+            background-color: rgba(0, 0, 0, 0.4);
+            color: white;
+            padding: 4px 10px;
+            border-radius: 5px;
             text-shadow: none;
         }
 
-        /* ★★★ 이름 태그 스타일 개선 ★★★ */
-        .ejection-card-btn span {
-            font-size: 0.5em;
-            font-weight: bold;
-            margin-top: 5px;
-            background-color: rgba(0, 0, 0, 0.3);
-            padding: 2px 8px;
-            border-radius: 4px;
-            color: white;
-        }
-
         .ejection-card-btn.selected span {
-            color: #fff;
-            background-color: rgba(0, 0, 0, 0.5);
+            color: #111;
+            background-color: rgba(255, 255, 255, 0.3);
         }
 
-        /* ★★★ 결과 공개 시 (초록/빨강) ★★★ */
+        /* 최종 결과 공개 시 스타일은 그대로 유지 */
         .ejection-card-btn.success {
             background: #28a745;
             color: white;
             border-color: white;
             text-shadow: none;
+            transform: translateY(0);
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
         }
 
         .ejection-card-btn.failure {
@@ -80,6 +98,8 @@
             color: white;
             border-color: white;
             text-shadow: none;
+            transform: translateY(0);
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
         }
 
         .typing-cursor {
@@ -266,12 +286,12 @@
                             }
 
                             return `
-        <li>
-            <button class="${cardClasses}" data-card-id="${card.id}" ${isDisabled ? 'disabled' : ''}>
-                ${selectedBy ? `? <br> <span>${selectedBy}</span>` : '?'}
-            </button>
-        </li>
-    `;
+    <li>
+        <button class="${cardClasses}" data-card-id="${card.id}" ${isDisabled ? 'disabled' : ''}>
+            ${selectedBy ? `<span>${selectedBy}</span>` : ''} 
+        </button>
+    </li>
+`;
                         }).join('');
 
                         contentHtml = `

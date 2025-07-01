@@ -556,12 +556,8 @@ io.on('connection', (socket) => {
 
   // server/index.js
 
-  // ★★★ selectGroup 핸들러를 아래 코드로 통째로 교체해주세요. ★★★
-  // server/index.js
-
-  // ★★★ selectGroup 핸들러를 아래 코드로 통째로 교체해주세요. ★★★
   socket.on('selectGroup', (data) => {
-    const { roomCode, groupNumber } = data;
+    const { roomCode, groupNumber } = data; // 이 함수 안에서는 'roomCode'를 사용해야 합니다.
     const room = gameRooms[roomCode];
     if (!room) return;
 
@@ -577,10 +573,10 @@ io.on('connection', (socket) => {
       const allAlivePlayers = room.players.filter(p => p.status === 'alive');
       const allSelectedGroup = allAlivePlayers.every(p => !!p.group);
 
-      if (allSelectedGroup) {
-        console.log(`[${roomCode}] All players have selected their group. Checking for single-member groups.`);
+      if (allSelectedGroup && room.settings.useEjectionMinigame) {
+        // ★★★ 수정: 'code'를 'roomCode'로 변경 ★★★
+        console.log(`[${roomCode}] All players selected group with minigame ON. Checking for single-member groups.`);
 
-        // ★★★ 여기에 로그 추가 ★★★
         if (room.gameLog) {
           room.gameLog.unshift(`[회의] 모든 생존자가 모둠 선택을 완료했습니다.`);
         }
@@ -592,28 +588,33 @@ io.on('connection', (socket) => {
 
           if (groupMembers.length === 1) {
             const singlePlayer = groupMembers[0];
-            if (!room.ejectionNominations[groupNum]) {
+            if (room.ejectionNominations && !room.ejectionNominations[groupNum]) {
               room.ejectionNominations[groupNum] = singlePlayer.id;
+              // 이 부분은 원래 'roomCode'로 되어있어 문제가 없습니다.
               console.log(`[${roomCode}] Auto-nominated player ${singlePlayer.name} from single-member group ${groupNum}.`);
             }
           }
         });
 
         const totalActiveGroups = alivePlayerGroups.size;
-        const allGroupsNominated = Object.keys(room.ejectionNominations).length === totalActiveGroups;
-        if (allGroupsNominated && totalActiveGroups > 0) {
-          if (room.ejectionState !== 'minigame_pending') {
-            room.ejectionState = 'minigame_pending';
-            console.log(`[${roomCode}] All active groups, including single-member ones, have nominated. State is now minigame_pending.`);
+        if (room.ejectionNominations) {
+          const allGroupsNominated = Object.keys(room.ejectionNominations).length === totalActiveGroups;
+          if (allGroupsNominated && totalActiveGroups > 0) {
+            if (room.ejectionState !== 'minigame_pending') {
+              room.ejectionState = 'minigame_pending';
+              // ★★★ 수정: 'code'를 'roomCode'로 변경 ★★★
+              console.log(`[${roomCode}] All active groups have nominated. State is now minigame_pending.`);
 
-            const nomineeIds = Object.values(room.ejectionNominations);
-            const nomineeNames = nomineeIds.map(id => room.players.find(p => p.id === id)?.name).join(', ');
-            if (room.gameLog) {
-              room.gameLog.unshift(`[회의] 최종 방출 후보가 ${nomineeNames}(으)로 결정되었습니다.`);
+              const nomineeIds = Object.values(room.ejectionNominations);
+              const nomineeNames = nomineeIds.map(id => room.players.find(p => p.id === id)?.name).join(', ');
+              if (room.gameLog) {
+                room.gameLog.unshift(`[회의] 최종 방출 후보가 ${nomineeNames}(으)로 결정되었습니다.`);
+              }
             }
           }
         }
       }
+
       broadcastUpdates(roomCode);
     }
   });
