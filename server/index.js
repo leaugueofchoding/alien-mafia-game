@@ -188,16 +188,16 @@ function broadcastAlienSelections(roomCode) {
 
 function broadcastUpdates(roomCode) {
   if (gameRooms[roomCode]) {
-      const room = gameRooms[roomCode];
-      const missionPresetNames = Object.keys(MISSIONS);
-      // 관리자에게 항상 rooms, presets, missionPresets 전체를 전송
-      io.to(ADMIN_ROOM).emit('updateAdmin', {
-          rooms: gameRooms,
-          presets: PRESETS,
-          missionPresets: missionPresetNames
-      });
-      io.to(roomCode).emit('boardUpdate', room);
-      io.to(roomCode).emit('updateRoom', room);
+    const room = gameRooms[roomCode];
+    const missionPresetNames = Object.keys(MISSIONS);
+    // 관리자에게 항상 rooms, presets, missionPresets 전체를 전송
+    io.to(ADMIN_ROOM).emit('updateAdmin', {
+      rooms: gameRooms,
+      presets: PRESETS,
+      missionPresets: missionPresetNames
+    });
+    io.to(roomCode).emit('boardUpdate', room);
+    io.to(roomCode).emit('updateRoom', room);
   }
 }
 
@@ -285,6 +285,9 @@ function checkSpecialVictoryConditions(roomCode) {
 
   return false;
 }
+// server/index.js
+
+// ★★★ 기존 eliminatePlayer 함수를 아래 코드로 교체해주세요. ★★★
 function eliminatePlayer(roomCode, playerId, cause = 'unknown') {
   const room = gameRooms[roomCode];
   if (!room) return false;
@@ -303,7 +306,9 @@ function eliminatePlayer(roomCode, playerId, cause = 'unknown') {
       'captain_shot': `[함장]이 ${targetName}님을 즉결처분했습니다.`,
       'soldier_shot': `[군인]이 ${targetName}님을 사살했습니다.`,
       'psychic_fail': `[초능력자]의 능력이 폭주하여 ${targetName}님이 휘말렸습니다.`,
-      'egg_contamination': `[에일리언 알]이 오염되어 ${targetName}님이 사망했습니다.`
+      'egg_contamination': `[에일리언 알]이 오염되어 ${targetName}님이 사망했습니다.`,
+      // ★★★ 미니게임 방출 로그 메시지를 추가합니다.
+      'ejected_minigame': `[방출 미니게임] 결과, ${targetName}님이 함선 외부로 방출되었습니다.`
     };
     if (causeMap[cause] && room.gameLog) {
       room.gameLog.unshift(causeMap[cause]);
@@ -317,7 +322,6 @@ function eliminatePlayer(roomCode, playerId, cause = 'unknown') {
       if (engineer) {
         room.pendingAction = 'engineer_choice';
       } else {
-        // 함장도 엔지니어도 모두 죽었으면 즉시 에일리언 승리
         checkWinConditions(roomCode);
       }
     }
@@ -327,8 +331,6 @@ function eliminatePlayer(roomCode, playerId, cause = 'unknown') {
   return false;
 }
 
-
-// --- io.on('connection', ...) 리스너 및 서버 실행 ---
 // (이하 모든 소켓 이벤트 핸들러는 생략 - 기존 코드와 동일)
 io.on('connection', (socket) => {
 
@@ -411,25 +413,30 @@ io.on('connection', (socket) => {
     broadcastUpdates(code);
   });
 
+  // server/index.js
+
   // ★★★ 기존 startGame 핸들러를 아래 코드로 통째로 교체해주세요. ★★★
-  // server/index.js의 'startGame' 핸들러
-  // ★★★ 기존 코드를 아래 코드로 통째로 교체해주세요. ★★★
   socket.on('startGame', (data) => {
-    const { code, settings, groupCount, selectedPreset } = data; // selectedPreset 추가
+    const { code, settings, groupCount, selectedPreset, useEjectionMinigame } = data;
     const room = gameRooms[code];
     if (!room || room.status === 'playing') return;
 
+    // 1. 역할 설정과 미니게임 설정을 하나의 settings 객체로 통합합니다.
+    room.settings = settings; // 'settings'는 역할 인원 정보입니다.
+    room.settings.useEjectionMinigame = useEjectionMinigame; // 여기에 미니게임 사용 여부를 추가합니다.
+
+    // 2. 나머지 게임 정보를 설정합니다.
     room.groupCount = groupCount;
-    room.initialSettings = settings;
+    room.initialSettings = { ...room.settings }; // 기존 initialSettings는 백업용으로 유지합니다.
     room.playerGroupHistory = {};
-    room.dailyMissionSolves = {}; // ★★★ 추가
+    room.dailyMissionSolves = {};
     room.gameLog = [];
 
-    // --- 미션 보드 생성 로직 (프리셋 기반으로 변경) ---
-    const missionSet = MISSIONS[selectedPreset]; // 선택된 프리셋의 문제 목록을 가져옴
+    // --- 미션 보드 생성 로직 (기존과 동일) ---
+    const missionSet = MISSIONS[selectedPreset];
 
     if (missionSet && missionSet.length >= 25) {
-      const shuffledMissions = shuffle([...missionSet]); // 해당 프리셋 내에서만 섞음
+      const shuffledMissions = shuffle([...missionSet]);
       const selectedMissions = shuffledMissions.slice(0, 25);
 
       room.missionBoard = {
@@ -452,7 +459,10 @@ io.on('connection', (socket) => {
 
     const roles = [];
     for (const roleName in settings) {
-      for (let i = 0; i < settings[roleName]; i++) { roles.push(roleName); }
+      // 주의: useEjectionMinigame은 역할이 아니므로 제외하고 역할을 배분합니다.
+      if (roleName !== 'useEjectionMinigame') {
+        for (let i = 0; i < settings[roleName]; i++) { roles.push(roleName); }
+      }
     }
     const players = room.players;
     const shuffledRoles = shuffle(roles);
@@ -544,7 +554,9 @@ io.on('connection', (socket) => {
     }
   });
 
-  // ★★★ 기존 selectGroup 핸들러를 이 코드로 교체해주세요. ★★★
+  // server/index.js
+
+  // ★★★ selectGroup 핸들러를 아래 코드로 통째로 교체해주세요. ★★★
   socket.on('selectGroup', (data) => {
     const { roomCode, groupNumber } = data;
     const room = gameRooms[roomCode];
@@ -554,28 +566,258 @@ io.on('connection', (socket) => {
     if (player) {
       player.group = groupNumber;
 
-      // ★★★ 추가: 신의 사도를 포함한 모든 플레이어의 모둠 선택을 기록
       if (room.playerGroupHistory && room.playerGroupHistory[player.id]) {
         room.playerGroupHistory[player.id].push(groupNumber);
       }
-      console.log(`[${roomCode}] Player ${player.name} selected group ${player.group}. History:`, room.playerGroupHistory[player.id]);
+      console.log(`[${roomCode}] Player ${player.name} selected group ${player.group}.`);
 
       const allAlivePlayers = room.players.filter(p => p.status === 'alive');
-      const allSelected = allAlivePlayers.every(p => !!p.group);
+      const allSelectedGroup = allAlivePlayers.every(p => !!p.group);
 
-      if (allSelected) {
-        console.log(`[${roomCode}] All players have selected their group.`);
-        delete room.needsGroupSelection;
+      // ★★★ 모든 생존자가 모둠을 선택했을 때 1인 모둠을 자동으로 처리하는 로직 ★★★
+      if (allSelectedGroup) {
+        console.log(`[${roomCode}] All players have selected their group. Checking for single-member groups.`);
+
+        const alivePlayerGroups = new Set(allAlivePlayers.map(p => p.group));
+
+        // 각 모둠을 순회하며 1인 모둠인지 확인
+        alivePlayerGroups.forEach(groupNum => {
+          const groupMembers = allAlivePlayers.filter(p => p.group === groupNum);
+
+          // 모둠원이 1명뿐이라면, 해당 플레이어를 자동으로 후보로 지목
+          if (groupMembers.length === 1) {
+            const singlePlayer = groupMembers[0];
+            if (!room.ejectionNominations[groupNum]) {
+              room.ejectionNominations[groupNum] = singlePlayer.id;
+              console.log(`[${roomCode}] Auto-nominated player ${singlePlayer.name} from single-member group ${groupNum}.`);
+            }
+          }
+        });
+
+        // 1인 모둠 처리 후, 모든 활성 모둠의 후보 지명이 완료되었는지 다시 확인
+        const totalActiveGroups = alivePlayerGroups.size;
+        const allGroupsNominated = Object.keys(room.ejectionNominations).length === totalActiveGroups;
+        if (allGroupsNominated && totalActiveGroups > 0) {
+          room.ejectionState = 'minigame_pending';
+          console.log(`[${roomCode}] All active groups, including single-member ones, have nominated. State is now minigame_pending.`);
+        }
       }
 
       broadcastUpdates(roomCode);
     }
   });
 
-  // ★★★ 기존 코드를 아래 코드로 완전히 교체해주세요. ★★★
+  // ★★★ [1/6] 관리자가 '1차 후보 지목 시작' 버튼을 눌렀을 때
+  socket.on('startEjectionNomination', (data) => {
+    const { code } = data;
+    const room = gameRooms[code];
+    if (!room) return;
+    room.ejectionState = 'nominating';
+    console.log(`[${code}] Ejection nomination started by admin.`);
+    broadcastUpdates(code);
+  });
+
+  // server/index.js
+
+  // ★★★ 기존 nominateForEjection 핸들러를 아래 코드로 통째로 교체해주세요. ★★★
+  socket.on('nominateForEjection', (data) => {
+    const { roomCode, targetId } = data;
+    const voterId = socket.id;
+    const room = gameRooms[roomCode];
+    if (!room || room.ejectionState !== 'nominating') return;
+
+    const voter = room.players.find(p => p.id === voterId);
+    if (!voter || !voter.group) return;
+
+    const groupNum = voter.group;
+    if (!room.ejectionVotes[groupNum]) {
+      room.ejectionVotes[groupNum] = {};
+    }
+    room.ejectionVotes[groupNum][voterId] = targetId;
+    console.log(`[${roomCode}] Player ${voter.name} from group ${groupNum} voted for player ID ${targetId}`);
+
+    const groupMembers = room.players.filter(p => p.status === 'alive' && p.group === groupNum);
+    const allVoted = groupMembers.every(p => room.ejectionVotes[groupNum][p.id]);
+
+    if (allVoted) {
+      console.log(`[${roomCode}] All members of group ${groupNum} have voted.`);
+      const voteCounts = {};
+      Object.values(room.ejectionVotes[groupNum]).forEach(votedId => {
+        voteCounts[votedId] = (voteCounts[votedId] || 0) + 1;
+      });
+
+      let maxVotes = 0;
+      let nominees = [];
+      for (const playerId in voteCounts) {
+        if (voteCounts[playerId] > maxVotes) {
+          maxVotes = voteCounts[playerId];
+          nominees = [playerId];
+        } else if (voteCounts[playerId] === maxVotes) {
+          nominees.push(playerId);
+        }
+      }
+
+      const finalNomineeId = nominees[Math.floor(Math.random() * nominees.length)];
+      room.ejectionNominations[groupNum] = finalNomineeId;
+      console.log(`[${roomCode}] Group ${groupNum} final nominee (ID: ${finalNomineeId}) has been decided.`);
+
+      // ★★★ 핵심 수정: '전체 모둠 수'가 아닌 '생존자가 있는 실제 모둠 수'를 기준으로 확인합니다.
+      const alivePlayerGroups = new Set(
+        room.players
+          .filter(p => p.status === 'alive' && p.group)
+          .map(p => p.group)
+      );
+      const totalActiveGroups = alivePlayerGroups.size;
+      const allGroupsNominated = Object.keys(room.ejectionNominations).length === totalActiveGroups;
+
+      if (allGroupsNominated && totalActiveGroups > 0) {
+        room.ejectionState = 'minigame_pending';
+        console.log(`[${roomCode}] All ${totalActiveGroups} active groups have nominated. State is now minigame_pending.`);
+      }
+    }
+    broadcastUpdates(roomCode);
+  });
+
+  // ★★★ [3/6] 관리자가 '미니게임 시작' 버튼을 눌렀을 때
+  socket.on('startEjectionMinigame', (data) => {
+    const { code } = data;
+    const room = gameRooms[code];
+    if (!room || room.ejectionState !== 'minigame_pending') return;
+
+    const candidates = Object.values(room.ejectionNominations);
+    const cardCount = candidates.length;
+    let cards = new Array(cardCount).fill({ content: '생존' });
+    const ejectionCardIndex = Math.floor(Math.random() * cardCount);
+    cards[ejectionCardIndex] = { content: '방출' };
+
+    room.ejectionMinigame = {
+      candidates: candidates,
+      cards: shuffle(cards.map((card, index) => ({ id: index, content: card.content }))),
+      selections: {}, // { candidateId: cardId }
+      results: null
+    };
+
+    room.ejectionState = 'minigame_active';
+    console.log(`[${code}] Ejection minigame started. Candidates:`, candidates);
+    broadcastUpdates(code);
+  });
+
+  // ★★★ [4/6] 방출 후보자가 카드를 선택했을 때
+  socket.on('selectEjectionCard', (data) => {
+    const { roomCode, cardId } = data;
+    const candidateId = socket.id;
+    const room = gameRooms[roomCode];
+    if (!room || room.ejectionState !== 'minigame_active' || !room.ejectionMinigame) return;
+
+    const { candidates, selections, cards } = room.ejectionMinigame;
+
+    if (candidates.includes(candidateId) && !selections[candidateId] && !Object.values(selections).includes(cardId)) {
+      selections[candidateId] = cardId;
+      console.log(`[${roomCode}] Candidate ${candidateId} selected card ${cardId}.`);
+
+      const allCandidatesSelected = candidates.length === Object.keys(selections).length;
+      if (allCandidatesSelected) {
+        room.ejectionState = 'minigame_all_selected';
+        console.log(`[${roomCode}] All candidates have selected a card.`);
+      }
+      broadcastUpdates(roomCode);
+    }
+  });
+
+  // ★★★ [5/6] 관리자가 '결과 공개' 버튼을 눌렀을 때
+  socket.on('resolveEjectionMinigame', (data) => {
+    const { code } = data;
+    const room = gameRooms[code];
+    if (!room || room.ejectionState !== 'minigame_all_selected' || !room.ejectionMinigame) return;
+
+    const { selections, cards } = room.ejectionMinigame;
+    let ejectedPlayerId = null;
+
+    for (const candidateId in selections) {
+      const cardId = selections[candidateId];
+      const card = cards.find(c => c.id === cardId);
+      if (card && card.content === '방출') {
+        ejectedPlayerId = candidateId;
+        break;
+      }
+    }
+
+    // 1. 모든 클라이언트에게 결과를 먼저 공개
+    room.ejectionMinigame.results = cards;
+    io.to(code).emit('revealEjectionResult', {
+      ejectedPlayerId,
+      cards: cards,
+      selections: selections
+    });
+    console.log(`[${code}] Revealing ejection results. Ejected player ID: ${ejectedPlayerId}`);
+
+    // 2. 잠시 후 서버에서 실제 처리를 진행
+    setTimeout(() => {
+      if (ejectedPlayerId) {
+        eliminatePlayer(code, ejectedPlayerId, 'ejected_minigame');
+      }
+
+      // 3. 밤 단계로 자동 전환
+      room.phase = 'night_alien_action';
+      room.selections = {};
+      delete room.alienActionTriggered;
+      delete room.crewActionTriggered;
+      delete room.ejectionState;
+      delete room.ejectionVotes;
+      delete room.ejectionNominations;
+      delete room.ejectionMinigame;
+
+      broadcastUpdates(code); // 최종 상태 업데이트
+      console.log(`[${code}] Ejection minigame resolved. Moving to night phase.`);
+    }, 4000); // 4초 지연 (클라이언트 애니메이션 시간)
+  });
+
+
+  // ★★★ [6/6] 플레이어 퇴장 시 투표 기록도 확인하여 처리
+  socket.on('disconnect', () => {
+    console.log(`Player disconnected: ${socket.id}`);
+    for (const code in gameRooms) {
+      const room = gameRooms[code];
+      const disconnectedPlayer = room.players.find(p => p.id === socket.id);
+
+      if (disconnectedPlayer) {
+        // 진행 중인 게임에서 살아있는 플레이어가 나간 경우
+        if (room.status === 'playing' && disconnectedPlayer.status === 'alive') {
+          const playerName = disconnectedPlayer.name;
+          console.log(`[${code}] Player ${playerName} is being eliminated due to disconnection.`);
+          eliminatePlayer(code, disconnectedPlayer.id, 'disconnection');
+        }
+        // 대기실에서 나간 경우
+        else if (room.status === 'waiting') {
+          const playerIndex = room.players.findIndex(p => p.id === socket.id);
+          if (playerIndex > -1) {
+            const playerName = room.players[playerIndex].name;
+            console.log(`[${code}] Removing player ${playerName} from waiting room.`);
+            room.players.splice(playerIndex, 1);
+          }
+        }
+
+        // ★★★ 추가: 만약 진행중인 지목 투표가 있었다면, 해당 플레이어의 투표를 확인하여 재검증
+        if (room.ejectionState === 'nominating' && disconnectedPlayer.group) {
+          const groupNum = disconnectedPlayer.group;
+          const groupMembers = room.players.filter(p => p.status === 'alive' && p.group === groupNum);
+          // 만약 나간 사람 때문에 해당 모둠의 모든 생존자가 투표를 완료한 상태가 되었다면, 후보를 즉시 결정
+          if (groupMembers.length > 0 && groupMembers.every(p => room.ejectionVotes?.[groupNum]?.[p.id])) {
+            // 기존 로직 재활용을 위해 가상으로 이벤트를 호출하는 것처럼 처리
+            socket.emit('nominateForEjection', { roomCode: code, targetId: null }); // targetId는 중요하지 않음
+          }
+        }
+
+        broadcastUpdates(code);
+        break; // 해당 플레이어를 찾았으므로 루프 종료
+      }
+    }
+  });
+
+  // ★★★ 기존 nextPhase 핸들러를 아래 코드로 완전히 교체해주세요. ★★★
   socket.on('nextPhase', (data) => {
     const { code, phase, day } = data;
-    console.log(`[${code}] Received nextPhase event. Target phase: ${phase}, Day: ${day}`); // 디버깅 로그 추가
+    console.log(`[${code}] Received nextPhase event. Target phase: ${phase}, Day: ${day}`);
 
     const room = gameRooms[code];
     if (!room) {
@@ -587,9 +829,8 @@ io.on('connection', (socket) => {
       const unselectedPlayers = room.players.filter(p => p.status === 'alive' && !p.group);
       if (unselectedPlayers.length > 0) {
         const names = unselectedPlayers.map(p => p.name).join(', ');
-        // 에러 이벤트를 보낸 클라이언트(관리자)에게만 전송
         socket.emit('adminError', `아직 모둠을 선택하지 않은 참가자가 있습니다: ${names}`);
-        return; // 다음 단계로 진행하지 않고 함수 종료
+        return;
       }
     }
 
@@ -602,18 +843,29 @@ io.on('connection', (socket) => {
     room.phase = phase;
     room.day = parseInt(day, 10);
 
-    // 밤이 되면 에일리언 활동 관련 상태 초기화
     if (phase === 'night_alien_action') {
       room.selections = {};
-      delete room.alienActionTriggered; // 다음 밤을 위해 초기화
-      delete room.crewActionTriggered; // 다음 밤을 위해 초기화
+      delete room.alienActionTriggered;
+      delete room.crewActionTriggered;
+      // ★★★ 밤이 되면 미니게임 관련 상태를 모두 초기화합니다.
+      delete room.ejectionState;
+      delete room.ejectionVotes;
+      delete room.ejectionNominations;
+      delete room.ejectionMinigame;
     }
+
+    // ★★★ 회의 단계가 시작될 때, 미니게임 관련 상태를 초기화합니다.
+    if (phase === 'meeting' && room.settings.useEjectionMinigame) {
+      room.ejectionState = 'pending_start'; // '지목 시작 대기' 상태
+      room.ejectionVotes = {}; // 모둠별 투표 기록
+      room.ejectionNominations = {}; // 모둠별 최종 후보
+      room.ejectionMinigame = {}; // 미니게임 데이터
+    }
+
 
     console.log(`[${code}] Room state updated. New phase: ${room.phase}. Broadcasting...`);
     broadcastUpdates(code);
   });
-
-  // server/index.js
 
   // 1. 이 함수로 교체
   socket.on('triggerAlienAction', (data) => {
@@ -709,7 +961,7 @@ io.on('connection', (socket) => {
     }
 
     const room = gameRooms[roomCode];
-    room.timeLeft = 120; // 2분
+    room.timeLeft = 90; // 
 
     // 즉시 첫 업데이트를 전송하여 '02:00'이 바로 표시되도록 함
     const initialPayload = { roomCode: roomCode, timeLeft: room.timeLeft };

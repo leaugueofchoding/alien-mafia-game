@@ -118,54 +118,138 @@
                 <p>${description}</p>`;
         }
 
+        // index.html
+
+        // ★★★ 기존 showMeetingScreen 함수를 아래 코드로 통째로 교체해주세요. ★★★
         function showMeetingScreen(roomData, player) {
+            const me = player;
+            const isMinigameOn = roomData.settings.useEjectionMinigame;
+            let contentHtml = '';
+
+            // 미니게임 기능 ON/OFF 와 관계없이 타이머는 항상 표시되도록 구조 변경
+            const timerHtml = `<h1 class="timer" id="timer-display" style="text-align: center; margin-top: 20px;"></h1>`;
+
+            if (!isMinigameOn) {
+                contentHtml = `<p>생존자들과 토론하여 에일리언을 찾아내세요. 잠시 후 투표가 진행됩니다.</p>`;
+            } else {
+                switch (roomData.ejectionState) {
+                    case 'pending_start':
+                        // ★★★ 1. 요청하신 UI/텍스트로 수정 ★★★
+                        contentHtml = `
+                    <h3>${roomData.day}일차 - 함선 브리핑</h3>
+                    <p>함선 내 비상 집결 구역이 나뉘었습니다. 당신의 구역(모둠)을 선택하세요.</p>
+                `;
+                        break;
+
+                    case 'nominating':
+                        const myGroupMembers = roomData.players.filter(p => p.status === 'alive' && p.group === me.group && p.id !== me.id);
+                        const alreadyVoted = roomData.ejectionVotes?.[me.group]?.[me.id];
+
+                        if (alreadyVoted) {
+                            contentHtml = `<h3>투표 완료</h3><p>같은 모둠의 다른 동료들이 투표하기를 기다리고 있습니다...</p>`;
+                        } else {
+                            const memberButtons = myGroupMembers.map(p => `<li><button class="nomination-btn" data-target-id="${p.id}">${p.name}</button></li>`).join('');
+                            contentHtml = `
+                        <h3>모둠 내 방출 후보 지목</h3>
+                        <p>자신의 모둠에서 가장 의심스러운 인원 1명을 지목하세요.</p>
+                        <ul class="player-grid-list">${memberButtons}</ul>
+                    `;
+                        }
+                        break;
+
+                    case 'minigame_pending':
+                        const nomineeIds = Object.values(roomData.ejectionNominations);
+                        const nomineeNames = nomineeIds.map(id => roomData.players.find(p => p.id === id)?.name).join(', ');
+                        contentHtml = `
+                    <h3>최종 방출 후보 명단</h3>
+                    <p style="font-size: 1.5em; color: #ff4757;">${nomineeNames}</p>
+                    <p>위 인원들을 대상으로 방출 미니게임이 진행됩니다.<br>관리자가 에어락 제어 시스템을 가동하기를 기다립니다.</p>
+                `;
+                        break;
+
+                    case 'minigame_active':
+                    case 'minigame_all_selected':
+                        const minigame = roomData.ejectionMinigame;
+                        const isCandidate = minigame.candidates.includes(me.id);
+                        const title = isCandidate ? "운명의 갈림길" : "운명이 결정되는 순간";
+                        const subtitle = isCandidate
+                            ? "단 하나의 제어판을 선택하여 당신의 생존을 증명하십시오."
+                            : "후보자들이 제어판을 선택하는 과정을 지켜보십시오.";
+
+                        const cardsHtml = minigame.cards.map(card => {
+                            let selectedBy = '';
+                            let isDisabled = false;
+                            let cardStyle = '';
+
+                            for (const candidateId in minigame.selections) {
+                                if (minigame.selections[candidateId] === card.id) {
+                                    selectedBy = roomData.players.find(p => p.id === candidateId)?.name || '선택됨';
+                                    isDisabled = true;
+                                    // ★★★ 2. 선택된 카드를 노란색으로 변경 ★★★
+                                    cardStyle = 'background-color: #ffc107; color: #333; border-color: #333;';
+                                }
+                            }
+                            if (!isCandidate || minigame.selections[me.id]) {
+                                isDisabled = true;
+                            }
+
+                            return `
+                        <li>
+                            <button class="ejection-card-btn" data-card-id="${card.id}" ${isDisabled ? 'disabled' : ''} style="${cardStyle}">
+                                ${selectedBy ? `<span>${selectedBy}</span>` : '?'}
+                            </button>
+                        </li>
+                    `;
+                        }).join('');
+
+                        contentHtml = `
+                    <h3>${title}</h3>
+                    <p>${subtitle}</p>
+                    <ul class="player-grid-list" style="grid-template-columns: repeat(${minigame.cards.length}, 1fr); margin-top: 20px;">
+                        ${cardsHtml}
+                    </ul>
+                `;
+                        break;
+
+                    default:
+                        contentHtml = `<p>생존자들과 토론하여 에일리언을 찾아내세요.</p>`;
+                }
+            }
+
             let groupSelectionHtml = '';
-
-            const guideText = roomData.day > 1
-                ? `모둠을 이동한 뒤 해당 모둠 번호를 선택하세요.<br><small style="color: #ffc107;">신중하게 확인하세요. 모든 불이익은 자신의 책임입니다.</small>`
-                : `현재 자신의 모둠 번호를 선택하세요.`;
-
             if (roomData.needsGroupSelection && !player.group) {
                 const groupCount = roomData.groupCount || 4;
                 let buttonsHtml = '';
                 for (let i = 1; i <= groupCount; i++) {
+                    // ★★★ 1. 버튼 텍스트 수정 ★★★
                     buttonsHtml += `<button class="group-select-btn" data-group="${i}">${i}모둠</button>`;
                 }
+                // ★★★ 1. 회의 시작 부분 UI를 contentHtml에서 여기로 통합 ★★★
                 groupSelectionHtml = `
             <div id="group-selection-container">
-                <h3>${guideText}</h3>
-                <div class="button-group" style="display: flex; gap: 10px; justify-content: center; margin-top: 10px;">
+                ${contentHtml}
+                <div class="button-group" style="display: flex; gap: 10px; justify-content: center; margin-top: 20px;">
                     ${buttonsHtml}
                 </div>
-            </div>
-            <hr>`;
+            </div>`;
+                contentHtml = ''; // 중복 표시되지 않도록 비움
             }
 
             playerContainer.innerHTML = `
-        <h2>${roomData.day}일차 - 회의</h2>
-        ${groupSelectionHtml}
-        <p>생존자들과 토론하여 에일리언을 찾아내세요. 잠시 후 투표가 진행됩니다.</p>
-        <h1 class="timer" id="timer-display"></h1>`;
+        <div style="text-align: center;">
+             ${groupSelectionHtml || contentHtml}
+             ${timerHtml}
+        </div>
+    `;
         }
 
-        function showAlienNightScreen(text = "에일리언이 활동을 시작합니다.") {
-            clearContainer();
-            playerContainer.innerHTML = `
-                <h2>밤이 되었습니다.</h2>
-                <p>모든 플레이어는 눈을 감아주세요. ${text}</p>`;
-        }
+        // index.html의 <script> 태그 안에 추가해주세요.
 
-        function showQueenHuntScreen(otherAliens, targets) {
+        function showAlienNightScreen(text) {
             clearContainer();
-            huntSelections = [];
-            const targetButtons = targets.map(target => `<li><button class="target-btn" data-ability="queen_hunt" data-target-id="${target.id}">${target.name}</button></li>`).join('');
             playerContainer.innerHTML = `
-                <h2>[사냥] 대상을 2명 선택하세요.</h2>
-                <p>(단 한 번만 사용할 수 있는 강력한 능력입니다.)</p>
-                <p>${otherAliens.length > 0 ? `(동료 에일리언: ${otherAliens.join(', ')})` : ''}</p>
-                <ul class="player-grid-list">${targetButtons}</ul>
-                <button id="confirm-hunt-btn" disabled>선택 완료 (0/2)</button>
-            `;
+        <h2>밤이 되었습니다.</h2>
+        <p>${text}</p>`;
         }
 
         function showQueenRampageScreen(targets) {
@@ -599,7 +683,8 @@
                         break;
                     case 'night_alien_action':
                         if (!room.alienActionTriggered) {
-                            showAlienNightScreen("밤이 되었습니다. 모두 눈을 감아주세요.");
+                            // ★★★ 이 부분을 아래와 같이 수정합니다. ★★★
+                            showAlienNightScreen("모두 눈을 감아주세요. 관리자가 활동을 시작하기를 기다립니다.");
                         }
                         break;
                     case 'night_crew_action':
@@ -723,6 +808,39 @@
                     cardToReveal.classList.add('is-flipped');
                 }, 200);
             }
+        });
+
+        // index.html -> <script> 태그 안
+
+        // ★★★ 기존 rouletteResult 리스너 다음에 이 코드를 추가해주세요. ★★★
+        socket.on('revealEjectionResult', (data) => {
+            const { ejectedPlayerId, cards, selections } = data;
+            const ejectedPlayerName = gameRoomsState[currentRoomCode]?.players.find(p => p.id === ejectedPlayerId)?.name || '누군가';
+
+            // 모든 카드를 뒤집어서 결과를 보여줌
+            document.querySelectorAll('.ejection-card-btn').forEach(btn => {
+                const cardId = parseInt(btn.dataset.cardId, 10);
+                const cardData = cards.find(c => c.id === cardId);
+                if (cardData) {
+                    btn.textContent = cardData.content;
+                    if (cardData.content === '방출') {
+                        btn.style.backgroundColor = '#dc3545';
+                        btn.style.borderColor = '#fff';
+                    } else {
+                        btn.style.backgroundColor = '#28a745';
+                    }
+                }
+                btn.disabled = true;
+            });
+
+            // 1.5초 후, 방출 메시지를 타이핑 효과로 보여줌
+            setTimeout(() => {
+                const container = playerContainer;
+                container.innerHTML = `<h2 id="ejection-message-container" style="font-size: 1.8em; line-height: 1.6;"></h2>`;
+                const messageContainer = document.getElementById('ejection-message-container');
+                typewriter(messageContainer, `에어락이 개방되어... ${ejectedPlayerName}님이 함선 외부로 방출되었습니다.`);
+                // 서버에서 4초 후에 updateRoom을 보내므로 클라이언트는 기다리기만 하면 됨
+            }, 1500);
         });
 
         let displayedSpectatorLogCount = 0; // 관전자용 로그 카운터
@@ -871,6 +989,25 @@
                 playerContainer.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
                 target.classList.add('active');
                 playerContainer.querySelector(`#${tabName}-content`).classList.add('active');
+                return;
+            }
+
+            if (target.classList.contains('nomination-btn')) {
+                const targetId = target.dataset.targetId;
+                const targetName = target.textContent;
+                if (confirm(`'${targetName}'님을 방출 후보로 지목하시겠습니까?`)) {
+                    socket.emit('nominateForEjection', { roomCode: currentRoomCode, targetId: targetId });
+                    target.closest('ul').innerHTML = '<li>투표가 완료되었습니다.</li>';
+                }
+                return;
+            }
+
+            if (target.classList.contains('ejection-card-btn')) {
+                const cardId = parseInt(target.dataset.cardId, 10);
+                if (confirm('이 제어판을 선택하시겠습니까? 선택 후에는 변경할 수 없습니다.')) {
+                    socket.emit('selectEjectionCard', { roomCode: currentRoomCode, cardId: cardId });
+                    // 버튼은 서버 응답(updateRoom)을 통해 비활성화될 것이므로 즉시 비활성화하지 않음
+                }
                 return;
             }
 

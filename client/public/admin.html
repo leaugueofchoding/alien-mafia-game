@@ -91,7 +91,10 @@
         .trigger-rampage-btn,
         .resolve-night-btn,
         .trigger-crew-action-btn,
-        .end-night-btn {
+        .end-night-btn,
+        .start-nomination-btn,
+        .start-ejection-minigame-btn,
+        .resolve-ejection-minigame-btn {
             width: 100%;
             padding: 10px;
             color: white;
@@ -320,6 +323,8 @@
                 const settingsColumn = document.createElement('div');
                 settingsColumn.style.flex = 2;
 
+                // admin.html -> renderAdminView 함수 내부
+
                 if (roomData.status === 'waiting') {
                     playerColumn.innerHTML = '<h3>참가자 목록</h3>';
                     const playerList = document.createElement('ul');
@@ -366,6 +371,21 @@
                         missionPresetDiv.innerHTML += '<p>사용 가능한 미션 프리셋이 없습니다.</p>';
                     }
                     settingsColumn.appendChild(missionPresetDiv);
+
+                    // ================== ★★★ 문제의 코드 수정 ★★★ ==================
+                    // minigameToggleDiv를 여기서 먼저 선언하고 정의해야 합니다.
+                    const minigameToggleDiv = document.createElement('div');
+                    minigameToggleDiv.className = 'mission-preset-settings';
+                    minigameToggleDiv.style.marginTop = '15px';
+                    minigameToggleDiv.innerHTML = `
+        <h4>온라인 방출 미니게임</h4>
+        <label style="display: flex; align-items: center; justify-content: space-between; padding: 5px; background-color: #e9e9e9; border-radius: 4px;">
+            <span>미니게임 기능 사용 (ON/OFF)</span>
+            <input type="checkbox" class="ejection-minigame-toggle" id="ejection-minigame-toggle-${code}" checked>
+        </label>
+    `;
+                    settingsColumn.appendChild(minigameToggleDiv);
+                    // =================================================================
 
                     const groupSettingsDiv = document.createElement('div');
                     groupSettingsDiv.className = 'group-settings';
@@ -558,10 +578,15 @@
                             btn.dataset.day = 1;
                             btn.textContent = '1일차 회의 시작';
                             settingsColumn.appendChild(btn);
-                        } else if (roomData.phase === 'meeting') {
+                        } // admin.html -> renderAdminView() 함수 안
+
+                        // admin.html -> renderAdminView() 함수 안
+
+                        else if (roomData.phase === 'meeting') {
                             const timerBtn = document.createElement('button');
+                            // 참가자 화면 타이머가 90초로 변경되었으므로, 관리자 페이지 버튼 텍스트도 통일합니다.
                             timerBtn.className = 'timer-btn';
-                            timerBtn.textContent = '2분 타이머 시작';
+                            timerBtn.textContent = '1분 30초 타이머 시작';
                             const timerDisplay = document.createElement('span');
                             timerDisplay.id = `timer-display-${code}`;
                             timerDisplay.style.cssText = 'margin-left: 15px; font-weight: bold; color: #dc3545;';
@@ -575,12 +600,54 @@
                             timerDiv.appendChild(timerBtn);
                             timerDiv.appendChild(timerDisplay);
                             settingsColumn.appendChild(timerDiv);
-                            const nextBtn = document.createElement('button');
-                            nextBtn.className = 'next-phase-btn';
-                            nextBtn.dataset.phase = 'night_alien_action';
-                            nextBtn.dataset.day = roomData.day;
-                            nextBtn.textContent = '밤으로 이동';
-                            settingsColumn.appendChild(nextBtn);
+
+                            if (roomData.settings.useEjectionMinigame) {
+                                helpBox.innerHTML = '<b>[진행 가이드]</b><br>1. 모든 참가자가 모둠 선택을 마쳤는지 확인하세요.<br>2. <b>[1차 후보 지목 시작]</b>을 눌러 투표를 받으세요.<br>3. 모든 활성 모둠이 후보를 내면 <b>[미니게임 시작]</b> 버튼이 활성화됩니다.<br>4. 모든 후보가 카드를 고르면 <b>[결과 공개]</b> 버튼이 활성화됩니다.';
+
+                                // ★★★ 핵심 수정: 실제로 플레이어가 있는 모둠 수를 계산합니다. ★★★
+                                const alivePlayerGroups = new Set(
+                                    roomData.players
+                                        .filter(p => p.status === 'alive' && p.group)
+                                        .map(p => p.group)
+                                );
+                                const totalActiveGroups = alivePlayerGroups.size;
+                                const allGroupsNominated = roomData.ejectionNominations && Object.keys(roomData.ejectionNominations).length === totalActiveGroups && totalActiveGroups > 0;
+
+                                // 1. 후보 지목 시작 버튼
+                                const startNominationBtn = document.createElement('button');
+                                startNominationBtn.className = 'start-nomination-btn';
+                                startNominationBtn.textContent = '1차 후보 지목 시작';
+                                startNominationBtn.style.backgroundColor = '#fd7e14';
+                                startNominationBtn.disabled = roomData.ejectionState !== 'pending_start';
+                                settingsColumn.appendChild(startNominationBtn);
+
+                                // 2. 미니게임 시작 버튼 (활성화 조건을 수정된 로직으로 변경)
+                                const startMinigameBtn = document.createElement('button');
+                                startMinigameBtn.className = 'start-ejection-minigame-btn';
+                                startMinigameBtn.textContent = '방출 미니게임 시작';
+                                startMinigameBtn.style.backgroundColor = '#6f42c1';
+                                startMinigameBtn.disabled = !allGroupsNominated || roomData.ejectionState !== 'minigame_pending';
+                                settingsColumn.appendChild(startMinigameBtn);
+
+                                // 3. 결과 공개 및 방출 실행 버튼
+                                const resolveBtn = document.createElement('button');
+                                resolveBtn.className = 'resolve-ejection-minigame-btn';
+                                resolveBtn.textContent = '결과 공개 및 방출 실행';
+                                resolveBtn.style.backgroundColor = '#dc3545';
+                                resolveBtn.disabled = roomData.ejectionState !== 'minigame_active' && roomData.ejectionState !== 'minigame_all_selected';
+                                settingsColumn.appendChild(resolveBtn);
+
+                            } else {
+                                const nextBtn = document.createElement('button');
+                                nextBtn.className = 'next-phase-btn';
+                                nextBtn.dataset.phase = 'night_alien_action';
+                                nextBtn.dataset.day = roomData.day;
+                                nextBtn.textContent = '밤으로 이동';
+                                settingsColumn.appendChild(nextBtn);
+                            }
+
+
+
                         } else if (roomData.phase === 'night_alien_action') {
                             if (roomData.alienActionTriggered) {
                                 const resolveBtn = document.createElement('button');
@@ -666,13 +733,59 @@
 
                 const groupCountInput = document.getElementById(`group-count-${roomCode}`);
                 const presetSelect = document.getElementById(`mission-preset-select-${roomCode}`);
+                const useEjectionMinigame = document.getElementById(`ejection-minigame-toggle-${roomCode}`).checked;
+
 
                 socket.emit('startGame', {
                     code: roomCode,
                     settings: roleSettings,
                     groupCount: parseInt(groupCountInput.value, 10) || 4,
-                    selectedPreset: presetSelect.value
+                    selectedPreset: presetSelect.value,
+                    useEjectionMinigame: useEjectionMinigame // ★★★ 추가: 서버로 전송
                 });
+            }
+            else if (classList.contains('start-nomination-btn')) {
+                const roomData = gameRoomsState[roomCode];
+                const unselectedPlayers = roomData.players.filter(p => p.status === 'alive' && !p.group);
+
+                if (unselectedPlayers.length > 0) {
+                    const unselectedNames = unselectedPlayers.map(p => p.name).join(', ');
+                    alert(`아직 모둠을 선택하지 않은 참가자가 있습니다: ${unselectedNames}`);
+                } else {
+                    if (confirm('모든 참가자에게 후보 지목 화면을 띄웁니다. 진행할까요?')) {
+                        socket.emit('startEjectionNomination', { code: roomCode });
+                    }
+                }
+            }
+            else if (classList.contains('start-ejection-minigame-btn')) {
+                if (confirm('모든 참가자에게 방출 미니게임을 시작합니다. 진행할까요?')) {
+                    socket.emit('startEjectionMinigame', { code: roomCode });
+                }
+            }
+            // admin.html -> roomsContainer.addEventListener('click', ...) 안
+
+            // ★★★ resolve-ejection-minigame-btn 핸들러를 아래 코드로 교체 ★★★
+            else if (classList.contains('resolve-ejection-minigame-btn')) {
+                const roomData = gameRoomsState[roomCode];
+                const candidates = roomData.ejectionMinigame?.candidates || [];
+                const selections = roomData.ejectionMinigame?.selections || {};
+                const selectedCandidates = Object.keys(selections);
+
+                // 아직 모두가 선택하지 않은 경우
+                if (selectedCandidates.length < candidates.length) {
+                    const unselectedIds = candidates.filter(id => !selectedCandidates.includes(id));
+                    const unselectedNames = unselectedIds.map(id => {
+                        return roomData.players.find(p => p.id === id)?.name || 'Unknown';
+                    }).join(', ');
+
+                    alert(`아직 카드를 선택하지 않은 후보가 있습니다: ${unselectedNames}`);
+                }
+                // 모두 선택한 경우
+                else {
+                    if (confirm('모든 후보가 선택을 마쳤습니다. 결과를 공개하고 방출자를 확정하시겠습니까?')) {
+                        socket.emit('resolveEjectionMinigame', { code: roomCode });
+                    }
+                }
             }
             else if (classList.contains('trigger-rampage-btn')) {
                 socket.emit('triggerQueenRampage', { code: roomCode });
