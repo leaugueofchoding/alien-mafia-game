@@ -889,12 +889,14 @@ io.on('connection', (socket) => {
     broadcastUpdates(code);
   });
 
-  // ★★★ 3/3: triggerAlienAction 함수를 교체해주세요. ★★★
+  // server/index.js
+
   socket.on('triggerAlienAction', (data) => {
     const { code } = data;
     const room = gameRooms[code];
     if (!room) return;
 
+    // --- ★★★ 핵심 수정 파트 (try...catch 블록 추가) ★★★ ---
     try {
       room.alienActionTriggered = true;
 
@@ -926,8 +928,10 @@ io.on('connection', (socket) => {
 
     } catch (error) {
       console.error(`[FATAL ERROR in triggerAlienAction]`, error);
-      io.to(ADMIN_ROOM).emit('adminError', `서버 오류 발생: ${error.message}.`);
+      io.to(ADMIN_ROOM).emit('adminError', `서버 오류 발생: ${error.message}. 관리자에게 문의하세요.`);
+      // 에러 발생 시, 비정상적인 상태 전파를 막기 위해 추가적인 업데이트는 하지 않습니다.
     }
+    // --- ★★★ 여기까지가 수정된 부분입니다. ★★★
   });
 
   // 2. 이 함수로 교체
@@ -951,6 +955,8 @@ io.on('connection', (socket) => {
     broadcastUpdates(code);
   });
 
+  // server/index.js
+
   socket.on('resolveQueenRampage', (data) => {
     const { code } = data;
     const room = gameRooms[code];
@@ -965,13 +971,21 @@ io.on('connection', (socket) => {
       eliminatePlayer(code, targetId, 'queen_rampage');
     });
 
-    // 만찬 이후의 모든 상태를 완벽하게 초기화합니다.
+    const gameEnded = checkWinConditions(code);
+    if (gameEnded) return;
+
+    // --- ★★★ 핵심 수정 파트 ★★★ ---
+    // 1. 만찬 이후의 모든 상태를 완벽하게 초기화합니다.
     delete room.pendingAction;
     delete room.rampageTriggered;
     delete room.queenActionTaken;
     delete room.selections;
     delete room.alienActionTriggered;
     delete room.crewActionTriggered;
+
+    // 2. 게임 단계를 '탐사대 활동'으로 명확히 전환합니다.
+    room.phase = 'night_crew_action';
+    // --- ★★★ 여기까지가 수정된 부분입니다. ★★★
 
     broadcastUpdates(code);
   });

@@ -213,6 +213,31 @@
             line-height: 1.4;
             color: #333;
         }
+
+        /* admin.html 파일의 <style> 태그 맨 아래에 이 코드를 추가해주세요. */
+
+        .room li {
+            align-items: flex-start;
+            /* 다중 라인 콘텐츠를 위해 상단 정렬로 변경 */
+            padding: 12px;
+        }
+
+        .player-info-container {
+            line-height: 1.5;
+            /* 줄 간격을 적절하게 조정 */
+        }
+
+        .player-info-name {
+            font-weight: bold;
+            font-size: 1.05em;
+            color: #333;
+        }
+
+        .player-info-group,
+        .player-info-role {
+            font-size: 0.9em;
+            color: #555;
+        }
     </style>
 </head>
 
@@ -452,14 +477,30 @@
                     playerList.className = 'player-grid-list';
                     roomData.players.forEach(player => {
                         const playerItem = document.createElement('li');
-                        const playerInfoSpan = document.createElement('span');
-                        let roleInfo = '';
+
+                        // 정보를 담을 컨테이너 생성
+                        const playerInfoContainer = document.createElement('div');
+                        playerInfoContainer.className = 'player-info-container';
+
+                        // 1. 이름 (Name)
+                        const nameLine = `<div class="player-info-name">${player.name}</div>`;
+
+                        // 2. 모둠 (Group)
+                        const groupText = player.group ? `${player.group}모둠` : '모둠 미정';
+                        const groupLine = `<div class="player-info-group">${groupText}</div>`;
+
+                        // 3. 직업 (Role)
+                        let roleText = player.role || '역할 미정';
                         if ((player.role === '함장' || player.role === '군인') && typeof player.bullets !== 'undefined') {
-                            roleInfo = `<span class="role-info">(총알: ${player.bullets})</span>`;
+                            roleText += ` (총알: ${player.bullets})`;
                         }
-                        const groupInfo = player.group ? `(${player.group}모둠)` : '';
-                        playerInfoSpan.innerHTML = `${player.name} ${groupInfo} - ${player.role || '역할 미정'} ${roleInfo}`;
-                        playerItem.appendChild(playerInfoSpan);
+                        const roleLine = `<div class="player-info-role">${roleText}</div>`;
+
+                        // 3줄 정보를 합쳐서 컨테이너에 삽입
+                        playerInfoContainer.innerHTML = nameLine + groupLine + roleLine;
+                        playerItem.appendChild(playerInfoContainer);
+
+                        // 사망/생존에 따른 버튼 추가 (기존 로직과 동일)
                         if (player.status === 'dead') {
                             playerItem.classList.add('dead');
                             const reviveButton = document.createElement('button');
