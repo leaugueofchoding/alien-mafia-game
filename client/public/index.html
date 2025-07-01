@@ -9,6 +9,79 @@
     <link rel="stylesheet" href="style.css">
 
     <style>
+        /* index.html의 <style> 태그 안 */
+
+        .ejection-card-btn {
+            width: 100%;
+            height: 100%;
+            min-height: 60px;
+            background: linear-gradient(145deg, #2f2f58, #1a1a2e);
+            border: 2px solid #00d1ff;
+            border-radius: 8px;
+            color: #00d1ff;
+            font-size: 1.8em;
+            font-weight: bold;
+            text-shadow: 0 0 8px rgba(0, 209, 255, 0.7);
+            box-shadow: inset 0 0 10px rgba(0, 209, 255, 0.3), 0 0 15px rgba(0, 0, 0, 0.5);
+            cursor: pointer;
+            transition: all 0.2s ease-in-out;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+            /* 이름 태그를 아래로 보내기 위함 */
+            padding: 5px;
+        }
+
+        .ejection-card-btn:hover:not(:disabled) {
+            background: #3a3a5e;
+            color: #8affff;
+            border-color: #8affff;
+        }
+
+        .ejection-card-btn:disabled {
+            cursor: not-allowed;
+        }
+
+        /* ★★★ 선택되었을 때 (노란색) ★★★ */
+        .ejection-card-btn.selected {
+            background: #ffc107;
+            color: #333;
+            border-color: #fff;
+            text-shadow: none;
+        }
+
+        /* ★★★ 이름 태그 스타일 개선 ★★★ */
+        .ejection-card-btn span {
+            font-size: 0.5em;
+            font-weight: bold;
+            margin-top: 5px;
+            background-color: rgba(0, 0, 0, 0.3);
+            padding: 2px 8px;
+            border-radius: 4px;
+            color: white;
+        }
+
+        .ejection-card-btn.selected span {
+            color: #fff;
+            background-color: rgba(0, 0, 0, 0.5);
+        }
+
+        /* ★★★ 결과 공개 시 (초록/빨강) ★★★ */
+        .ejection-card-btn.success {
+            background: #28a745;
+            color: white;
+            border-color: white;
+            text-shadow: none;
+        }
+
+        .ejection-card-btn.failure {
+            background: #dc3545;
+            color: white;
+            border-color: white;
+            text-shadow: none;
+        }
+
         .typing-cursor {
             display: inline-block;
             width: 10px;
@@ -137,7 +210,7 @@
                         // ★★★ 1. 요청하신 UI/텍스트로 수정 ★★★
                         contentHtml = `
                     <h3>${roomData.day}일차 - 함선 브리핑</h3>
-                    <p>함선 내 비상 집결 구역이 나뉘었습니다. 당신의 구역(모둠)을 선택하세요.</p>
+                    <p>함선 내 비상 집결 구역이 나뉘었습니다. 모둠정보를 선택하고 탐사대원에게 당신을 소개하세요.</p>
                 `;
                         break;
 
@@ -179,14 +252,13 @@
                         const cardsHtml = minigame.cards.map(card => {
                             let selectedBy = '';
                             let isDisabled = false;
-                            let cardStyle = '';
+                            let cardClasses = 'ejection-card-btn'; // 기본 클래스
 
                             for (const candidateId in minigame.selections) {
                                 if (minigame.selections[candidateId] === card.id) {
                                     selectedBy = roomData.players.find(p => p.id === candidateId)?.name || '선택됨';
                                     isDisabled = true;
-                                    // ★★★ 2. 선택된 카드를 노란색으로 변경 ★★★
-                                    cardStyle = 'background-color: #ffc107; color: #333; border-color: #333;';
+                                    cardClasses += ' selected'; // 선택 시 .selected 클래스 추가
                                 }
                             }
                             if (!isCandidate || minigame.selections[me.id]) {
@@ -194,12 +266,12 @@
                             }
 
                             return `
-                        <li>
-                            <button class="ejection-card-btn" data-card-id="${card.id}" ${isDisabled ? 'disabled' : ''} style="${cardStyle}">
-                                ${selectedBy ? `<span>${selectedBy}</span>` : '?'}
-                            </button>
-                        </li>
-                    `;
+        <li>
+            <button class="${cardClasses}" data-card-id="${card.id}" ${isDisabled ? 'disabled' : ''}>
+                ${selectedBy ? `? <br> <span>${selectedBy}</span>` : '?'}
+            </button>
+        </li>
+    `;
                         }).join('');
 
                         contentHtml = `
@@ -250,6 +322,24 @@
             playerContainer.innerHTML = `
         <h2>밤이 되었습니다.</h2>
         <p>${text}</p>`;
+        }
+
+        // ★★★ showQueenHuntScreen 함수를 아래 코드로 교체해주세요. ★★★
+        function showQueenHuntScreen(otherAliens, targets) {
+            clearContainer();
+            huntSelections = [];
+
+            // 선택 가능한 최대 인원수를 계산합니다.
+            const maxSelection = Math.min(2, targets.length);
+            const targetButtons = targets.map(target => `<li><button class="target-btn" data-ability="queen_hunt" data-target-id="${target.id}">${target.name}</button></li>`).join('');
+
+            playerContainer.innerHTML = `
+        <h2>[사냥] 대상을 최대 ${maxSelection}명 선택하세요.</h2>
+        <p>(선택하지 않고 '선택 완료'를 눌러 능력을 건너뛸 수도 있습니다.)</p>
+        <p>${otherAliens.length > 0 ? `(동료 에일리언: ${otherAliens.join(', ')})` : ''}</p>
+        <ul class="player-grid-list">${targetButtons}</ul>
+        <button id="confirm-hunt-btn">선택 완료 (0/${maxSelection})</button>
+    `;
         }
 
         function showQueenRampageScreen(targets) {
@@ -354,11 +444,11 @@
                     abilityContent = `<h4>저격할 대상을 선택하세요. <span style="font-weight:normal;">(남은 총알: ${me.bullets}발)</span></h4><ul class="player-grid-list">${targets.map(t => `<li><button class="target-btn" data-ability="soldier" data-target-id="${t.id}">${t.name}</button></li>`).join('')}</ul>`;
                 } else if (me.role === '수다쟁이' && me.abilityUsedDay !== room.day) {
                     const targets = room.players.filter(p => p.status === 'alive' && p.id !== me.id);
-                    abilityContent = `<h4>역할을 폭로할 대상을 선택하세요.</h4><p>(선택된 대상의 역할은 다음날부터 모두에게 공개됩니다.)</p><ul class="player-grid-list">${targets.map(t => `<li><button class="target-btn" data-ability="chatterbox" data-target-id="${t.id}">${t.name}</button></li>`).join('')}</ul>`;
+                    abilityContent = `<h4>역할을 폭로할 대상을 선택하세요.</h4><p>(선택된 대상의 역할은 모두에게 공개됩니다.)</p><ul class="player-grid-list">${targets.map(t => `<li><button class="target-btn" data-ability="chatterbox" data-target-id="${t.id}">${t.name}</button></li>`).join('')}</ul>`;
                 } else if (me.role === '초능력자' && !me.abilityUsed) {
                     const targets = room.players.filter(p => p.status === 'alive' && p.id !== me.id);
                     // 렌더링 시, 기존에 선택된 버튼인지 확인하여 'pre-selected' 클래스를 부여
-                    abilityContent = `<h4>정체를 꿰뚫어볼 대상 4명을 선택하세요.</h4><p>(단 한 번만 사용 가능하며, 실패 시 큰 위험이 따릅니다.)</p><ul class="player-grid-list">${targets.map(t => {
+                    abilityContent = `<h4>정체를 꿰뚫어볼 4명을 선택하세요.</h4><p>(단 한 번만 사용 가능하며, 실패 시 큰 위험이 따릅니다.)</p><ul class="player-grid-list">${targets.map(t => {
                         const isSelected = huntSelections.includes(t.id) ? 'pre-selected' : '';
                         return `<li><button class="target-btn ${isSelected}" data-ability="psychic" data-target-id="${t.id}">${t.name}</button></li>`;
                     }).join('')
@@ -597,11 +687,12 @@
             alert(message);
         });
 
-        socket.on('updateRoom', (room) => {
-            // ★★★ [수정] 이 한 줄을 추가해야 클릭이 동작합니다. ★★★
-            gameRoomsState[currentRoomCode] = room;
+        // index.html
 
+        socket.on('updateRoom', (room) => {
+            gameRoomsState[currentRoomCode] = room;
             console.log('클라이언트가 서버로부터 받은 room 데이터:', room);
+
             const headerContainer = document.getElementById('header-container');
             if (headerContainer) headerContainer.innerHTML = '';
 
@@ -623,26 +714,21 @@
             </div>
         `;
             }
-            // ★★★ [수정] 아래 코드로 교체하세요. ★★★
+
             const me = room.players.find(p => p.id === socket.id);
 
-            // 사망한 플레이어는 관전 화면을 표시하고 함수 종료
             if (me && me.status === 'dead' && room.status !== 'game_over') {
-                // 사망 시 룰렛 오버레이가 있다면 즉시 제거
                 const rouletteOverlay = document.getElementById('roulette-overlay');
                 if (rouletteOverlay) rouletteOverlay.remove();
 
-                // 비상탈출 단계에서는 전용 관전 화면 표시 (3번 요청사항)
                 if (room.phase === 'escape_sequence') {
                     showSpectatorEscapeScreen(room);
                 } else {
-                    // 그 외에는 일반 관전 화면 표시
                     showSpectatorScreen(room);
                 }
-                return; // 여기서 실행 종료
+                return;
             }
 
-            // 기존의 amIAlive 체크는 유지 (이미 죽었는데 위 코드를 타지 않은 경우)
             if (!amIAlive || room.status === 'game_over') return;
             if (!me) {
                 adminContainer.style.display = 'block';
@@ -664,10 +750,7 @@
             }
 
             if (room.pendingAction === 'queen_rampage') {
-                if (me.role !== '에일리언 여왕') {
-                    showFeastAnnouncedScreen();
-                }
-                else if (!room.rampageTriggered) {
+                if (me.role !== '에일리언 여왕' || !room.rampageTriggered) {
                     showFeastAnnouncedScreen();
                 }
                 return;
@@ -683,8 +766,9 @@
                         break;
                     case 'night_alien_action':
                         if (!room.alienActionTriggered) {
-                            // ★★★ 이 부분을 아래와 같이 수정합니다. ★★★
                             showAlienNightScreen("모두 눈을 감아주세요. 관리자가 활동을 시작하기를 기다립니다.");
+                        } else {
+                            // 에일리언에게만 사냥 화면을 보여주는 로직 (기존 socket.on('alienAction')에서 처리)
                         }
                         break;
                     case 'night_crew_action':
@@ -702,20 +786,27 @@
             } else {
                 showInitialScreen();
             }
-            // ★★★ [수정] 화면 업데이트 시 탭 상태를 결정하는 로직 ★★★
-            // 탐사대 활동이 시작되는 첫 화면에서는 '상황판'을 기본으로 보여줍니다.
-            if (!room.crewActionTriggered) {
-                document.querySelector('.tab-link[data-tab="situation"]').click();
-                currentTab = 'situation';
-            } else {
-                // 그 외의 업데이트(다른 사람의 능력 사용 등)에서는 현재 탭을 유지합니다.
-                const activeButton = document.querySelector(`.tab-link[data-tab="${currentTab}"]`);
-                if (activeButton) {
-                    activeButton.click();
+
+            // ★★★ 핵심 수정: 탭 컨테이너가 있을 때만 아래 로직을 실행하도록 변경 ★★★
+            const tabContainer = document.querySelector('.tab-container');
+            if (tabContainer) {
+                if (!room.crewActionTriggered) {
+                    const situationTab = document.querySelector('.tab-link[data-tab="situation"]');
+                    if (situationTab) {
+                        situationTab.click();
+                        currentTab = 'situation';
+                    }
                 } else {
-                    // 현재 탭이 유효하지 않을 경우(오류 방지), 상황판으로 초기화
-                    document.querySelector('.tab-link[data-tab="situation"]').click();
-                    currentTab = 'situation';
+                    const activeButton = document.querySelector(`.tab-link[data-tab="${currentTab}"]`);
+                    if (activeButton) {
+                        activeButton.click();
+                    } else {
+                        const situationTab = document.querySelector('.tab-link[data-tab="situation"]');
+                        if (situationTab) {
+                            situationTab.click();
+                            currentTab = 'situation';
+                        }
+                    }
                 }
             }
         });
@@ -817,17 +908,16 @@
             const { ejectedPlayerId, cards, selections } = data;
             const ejectedPlayerName = gameRoomsState[currentRoomCode]?.players.find(p => p.id === ejectedPlayerId)?.name || '누군가';
 
-            // 모든 카드를 뒤집어서 결과를 보여줌
             document.querySelectorAll('.ejection-card-btn').forEach(btn => {
                 const cardId = parseInt(btn.dataset.cardId, 10);
                 const cardData = cards.find(c => c.id === cardId);
                 if (cardData) {
-                    btn.textContent = cardData.content;
+                    btn.innerHTML = cardData.content; // 내용만 변경
+                    // 클래스 추가로 색상 변경
                     if (cardData.content === '방출') {
-                        btn.style.backgroundColor = '#dc3545';
-                        btn.style.borderColor = '#fff';
+                        btn.classList.add('failure');
                     } else {
-                        btn.style.backgroundColor = '#28a745';
+                        btn.classList.add('success');
                     }
                 }
                 btn.disabled = true;

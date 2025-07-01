@@ -285,9 +285,8 @@ function checkSpecialVictoryConditions(roomCode) {
 
   return false;
 }
-// server/index.js
 
-// ★★★ 기존 eliminatePlayer 함수를 아래 코드로 교체해주세요. ★★★
+// ★★★ eliminatePlayer 함수를 아래 코드로 교체해주세요. ★★★
 function eliminatePlayer(roomCode, playerId, cause = 'unknown') {
   const room = gameRooms[roomCode];
   if (!room) return false;
@@ -307,8 +306,9 @@ function eliminatePlayer(roomCode, playerId, cause = 'unknown') {
       'soldier_shot': `[군인]이 ${targetName}님을 사살했습니다.`,
       'psychic_fail': `[초능력자]의 능력이 폭주하여 ${targetName}님이 휘말렸습니다.`,
       'egg_contamination': `[에일리언 알]이 오염되어 ${targetName}님이 사망했습니다.`,
-      // ★★★ 미니게임 방출 로그 메시지를 추가합니다.
-      'ejected_minigame': `[방출 미니게임] 결과, ${targetName}님이 함선 외부로 방출되었습니다.`
+      'ejected_minigame': `[방출 미니게임] 결과, ${targetName}님이 함선 외부로 방출되었습니다.`,
+      // ★★★ '여왕의 만찬' 로그 메시지를 추가합니다. ★★★
+      'queen_rampage': `[여왕의 만찬]으로 ${targetName}님이 희생되었습니다.`
     };
     if (causeMap[cause] && room.gameLog) {
       room.gameLog.unshift(causeMap[cause]);
@@ -557,6 +557,9 @@ io.on('connection', (socket) => {
   // server/index.js
 
   // ★★★ selectGroup 핸들러를 아래 코드로 통째로 교체해주세요. ★★★
+  // server/index.js
+
+  // ★★★ selectGroup 핸들러를 아래 코드로 통째로 교체해주세요. ★★★
   socket.on('selectGroup', (data) => {
     const { roomCode, groupNumber } = data;
     const room = gameRooms[roomCode];
@@ -574,17 +577,19 @@ io.on('connection', (socket) => {
       const allAlivePlayers = room.players.filter(p => p.status === 'alive');
       const allSelectedGroup = allAlivePlayers.every(p => !!p.group);
 
-      // ★★★ 모든 생존자가 모둠을 선택했을 때 1인 모둠을 자동으로 처리하는 로직 ★★★
       if (allSelectedGroup) {
         console.log(`[${roomCode}] All players have selected their group. Checking for single-member groups.`);
 
+        // ★★★ 여기에 로그 추가 ★★★
+        if (room.gameLog) {
+          room.gameLog.unshift(`[회의] 모든 생존자가 모둠 선택을 완료했습니다.`);
+        }
+
         const alivePlayerGroups = new Set(allAlivePlayers.map(p => p.group));
 
-        // 각 모둠을 순회하며 1인 모둠인지 확인
         alivePlayerGroups.forEach(groupNum => {
           const groupMembers = allAlivePlayers.filter(p => p.group === groupNum);
 
-          // 모둠원이 1명뿐이라면, 해당 플레이어를 자동으로 후보로 지목
           if (groupMembers.length === 1) {
             const singlePlayer = groupMembers[0];
             if (!room.ejectionNominations[groupNum]) {
@@ -594,15 +599,21 @@ io.on('connection', (socket) => {
           }
         });
 
-        // 1인 모둠 처리 후, 모든 활성 모둠의 후보 지명이 완료되었는지 다시 확인
         const totalActiveGroups = alivePlayerGroups.size;
         const allGroupsNominated = Object.keys(room.ejectionNominations).length === totalActiveGroups;
         if (allGroupsNominated && totalActiveGroups > 0) {
-          room.ejectionState = 'minigame_pending';
-          console.log(`[${roomCode}] All active groups, including single-member ones, have nominated. State is now minigame_pending.`);
+          if (room.ejectionState !== 'minigame_pending') {
+            room.ejectionState = 'minigame_pending';
+            console.log(`[${roomCode}] All active groups, including single-member ones, have nominated. State is now minigame_pending.`);
+
+            const nomineeIds = Object.values(room.ejectionNominations);
+            const nomineeNames = nomineeIds.map(id => room.players.find(p => p.id === id)?.name).join(', ');
+            if (room.gameLog) {
+              room.gameLog.unshift(`[회의] 최종 방출 후보가 ${nomineeNames}(으)로 결정되었습니다.`);
+            }
+          }
         }
       }
-
       broadcastUpdates(roomCode);
     }
   });
@@ -673,6 +684,13 @@ io.on('connection', (socket) => {
       if (allGroupsNominated && totalActiveGroups > 0) {
         room.ejectionState = 'minigame_pending';
         console.log(`[${roomCode}] All ${totalActiveGroups} active groups have nominated. State is now minigame_pending.`);
+
+        // ★★★ 여기에 아래 로그 추가 코드를 넣으면 됩니다. ★★★
+        const nomineeIds = Object.values(room.ejectionNominations);
+        const nomineeNames = nomineeIds.map(id => room.players.find(p => p.id === id)?.name).join(', ');
+        if (room.gameLog) {
+          room.gameLog.unshift(`[회의] 최종 방출 후보가 ${nomineeNames}(으)로 결정되었습니다.`);
+        }
       }
     }
     broadcastUpdates(roomCode);
@@ -719,6 +737,10 @@ io.on('connection', (socket) => {
       if (allCandidatesSelected) {
         room.ejectionState = 'minigame_all_selected';
         console.log(`[${roomCode}] All candidates have selected a card.`);
+        // ★★★ 이 부분을 여기에 추가해주세요. ★★★
+        if (room.gameLog) {
+          room.gameLog.unshift('[방출 미니게임] 모든 후보가 선택을 마쳤습니다. 관리자는 결과를 공개해주세요.');
+        }
       }
       broadcastUpdates(roomCode);
     }
@@ -867,38 +889,45 @@ io.on('connection', (socket) => {
     broadcastUpdates(code);
   });
 
-  // 1. 이 함수로 교체
+  // ★★★ 3/3: triggerAlienAction 함수를 교체해주세요. ★★★
   socket.on('triggerAlienAction', (data) => {
     const { code } = data;
     const room = gameRooms[code];
     if (!room) return;
 
-    // ★★★ 추가: 에일리언 활동이 시작되었음을 상태에 기록
-    room.alienActionTriggered = true;
+    try {
+      room.alienActionTriggered = true;
 
-    const livingPlayers = room.players.filter(p => p.status === 'alive');
-    const allAlienRoles = livingPlayers.filter(p => p.role.includes('에일리언'));
-    const allAlienIds = allAlienRoles.map(p => p.id);
-    const targets = livingPlayers.filter(p => !allAlienIds.includes(p.id));
+      const livingPlayers = room.players.filter(p => p && p.status === 'alive');
+      const allAlienRoles = livingPlayers.filter(p => p.role && p.role.includes('에일리언'));
+      const allAlienIds = allAlienRoles.map(p => p.id);
 
-    const normalAliens = allAlienRoles.filter(p => p.role === '에일리언');
-    normalAliens.forEach(alien => {
-      const otherAliens = allAlienRoles.filter(a => a.id !== alien.id).map(a => a.name);
-      io.to(alien.id).emit('alienAction', { otherAliens, targets });
-    });
+      const targets = livingPlayers
+        .filter(p => p && p.id && !allAlienIds.includes(p.id))
+        .map(p => ({ id: p.id, name: p.name }));
 
-    const queen = allAlienRoles.find(p => p.role === '에일리언 여왕');
-    if (queen) {
-      const otherAliens = allAlienRoles.filter(a => a.id !== queen.id).map(a => a.name);
-      if (!queen.abilityUsed) {
-        io.to(queen.id).emit('queenHuntAction', { otherAliens, targets });
-      } else {
-        io.to(queen.id).emit('alienAction', { otherAliens, targets: [] });
+      const normalAliens = allAlienRoles.filter(p => p.role === '에일리언');
+      normalAliens.forEach(alien => {
+        const otherAliens = allAlienRoles.filter(a => a.id !== alien.id).map(a => a.name);
+        io.to(alien.id).emit('alienAction', { otherAliens, targets });
+      });
+
+      const queen = allAlienRoles.find(p => p.role === '에일리언 여왕');
+      if (queen) {
+        const otherAliens = allAlienRoles.filter(a => a.id !== queen.id).map(a => a.name);
+        if (!queen.abilityUsed) {
+          io.to(queen.id).emit('queenHuntAction', { otherAliens, targets });
+        } else {
+          io.to(queen.id).emit('alienAction', { otherAliens, targets });
+        }
       }
-    }
 
-    // ★★★ 추가: 변경된 상태를 즉시 전파하여 관리자 UI 갱신
-    broadcastUpdates(code);
+      broadcastUpdates(code);
+
+    } catch (error) {
+      console.error(`[FATAL ERROR in triggerAlienAction]`, error);
+      io.to(ADMIN_ROOM).emit('adminError', `서버 오류 발생: ${error.message}.`);
+    }
   });
 
   // 2. 이 함수로 교체
@@ -933,17 +962,17 @@ io.on('connection', (socket) => {
     const uniqueTargets = [...new Set(queenSelection)];
 
     uniqueTargets.forEach(targetId => {
-      // 사망 처리 시에는 업데이트를 보내지 않음 (false 인자 추가)
-      eliminatePlayer(code, targetId, 'queen_rampage', false);
+      eliminatePlayer(code, targetId, 'queen_rampage');
     });
 
-    // 모든 상태를 한 번에 정리
+    // 만찬 이후의 모든 상태를 완벽하게 초기화합니다.
     delete room.pendingAction;
     delete room.rampageTriggered;
     delete room.queenActionTaken;
     delete room.selections;
+    delete room.alienActionTriggered;
+    delete room.crewActionTriggered;
 
-    // 모든 처리가 끝난 후, 최종 결과를 한 번만 전파
     broadcastUpdates(code);
   });
 
@@ -1686,7 +1715,6 @@ io.on('connection', (socket) => {
     }, ROULETTE_DURATION + VIEW_DURATION);
   });
 
-  // ★★★ 기존 endNightAndStartMeeting 함수를 이 코드로 교체해주세요. ★★★
   socket.on('endNightAndStartMeeting', (data) => {
     const { code } = data;
     const room = gameRooms[code];
@@ -1696,13 +1724,23 @@ io.on('connection', (socket) => {
     room.day += 1;
     room.phase = 'meeting';
 
-    // 5일차 아침이 되면 특별 승리 조건을 먼저 확인
-    const gameEnded = checkSpecialVictoryConditions(code);
-    if (gameEnded) {
-      return; // 특별 승리로 게임이 종료되었다면 더 이상 진행하지 않음
+    // 밤 단계와 관련된 모든 상태를 여기서 다시 한번 초기화합니다.
+    delete room.selections;
+    delete room.alienActionTriggered;
+    delete room.crewActionTriggered;
+
+    if (room.settings.useEjectionMinigame) {
+      room.ejectionState = 'pending_start';
+      room.ejectionVotes = {};
+      room.ejectionNominations = {};
+      room.ejectionMinigame = {};
     }
 
-    // 2일차 이상의 아침이 되면, 모든 생존 플레이어의 모둠 정보를 초기화
+    const gameEnded = checkSpecialVictoryConditions(code);
+    if (gameEnded) {
+      return;
+    }
+
     if (room.day > 1) {
       room.needsGroupSelection = true;
       room.players.forEach(p => {

@@ -192,6 +192,27 @@
         #reset-server-btn:hover {
             background-color: #5a6268;
         }
+
+        .admin-log-box {
+            border: 1px solid #ccc;
+            background-color: #f8f9fa;
+            padding: 10px;
+            margin-top: 15px;
+            height: 150px;
+            /* 로그 박스 높이 고정 */
+            overflow-y: auto;
+            /* 내용이 높이를 넘어서면 자동으로 스크롤바 생성 */
+            font-size: 0.9em;
+            text-align: left;
+            display: flex;
+            flex-direction: column-reverse;
+        }
+
+        .admin-log-box p {
+            margin: 2px 0;
+            line-height: 1.4;
+            color: #333;
+        }
     </style>
 </head>
 
@@ -221,13 +242,10 @@
             const codeInput = document.getElementById('new-room-code-input');
             const newCode = codeInput.value.trim();
 
-            if (!newCode) {
-                alert('생성할 방의 초대 코드를 입력해주세요.');
-                return;
+            if (newCode) {
+                socket.emit('createRoom', { code: newCode });
+                codeInput.value = '';
             }
-
-            socket.emit('createRoom', { code: newCode });
-            codeInput.value = '';
         });
         document.getElementById('reset-server-btn').addEventListener('click', () => {
             if (confirm('정말로 서버의 모든 게임 기록을 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.')) {
@@ -459,7 +477,12 @@
                         playerList.appendChild(playerItem);
                     });
                     playerColumn.appendChild(playerList);
-
+                    const logContainer = document.createElement('div');
+                    logContainer.className = 'admin-log-box';
+                    const gameLogHtml = (roomData.gameLog || []).map(log => `<p>${log}</p>`).join('');
+                    logContainer.innerHTML = gameLogHtml;
+                    playerColumn.appendChild(logContainer);
+                    // ★★★ 여기까지 추가 ★★★
                     settingsColumn.innerHTML = '<h3>게임 진행</h3>';
                     const phaseInfo = document.createElement('div');
                     phaseInfo.className = 'phase-info';
@@ -696,11 +719,10 @@
             const codeInput = document.getElementById('new-room-code-input');
             const newCode = codeInput.value.trim();
 
+            // ★★★ newCode가 있을 때만 방을 생성하도록 변경 (alert 제거) ★★★
             if (newCode) {
                 socket.emit('createRoom', { code: newCode });
                 codeInput.value = '';
-            } else {
-                alert('생성할 방의 초대 코드를 입력해주세요.');
             }
         });
         // ★★★★★★★★★★★ 여기까지가 추가된 부분입니다 ★★★★★★★★★★★
