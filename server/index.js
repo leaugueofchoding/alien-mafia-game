@@ -890,41 +890,56 @@ io.on('connection', (socket) => {
     broadcastUpdates(code);
   });
 
-  // server/index.js
+  // server/index.js -> triggerAlienAction 함수를 아래 코드로 교체
+
+  // server/index.js -> triggerAlienAction 함수 전체를 아래 코드로 교체해주세요.
 
   socket.on('triggerAlienAction', (data) => {
     const { code } = data;
     const room = gameRooms[code];
     if (!room) return;
 
-    // --- ★★★ 핵심 수정 파트 (try...catch 블록 추가) ★★★ ---
     try {
       room.alienActionTriggered = true;
 
       const livingPlayers = room.players.filter(p => p && p.status === 'alive');
       const allAlienRoles = livingPlayers.filter(p => p.role && p.role.includes('에일리언'));
-      const allAlienIds = allAlienRoles.map(p => p.id);
 
+      // ★★★ 핵심 수정 ★★★
+      // '활동 가능한' 에일리언이 아닌, '살아있는' 에일리언이 아무도 없을 때만 단계를 건너뛰도록 조건을 변경합니다.
+      if (allAlienRoles.length === 0) {
+        console.log(`[${code}] No living aliens. Skipping to crew action phase.`);
+        if (room.gameLog) room.gameLog.unshift(`[시스템] 이번 밤에는 활동 가능한 에일리언이 없습니다.`);
+
+        room.phase = 'night_crew_action';
+        delete room.alienActionTriggered;
+        delete room.selections;
+
+        broadcastUpdates(code);
+        return;
+      }
+
+      // (이하 기존 로직)
+      // 살아있는 에일리언이 한 명이라도 있으면, 각자의 역할에 맞는 화면을 전송합니다.
+      const normalAliens = allAlienRoles.filter(p => p.role === '에일리언');
+      const queen = allAlienRoles.find(p => p.role === '에일리언 여왕');
+
+      const allAlienIds = allAlienRoles.map(p => p.id);
       const targets = livingPlayers
         .filter(p => p && p.id && !allAlienIds.includes(p.id))
         .map(p => ({ id: p.id, name: p.name }));
 
-      const normalAliens = allAlienRoles.filter(p => p.role === '에일리언');
       normalAliens.forEach(alien => {
         const otherAliens = allAlienRoles.filter(a => a.id !== alien.id).map(a => a.name);
         io.to(alien.id).emit('alienAction', { otherAliens, targets });
       });
 
-      // ★★★ 수정 후 코드 ★★★
-      const queen = allAlienRoles.find(p => p.role === '에일리언 여왕');
       if (queen) {
         const otherAliens = allAlienRoles.filter(a => a.id !== queen.id).map(a => a.name);
         if (!queen.abilityUsed) {
-          // 능력 사용 전: 2명 사냥 능력 부여
           io.to(queen.id).emit('queenHuntAction', { otherAliens, targets });
         } else {
-          // 능력 사용 후: 아무런 행동도 부여하지 않고, 다른 에일리언들의 선택만 관전하게 함
-          io.to(queen.id).emit('nightSelectionUpdate', { selections: room.selections });
+          io.to(queen.id).emit('alienAction', { otherAliens, targets, observer: true });
         }
       }
 
@@ -932,10 +947,8 @@ io.on('connection', (socket) => {
 
     } catch (error) {
       console.error(`[FATAL ERROR in triggerAlienAction]`, error);
-      io.to(ADMIN_ROOM).emit('adminError', `서버 오류 발생: ${error.message}. 관리자에게 문의하세요.`);
-      // 에러 발생 시, 비정상적인 상태 전파를 막기 위해 추가적인 업데이트는 하지 않습니다.
+      io.to(ADMIN_ROOM).emit('adminError', `서버 오류 발생: ${error.message}.`);
     }
-    // --- ★★★ 여기까지가 수정된 부분입니다. ★★★
   });
 
   // 2. 이 함수로 교체
