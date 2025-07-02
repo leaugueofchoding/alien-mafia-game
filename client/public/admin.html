@@ -285,9 +285,18 @@
 
         function getDefaultRoleCounts(playerCount) {
             const defaults = {
-                '에일리언 여왕': 1, '에일리언': 1, '에일리언 알': 0, '함장': 1,
-                '엔지니어': 1, '의사': 0, '군인': 0, '초능력자': 0,
-                '수다쟁이': 0, '뚱이': 0, '신의 사도': 0
+                '에일리언 여왕': 1,
+                '에일리언': 1,
+                '에일리언 알': 1,
+                '함장': 1,
+                '엔지니어': 1,
+                '의사': 4,
+                '군인': 1,
+                '초능력자': 1,
+                '수다쟁이': 1,
+                '뚱이': 1,
+                '신의 사도': 1,
+                '일반 승객': 8 // 나머지 인원을 일반 승객으로 채웁니다.
             };
             return defaults;
         }
@@ -445,24 +454,25 @@
                     const roleSettingsDiv = document.createElement('div');
                     roleSettingsDiv.className = 'role-settings';
                     roleSettingsDiv.innerHTML = '<h4>역할 인원 설정</h4>';
-                    const currentCounts = roomData.settings || getDefaultRoleCounts(roomData.players.length);
-                    ALL_ROLES.forEach(roleName => {
-                        const itemDiv = document.createElement('div');
-                        itemDiv.className = 'role-item';
-                        const nameSpan = document.createElement('span');
-                        nameSpan.textContent = roleName;
-                        const controlsDiv = document.createElement('div');
-                        controlsDiv.className = 'role-controls';
-                        const countInput = document.createElement('input');
-                        countInput.type = 'number';
-                        countInput.value = currentCounts[roleName] || 0;
-                        countInput.min = 0;
-                        countInput.dataset.role = roleName;
-                        controlsDiv.appendChild(countInput);
-                        itemDiv.appendChild(nameSpan);
-                        itemDiv.appendChild(controlsDiv);
-                        roleSettingsDiv.appendChild(itemDiv);
-                    });
+                    const currentCounts = (roomData.settings && Object.keys(roomData.settings).length > 1)
+                        ? roomData.settings
+                        : getDefaultRoleCounts(roomData.players.length); ALL_ROLES.forEach(roleName => {
+                            const itemDiv = document.createElement('div');
+                            itemDiv.className = 'role-item';
+                            const nameSpan = document.createElement('span');
+                            nameSpan.textContent = roleName;
+                            const controlsDiv = document.createElement('div');
+                            controlsDiv.className = 'role-controls';
+                            const countInput = document.createElement('input');
+                            countInput.type = 'number';
+                            countInput.value = currentCounts[roleName] || 0;
+                            countInput.min = 0;
+                            countInput.dataset.role = roleName;
+                            controlsDiv.appendChild(countInput);
+                            itemDiv.appendChild(nameSpan);
+                            itemDiv.appendChild(controlsDiv);
+                            roleSettingsDiv.appendChild(itemDiv);
+                        });
                     settingsColumn.appendChild(roleSettingsDiv);
 
                     const startButton = document.createElement('button');

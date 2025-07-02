@@ -915,13 +915,16 @@ io.on('connection', (socket) => {
         io.to(alien.id).emit('alienAction', { otherAliens, targets });
       });
 
+      // ★★★ 수정 후 코드 ★★★
       const queen = allAlienRoles.find(p => p.role === '에일리언 여왕');
       if (queen) {
         const otherAliens = allAlienRoles.filter(a => a.id !== queen.id).map(a => a.name);
         if (!queen.abilityUsed) {
+          // 능력 사용 전: 2명 사냥 능력 부여
           io.to(queen.id).emit('queenHuntAction', { otherAliens, targets });
         } else {
-          io.to(queen.id).emit('alienAction', { otherAliens, targets });
+          // 능력 사용 후: 아무런 행동도 부여하지 않고, 다른 에일리언들의 선택만 관전하게 함
+          io.to(queen.id).emit('nightSelectionUpdate', { selections: room.selections });
         }
       }
 
