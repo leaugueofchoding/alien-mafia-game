@@ -962,7 +962,7 @@
                 const container = playerContainer;
                 container.innerHTML = `<h2 id="ejection-message-container" style="font-size: 1.8em; line-height: 1.6;"></h2>`;
                 const messageContainer = document.getElementById('ejection-message-container');
-                typewriter(messageContainer, `에어락이 개방되어... ${ejectedPlayerName}님이 함선 외부로 방출되었습니다.`);
+                typewriter(messageContainer, `에어락이 개방되어 ${ejectedPlayerName}님이 함선 외부로 방출되었습니다.`);
                 // 서버에서 4초 후에 updateRoom을 보내므로 클라이언트는 기다리기만 하면 됨
             }, 1500);
         });

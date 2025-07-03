@@ -418,6 +418,8 @@
                             option.textContent = presetName;
                             presetSelect.appendChild(option);
                         });
+                        // 페이지 로딩 시 랜덤한 프리셋을 기본으로 선택
+                        presetSelect.selectedIndex = Math.floor(Math.random() * missionPresetsState.length);
                         missionPresetDiv.appendChild(presetSelect);
                     } else {
                         missionPresetDiv.innerHTML += '<p>사용 가능한 미션 프리셋이 없습니다.</p>';
@@ -544,7 +546,15 @@
                     else if (roomData.phase === 'escape_sequence') phaseText = '현재 상태: 비상탈출 시퀀스 진행 중';
                     phaseInfo.textContent = (roomData.status === 'game_over') ? `게임 종료 - ${roomData.winner} 승리` : phaseText;
                     settingsColumn.appendChild(phaseInfo);
-
+                    if (roomData.phaseTimer) {
+                        const timer = roomData.phaseTimer;
+                        const minutes = Math.floor(timer.timeLeft / 60);
+                        const seconds = (timer.timeLeft % 60).toString().padStart(2, '0');
+                        const timerDisplayDiv = document.createElement('div');
+                        timerDisplayDiv.style.cssText = 'font-weight: bold; font-size: 1.2em; margin-top: 10px; color: #dc3545;';
+                        timerDisplayDiv.textContent = `남은 시간: ${minutes}:${seconds}`;
+                        settingsColumn.appendChild(timerDisplayDiv);
+                    }
                     const helpBox = document.createElement('div');
                     helpBox.style.cssText = 'padding: 10px; margin-top: 15px; border: 1px solid #007bff; border-radius: 5px; background-color: #f8f9fa; text-align: left; color: #333;';
                     let helpText = '';
@@ -654,26 +664,13 @@
                             settingsColumn.appendChild(btn);
                         } // admin.html -> renderAdminView() 함수 안
 
-                        // admin.html -> renderAdminView() 함수 안
-
                         else if (roomData.phase === 'meeting') {
                             const timerBtn = document.createElement('button');
-                            // 참가자 화면 타이머가 90초로 변경되었으므로, 관리자 페이지 버튼 텍스트도 통일합니다.
-                            timerBtn.className = 'timer-btn';
-                            timerBtn.textContent = '1분 30초 타이머 시작';
-                            const timerDisplay = document.createElement('span');
-                            timerDisplay.id = `timer-display-${code}`;
-                            timerDisplay.style.cssText = 'margin-left: 15px; font-weight: bold; color: #dc3545;';
-                            if (roomData.timeLeft !== undefined && roomData.timeLeft >= 0) {
-                                const minutes = Math.floor(roomData.timeLeft / 60);
-                                const seconds = (roomData.timeLeft % 60).toString().padStart(2, '0');
-                                timerDisplay.textContent = `${minutes}:${seconds}`;
-                            }
-                            const timerDiv = document.createElement('div');
-                            timerDiv.style.marginTop = '15px';
-                            timerDiv.appendChild(timerBtn);
-                            timerDiv.appendChild(timerDisplay);
-                            settingsColumn.appendChild(timerDiv);
+                            timerBtn.className = 'timer-btn toggle-meeting-timer-btn'; // 클래스 추가
+                            const isPaused = roomData.meetingTimer && roomData.meetingTimer.isPaused;
+                            timerBtn.textContent = isPaused ? '타이머 다시 시작' : '타이머 일시 정지';
+                            timerBtn.style.backgroundColor = isPaused ? '#28a745' : '#ffc107';
+                            settingsColumn.appendChild(timerBtn);
 
                             if (roomData.settings.useEjectionMinigame) {
                                 helpBox.innerHTML = '<b>[진행 가이드]</b><br>1. 모든 참가자가 모둠 선택을 마쳤는지 확인하세요.<br>2. <b>[1차 후보 지목 시작]</b>을 눌러 투표를 받으세요.<br>3. 모든 활성 모둠이 후보를 내면 <b>[미니게임 시작]</b> 버튼이 활성화됩니다.<br>4. 모든 후보가 카드를 고르면 <b>[결과 공개]</b> 버튼이 활성화됩니다.';
@@ -700,7 +697,7 @@
                                 startMinigameBtn.className = 'start-ejection-minigame-btn';
                                 startMinigameBtn.textContent = '방출 미니게임 시작';
                                 startMinigameBtn.style.backgroundColor = '#6f42c1';
-                                startMinigameBtn.disabled = !allGroupsNominated || roomData.ejectionState !== 'minigame_pending';
+                                //startMinigameBtn.disabled = !allGroupsNominated || roomData.ejectionState !== 'minigame_pending';
                                 settingsColumn.appendChild(startMinigameBtn);
 
                                 // 3. 결과 공개 및 방출 실행 버튼
@@ -785,7 +782,9 @@
 
             const roomCode = roomDiv.dataset.code;
             const classList = target.classList;
-
+            if (classList.contains('toggle-meeting-timer-btn')) {
+                socket.emit('toggleMeetingTimer', roomCode);
+            }
             if (classList.contains('start-game-btn')) {
                 const players = gameRoomsState[roomCode].players;
                 if (players.length < 4) { return alert(`최소 인원(4명)이 모이지 않아 시작할 수 없습니다.`); }
@@ -831,12 +830,36 @@
                 }
             }
             else if (classList.contains('start-ejection-minigame-btn')) {
+                const roomData = gameRoomsState[roomCode];
+
+                // ★★★ 수정된 미투표 모둠 확인 로직 ★★★
+                const alivePlayerGroups = new Set(
+                    roomData.players
+                        .filter(p => p.status === 'alive' && p.group)
+                        .map(p => p.group) // player.group은 문자열
+                );
+
+                // ejectionNominations의 키도 문자열이므로, 숫자로 변환하지 않고 그대로 사용
+                const nominatedGroups = new Set(Object.keys(roomData.ejectionNominations || {}));
+
+                const unnominatedGroups = [];
+                alivePlayerGroups.forEach(groupNum => { // groupNum은 문자열
+                    // 문자열과 문자열을 직접 비교
+                    if (!nominatedGroups.has(groupNum)) {
+                        unnominatedGroups.push(groupNum);
+                    }
+                });
+
+                if (unnominatedGroups.length > 0) {
+                    alert(`아직 다음 모둠이 후보를 지목하지 않았습니다: ${unnominatedGroups.join(', ')}모둠`);
+                    return;
+                }
+                // ★★★ 여기까지 ★★★
+
                 if (confirm('모든 참가자에게 방출 미니게임을 시작합니다. 진행할까요?')) {
                     socket.emit('startEjectionMinigame', { code: roomCode });
                 }
             }
-            // admin.html -> roomsContainer.addEventListener('click', ...) 안
-
             // ★★★ resolve-ejection-minigame-btn 핸들러를 아래 코드로 교체 ★★★
             else if (classList.contains('resolve-ejection-minigame-btn')) {
                 const roomData = gameRoomsState[roomCode];
