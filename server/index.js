@@ -307,8 +307,7 @@ function checkSpecialVictoryConditions(roomCode) {
   return false;
 }
 
-// ★★★ eliminatePlayer 함수를 아래 코드로 교체해주세요. ★★★
-function eliminatePlayer(roomCode, playerId, cause = 'unknown') {
+function eliminatePlayer(roomCode, playerId, cause = 'unknown', broadcast = true) {
   const room = gameRooms[roomCode];
   if (!room) return false;
   const player = room.players.find(p => p.id === playerId);
@@ -327,12 +326,10 @@ function eliminatePlayer(roomCode, playerId, cause = 'unknown') {
       'soldier_shot': `[군인]이 ${targetName}님을 사살했습니다.`,
       'psychic_fail': `[초능력자]의 능력이 폭주하여 ${targetName}님이 휘말렸습니다.`,
       'egg_contamination': `[에일리언 알]이 오염되어 ${targetName}님이 사망했습니다.`,
-      'ejected_minigame': `[방출 미니게임] 결과, ${targetName}님이 함선 외부로 방출되었습니다.`,
-      // ★★★ '여왕의 만찬' 로그 메시지를 추가합니다. ★★★
-      'queen_rampage': `[여왕의 만찬]으로 ${targetName}님이 희생되었습니다.`
+      'ejected_minigame': `[방출 미니게임] 결과, ${targetName}님이 함선 외부로 방출되었습니다.`
     };
     if (causeMap[cause] && room.gameLog) {
-      room.gameLog.unshift(causeMap[cause]);
+      room.gameLog.unshift({ text: causeMap[cause], type: 'log' });
     }
 
     const gameEndedByElimination = checkWinConditions(roomCode);
@@ -346,7 +343,11 @@ function eliminatePlayer(roomCode, playerId, cause = 'unknown') {
         checkWinConditions(roomCode);
       }
     }
-    broadcastUpdates(roomCode);
+
+    // ★★★ 수정: broadcast 파라미터가 true일 때만 업데이트를 보냅니다. ★★★
+    if (broadcast) {
+      broadcastUpdates(roomCode);
+    }
     return true;
   }
   return false;
@@ -768,7 +769,6 @@ io.on('connection', (socket) => {
     }
   });
 
-  // ★★★ [5/6] 관리자가 '결과 공개' 버튼을 눌렀을 때
   socket.on('resolveEjectionMinigame', (data) => {
     const { code } = data;
     const room = gameRooms[code];
@@ -786,7 +786,6 @@ io.on('connection', (socket) => {
       }
     }
 
-    // 1. 모든 클라이언트에게 결과를 먼저 공개
     room.ejectionMinigame.results = cards;
     io.to(code).emit('revealEjectionResult', {
       ejectedPlayerId,
@@ -795,13 +794,14 @@ io.on('connection', (socket) => {
     });
     console.log(`[${code}] Revealing ejection results. Ejected player ID: ${ejectedPlayerId}`);
 
-    // 2. 잠시 후 서버에서 실제 처리를 진행
     setTimeout(() => {
       if (ejectedPlayerId) {
-        eliminatePlayer(code, ejectedPlayerId, 'ejected_minigame');
+        // ★★★ 수정: eliminatePlayer 호출 시 마지막에 false를 추가하여 중간 업데이트를 막습니다. ★★★
+        eliminatePlayer(code, ejectedPlayerId, 'ejected_minigame', false);
       }
 
-      // 3. 밤 단계로 자동 전환
+      if (gameRooms[code].status === 'game_over') return;
+
       room.phase = 'night_alien_action';
       room.selections = {};
       delete room.alienActionTriggered;
@@ -811,11 +811,11 @@ io.on('connection', (socket) => {
       delete room.ejectionNominations;
       delete room.ejectionMinigame;
 
-      broadcastUpdates(code); // 최종 상태 업데이트
+      // 모든 상태 변경이 끝난 후, 여기서 최종 업데이트를 한 번만 보냅니다.
+      broadcastUpdates(code);
       console.log(`[${code}] Ejection minigame resolved. Moving to night phase.`);
-    }, 3000); // 4초 지연 (클라이언트 애니메이션 시간)
+    }, 5000);
   });
-
 
   // ★★★ [6/6] 플레이어 퇴장 시 투표 기록도 확인하여 처리
   socket.on('disconnect', () => {
@@ -1088,11 +1088,40 @@ io.on('connection', (socket) => {
     }
   });
 
-  // 이 함수를 아래 코드로 통째로 교체해주세요.
   socket.on('resolveNightActions', (data) => {
     const { code } = data;
     const room = gameRooms[code];
-    if (!room || !room.selections) return;
+    if (!room) return;
+
+    // ★★★ 추가: 100% 미션 보상(포식 1회 저지) 적용 로직 ★★★
+    if (room.alienAttackBlocked && room.selections) {
+      // 1. 역할이 '에일리언'인 플레이어의 선택만 모두 수집합니다.
+      const alienSelectors = [];
+      for (const selectorId in room.selections) {
+        const selector = room.players.find(p => p.id === selectorId);
+        // 여왕의 '사냥' 등은 제외하고, 순수 '에일리언'의 '포식'만 대상으로 합니다.
+        if (selector && selector.role === '에일리언' && !Array.isArray(room.selections[selectorId])) {
+          alienSelectors.push(selectorId);
+        }
+      }
+
+      // 2. 포식을 시도한 에일리언이 있다면, 그중 랜덤으로 1명을 고릅니다.
+      if (alienSelectors.length > 0) {
+        const randomIndex = Math.floor(Math.random() * alienSelectors.length);
+        const blockedSelectorId = alienSelectors[randomIndex];
+
+        // 3. 랜덤으로 선택된 1명의 선택(공격)을 무효화합니다.
+        delete room.selections[blockedSelectorId];
+
+        room.gameLog.unshift({ text: '[탐사대]의 결의가 에일리언의 포식을 1회 저지했습니다.', type: 'mission_buff' });
+      }
+
+      // 4. 버프는 1회용이므로 사용 후 즉시 플래그를 해제합니다.
+      room.alienAttackBlocked = false;
+    }
+    // ★★★ 여기까지 ★★★
+
+    if (!room.selections) return;
 
     console.log(`[${code}] 밤 활동 결과 정산 시작. 현재 선택 현황:`, room.selections);
 
@@ -1113,21 +1142,16 @@ io.on('connection', (socket) => {
       eliminatePlayer(code, targetId, 'alien_kill');
     });
 
-    // ★★★ 핵심 수정 ★★★
-    // 밤 활동으로 인한 사망 처리 직후, 즉시 승리/패배 조건을 확인합니다.
     const gameEnded = checkWinConditions(code);
     if (gameEnded) {
-      // 게임이 종료되었다면, 여기서 로직을 중단하고 더 이상 진행하지 않습니다.
       return;
     }
 
-    // '여왕의 만찬' 같은 일회성 액션의 상태를 여기서 확실히 제거합니다.
     if (room.pendingAction === 'queen_rampage') {
       delete room.pendingAction;
       delete room.rampageTriggered;
     }
 
-    // 일반 에일리언 활동 시작 플래그 제거
     delete room.alienActionTriggered;
 
     room.phase = 'night_crew_action';
@@ -1266,8 +1290,11 @@ io.on('connection', (socket) => {
         if (aliensOnBoard.length > 0 && !soldierOnBoard) {
           resultMessage = "[2관문 위기] 군인 없이 에일리언이 잠입했습니다! 최후의 사투가 벌어집니다...";
           room.pendingAction = 'crisis_roulette';
-          const isSuccess = Math.random() < 0.5;
-          const crisisOptions = ['에일리언 퇴치', '탐사대 전멸'];
+          // ★★★ 수정: 미션 보너스 적용 ★★★
+          let battleSuccessRate = 0.5; // 기본 50%
+          if (room.missionBoard?.progress >= 0.7) battleSuccessRate += 0.20;
+          else if (room.missionBoard?.progress >= 0.6) battleSuccessRate += 0.10;
+          const isSuccess = Math.random() < battleSuccessRate; const crisisOptions = ['에일리언 퇴치', '탐사대 전멸'];
           room.crisis = { type: '최후의 사투', options: crisisOptions, result: isSuccess ? crisisOptions[0] : crisisOptions[1], failureEnding: 'alien_win_escape_aliens' };
           room.escapeLog.push(`>>> ${resultMessage}`);
           return broadcastUpdates(code); // ★★★ 상태 설정 후 즉시 종료 ★★★
@@ -1284,7 +1311,10 @@ io.on('connection', (socket) => {
         if (!doctorOnBoard) { // 의사가 없으면 100% 확률로 위기 발생
           resultMessage = "[3관문 위기] 캡슐에 의사가 없어 역병이 창궐했습니다! 룰렛으로 생존자를 결정합니다.";
           room.pendingAction = 'crisis_roulette';
-          const isSuccess = Math.random() < 0.5; // 위기 상황에서 생존할 확률 50%
+          let plagueSuccessRate = 0.5; // 기본 50%
+          if (room.missionBoard?.progress >= 0.7) plagueSuccessRate += 0.20;
+          else if (room.missionBoard?.progress >= 0.6) plagueSuccessRate += 0.10;
+          const isSuccess = Math.random() < plagueSuccessRate;
           const crisisOptions = ['면역력 승리', '탐사대 전멸'];
           room.crisis = { type: '역병 창궐', options: crisisOptions, result: isSuccess ? crisisOptions[0] : crisisOptions[1], failureEnding: 'alien_win_escape_plague' };
           room.escapeLog.push(`>>> ${resultMessage}`);
@@ -1300,8 +1330,10 @@ io.on('connection', (socket) => {
         if (!engineerOnBoard) { // 엔지니어가 없으면 100% 확률로 위기 발생
           resultMessage = "[4관문 위기] 캡슐에 치명적인 결함이 발생했습니다! 엔지니어가 없는 절망적인 상황... 하지만 잠재된 영웅이 기적을 만들 수 있을까요?";
           room.pendingAction = 'crisis_roulette';
-          const isSuccess = Math.random() < 0.7; // 숨겨진 영웅이 수리에 성공할 확률 70%
-          const crisisOptions = ['수리 성공', '수리 실패'];
+          let repairSuccessRate = 0.5; // 기본 50%
+          if (room.missionBoard?.progress >= 0.7) repairSuccessRate += 0.20;
+          else if (room.missionBoard?.progress >= 0.6) repairSuccessRate += 0.10;
+          const isSuccess = Math.random() < repairSuccessRate; const crisisOptions = ['수리 성공', '수리 실패'];
           room.crisis = { type: '치명적인 캡슐 결함', options: crisisOptions, result: isSuccess ? crisisOptions[0] : crisisOptions[1], failureEnding: 'alien_win_escape_malfunction' };
           room.escapeLog.push(`>>> ${resultMessage}`);
           return broadcastUpdates(code);
@@ -1565,23 +1597,20 @@ io.on('connection', (socket) => {
 
     const room = gameRooms[roomCode];
 
-    // ★★★ 미션 성공 보상 적용 로직 (80% 이상 조건으로 변경) ★★★
     if (room.missionBoard && room.missionBoard.progress >= 0.8) {
       console.log(`[${roomCode}] Queen's Rampage cancelled by mission success (Progress: ${room.missionBoard.progress * 100}%)`);
-
-      // 보상 사용 후 진행률을 0으로 만들어 중복 사용 방지
       room.missionBoard.progress = 0;
-
       io.to(roomCode).emit('globalAlert', {
         title: "미션 성공!",
         message: `탐사대가 미션의 80% 이상을 해결하여 여왕의 광란을 잠재웠습니다! 위기는 일단 지나갔습니다.`
       });
-
       delete room.pendingAction;
       broadcastUpdates(roomCode);
-
     } else {
-      // 미션 보상 조건 미달 시 기존 로직대로 '여왕의 만찬'을 준비합니다.
+      // ★★★ 수정: 여기에 로그 추가 ★★★
+      if (room.gameLog) {
+        room.gameLog.unshift({ text: '엔지니어가 [계속 싸운다]를 선택했습니다. 여왕의 만찬이 시작됩니다.', type: 'log' });
+      }
       console.log(`[${roomCode}] 엔지니어가 싸움을 선택했습니다. 여왕의 만찬을 준비합니다.`);
       room.pendingAction = 'queen_rampage';
       io.to(roomCode).emit('feastAnnounced');
@@ -1594,7 +1623,26 @@ io.on('connection', (socket) => {
     for (const code in gameRooms) {
       if (gameRooms[code].players.some(p => p.id === socket.id)) { roomCode = code; break; }
     }
+    if (!roomCode) return;
+
+    const room = gameRooms[roomCode];
     console.log(`[${roomCode}] 엔지니어가 비상탈출을 선택했습니다.`);
+
+    // ★★★ 수정: 여기에 로그 추가 ★★★
+    if (room.gameLog) {
+      room.gameLog.unshift({ text: '[시스템] 엔지니어가 [비상탈출캡슐]을 가동하기로 선택했습니다.', type: 'log' });
+    }
+
+    const livingPlayers = room.players.filter(p => p.status === 'alive');
+    if (livingPlayers.length < 4) {
+      console.log(`[${roomCode}] 생존자가 4명 미만이라 비상탈출이 불가능합니다.`);
+      const detailLog = `생존 인원이 4명보다 적어 비상탈출 캡슐을 가동할 수 없습니다.`;
+      endGame(roomCode, 'alien_win_escape_malfunction', detailLog);
+      return;
+    }
+
+    room.pendingAction = 'escape_survivor_selection';
+    broadcastUpdates(roomCode);
   });
 
   socket.on('useAlienEggAbility', () => {
@@ -1710,16 +1758,31 @@ io.on('connection', (socket) => {
 
     if (!Array.isArray(targetIds) || targetIds.length < 1 || targetIds.length > 4) {
       console.error(`[${roomCode}] Invalid psychic target count: ${targetIds.length}`);
-      return; // 잘못된 요청이면 처리 중단
+      return;
     }
 
     if (!psychic || psychic.role !== '초능력자' || psychic.abilityUsed) return;
     if (!psychic.group) return io.to(selectorId).emit('abilityError', '모둠을 먼저 선택해야 능력을 사용할 수 있습니다.');
 
     psychic.abilityUsed = true;
-    const isSuccess = Math.random() < 0.5;
+
+    // ★★★ 수정: 선택한 대상 수에 따라 성공 확률을 다르게 설정 ★★★
+    let successRate = 0;
+    switch (targetIds.length) {
+      case 1: successRate = 1.0; break; // 100%
+      case 2: successRate = 0.8; break; // 80%
+      case 3: successRate = 0.6; break; // 60%
+      case 4: successRate = 0.5; break; // 50%
+    }
+
+    if (room.missionBoard && room.missionBoard.progress >= 0.5) {
+      successRate += 0.15;
+    }
+    const isSuccess = Math.random() < successRate;
+    // ★★★ 여기까지 ★★★
+
     const result = isSuccess ? '성공' : '실패';
-    const ROULETTE_DURATION = 3000;
+    const ROULETTE_DURATION = 4000;
     const VIEW_DURATION = 1500;
 
     io.to(roomCode).emit('showRoulette', {
@@ -1818,10 +1881,7 @@ io.on('connection', (socket) => {
     const playerId = socket.id;
     let roomCode = '';
     for (const code in gameRooms) {
-      if (gameRooms[code].players.some(p => p.id === playerId)) {
-        roomCode = code;
-        break;
-      }
+      if (gameRooms[code].players.some(p => p.id === playerId)) { roomCode = code; break; }
     }
 
     if (roomCode) {
@@ -1831,29 +1891,45 @@ io.on('connection', (socket) => {
 
       if (!player || !problem || problem.status !== 'unsolved') return;
 
-      // ★★★ 추가: 일일 미션 해결 횟수 확인 (1회 제한) ★★★
       const solvedCount = room.dailyMissionSolves[playerId] || 0;
       if (solvedCount >= 1) {
         return socket.emit('missionError', '오늘은 이미 미션을 해결했습니다. 내일을 기다려주세요!');
       }
-      // ★★★ 여기까지 ★★★
 
-      const isCorrect = answer.trim().toLowerCase() === problem.answer.trim().toLowerCase();
-
-      if (isCorrect) {
+      if (answer.trim().toLowerCase() === problem.answer.trim().toLowerCase()) {
         problem.status = 'solved';
         problem.solvedBy = player.name;
-        // ★★★ 추가: 정답 맞혔을 때 횟수 증가 ★★★
         room.dailyMissionSolves[playerId] = solvedCount + 1;
       } else {
         problem.status = 'failed';
         problem.failedBy = player.name;
       }
 
+      const oldProgress = room.missionBoard.progress || 0;
       const totalSolved = room.missionBoard.problems.filter(p => p.status === 'solved').length;
       room.missionBoard.progress = totalSolved / 25;
+      const newProgress = room.missionBoard.progress;
 
-      console.log(`[${roomCode}] Mission Progress: ${totalSolved}/25 (${room.missionBoard.progress * 100}%)`);
+      // ★★★ 추가: 단계별 미션 보상 및 로그 추가 로직 ★★★
+      const milestones = [
+        { progress: 0.5, message: '[미션해결50%]탐사대의 사기가 증가했습니다. [초능력자] 능력 판정 확률이 15% 증가합니다.' },
+        { progress: 0.6, message: '[미션해결60%]탐사대의 지성이 증가했습니다. [비상탈출] 위기 극복 확률이 10% 증가합니다.' },
+        { progress: 0.7, message: '[미션해결70%]탐사대의 손재주가 증가했습니다. [비상탈출] 위기 극복 확률이 추가로 10% 더 증가합니다. (총 20%)' },
+        { progress: 0.8, message: '[미션해결80%]탐사대의 의지가 증가했습니다. 함장 사망 시 [여왕의 만찬]을 저지합니다.' },
+        { progress: 1.0, message: '[미션해결100%]탐사대의 결의가 극에 달합니다. 에일리언의 다음 [포식]을 1회 저지합니다.' }
+      ];
+
+      milestones.forEach(ms => {
+        if (oldProgress < ms.progress && newProgress >= ms.progress) {
+          room.gameLog.unshift({ text: ms.message, type: 'mission_buff' });
+          if (ms.progress === 1.0) {
+            room.alienAttackBlocked = true; // 100% 달성 시 포식 저지 플래그 설정
+          }
+        }
+      });
+      // ★★★ 여기까지 ★★★
+
+      console.log(`[${roomCode}] Mission Progress: ${totalSolved}/25 (${newProgress * 100}%)`);
       broadcastUpdates(roomCode);
     }
   });

@@ -531,8 +531,12 @@
                     });
                     playerColumn.appendChild(playerList);
                     const logContainer = document.createElement('div');
-                    logContainer.className = 'admin-log-box';
-                    const gameLogHtml = (roomData.gameLog || []).map(log => `<p>${log}</p>`).join('');
+                    logContainer.className = 'admin-log-box'; // admin.html 전용 로그 박스 스타일
+                    const gameLogHtml = (roomData.gameLog || []).map(logEntry => {
+                        const text = typeof logEntry === 'string' ? logEntry : logEntry.text;
+                        const type = typeof logEntry === 'string' ? 'log' : (logEntry.type || 'log');
+                        return `<p class="log-${type}">${text}</p>`;
+                    }).join('');
                     logContainer.innerHTML = gameLogHtml;
                     playerColumn.appendChild(logContainer);
                     // ★★★ 여기까지 추가 ★★★

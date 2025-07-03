@@ -104,14 +104,29 @@ li.dead {
     background-color: #222;
 }
 
-.eliminate-btn {
-    padding: 5px 10px;
-    font-size: 0.8em;
-    font-weight: normal;
-    width: auto;
-    margin: 0;
-    background-color: #dc3545;
+.eliminate-btn,
+.revive-btn {
+    padding: 8px 12px;
+    /* 내부 여백을 동일하게 조정 */
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.9em;
     color: white;
+    max-width: 50px;
+    /* 최소 너비를 지정하여 크기를 맞춤 */
+    text-align: center;
+    /* 텍스트 가운데 정렬 */
+    box-sizing: border-box;
+    /* 패딩과 테두리를 너비에 포함 */
+}
+
+.eliminate-btn {
+    background-color: #dc3545;
+}
+
+.revive-btn {
+    background-color: #28a745;
 }
 
 .eliminate-btn:disabled {
@@ -519,4 +534,39 @@ li.dead {
     margin: 0 0 5px 0;
     line-height: 1.4;
     font-size: 1em;
+}
+
+/* admin.html의 <style> 태그 안에 추가 */
+
+.admin-log-box {
+    border: 1px solid #ccc;
+    background-color: #f8f9fa;
+    padding: 10px;
+    margin-top: 15px;
+    height: 150px;
+    /* 로그 박스 높이 */
+    overflow-y: auto;
+    /* 내용이 길면 스크롤 */
+    font-size: 0.9em;
+    text-align: left;
+    display: flex;
+    flex-direction: column-reverse;
+    /* 최신 로그가 위로 오도록 */
+}
+
+.admin-log-box p {
+    margin: 2px 0;
+    line-height: 1.4;
+    color: #333;
+}
+
+.log-box p.log-mission_buff {
+    color: #ffc107;
+    /* 밝은 노란색 */
+    font-weight: bold;
+    border: 1px solid rgba(255, 193, 7, 0.3);
+    background-color: rgba(255, 193, 7, 0.1);
+    padding: 5px;
+    border-radius: 3px;
+    margin-bottom: 8px;
 }
