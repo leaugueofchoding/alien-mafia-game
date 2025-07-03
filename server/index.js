@@ -206,51 +206,72 @@ function checkWinConditions(roomCode) {
   if (!room || room.status !== 'playing') return false;
 
   let endingType = null;
-  let detailLog = '';
+  let detailLog = ''; // 상세 로그를 저장할 변수
 
   const alienQueen = room.players.find(p => p.role === '에일리언 여왕');
+  const captain = room.players.find(p => p.role === '함장');
+  const engineer = room.players.find(p => p.role === '엔지니어');
+  const soldier = room.players.find(p => p.role === '군인');
+
+  // 1. 탐사대 승리 조건: 에일리언 여왕 사망
   if (alienQueen && alienQueen.status === 'dead') {
     endingType = 'crew_win_queen_eliminated';
-    const captain = room.players.find(p => p.role === '함장');
-    const soldier = room.players.find(p => p.role === '군인');
 
     switch (alienQueen.causeOfDeath) {
       case 'captain_shot':
         detailLog = `${captain ? captain.name : '함장'}이(가) 에일리언 여왕을 즉결처분으로 사살했습니다.`;
         break;
       case 'soldier_shot':
-        detailLog = `${soldier ? soldier.name : '군인'}이(가) 에일리언 여왕을 사살하는데 성공했습니다.`;
+        detailLog = `${soldier ? soldier.name : '군인'}이(가) 에일리언 여왕을 사살하는 데 성공했습니다.`;
         break;
-      case 'ejected':
-        detailLog = `탐사대의 예리한 감각과 추론으로 에일리언 여왕을 방출했습니다.`;
+      case 'ejected_minigame':
+        detailLog = `탐사대원의 날카로운 추리와 행운의 도움으로 에일리언 여왕을 제거했습니다.`;
+        break;
+      case 'psychic_fail':
+        detailLog = `초능력자의 폭주에 휘말려 에일리언 여왕이 사망했습니다.`;
         break;
       default:
         detailLog = `에일리언 여왕이 제거되었습니다.`;
     }
   }
 
+  // 2. 에일리언 승리 조건: 함장과 엔지니어 모두 사망
   if (!endingType) {
-    const captain = room.players.find(p => p.role === '함장');
-    const engineer = room.players.find(p => p.role === '엔지니어');
     if (captain && captain.status === 'dead' && engineer && engineer.status === 'dead') {
       endingType = 'alien_win_assassinate';
+
+      const captainDeadByPsychic = captain.causeOfDeath === 'psychic_fail';
+      const engineerDeadByPsychic = engineer.causeOfDeath === 'psychic_fail';
+
+      // ★★★ 추가된 부분: 에일리언 알 사망 원인 확인 ★★★
+      const captainDeadByEgg = captain.causeOfDeath === 'egg_contamination';
+      const engineerDeadByEgg = engineer.causeOfDeath === 'egg_contamination';
+
+      if (captainDeadByPsychic && engineerDeadByPsychic) {
+        detailLog = `초능력자의 폭주에 휘말려 함장과 엔지니어가 모두 사망했습니다.`;
+      } else if (captainDeadByPsychic) {
+        detailLog = `초능력자의 폭주에 휘말려 함장이 사망했습니다.`;
+      } else if (engineerDeadByPsychic) {
+        detailLog = `초능력자의 폭주에 휘말려 엔지니어가 사망했습니다.`;
+      } else if (captainDeadByEgg && engineerDeadByEgg) {
+        detailLog = `에일리언 알의 오염으로 함장과 엔지니어가 모두 사망했습니다.`;
+      } else if (captainDeadByEgg) {
+        detailLog = `에일리언 알의 오염으로 함장이 사망했습니다.`;
+      } else if (engineerDeadByEgg) {
+        detailLog = `에일리언 알의 오염으로 엔지니어가 사망했습니다.`;
+      }
+      // ★★★ 여기까지 ★★★
     }
   }
 
   if (endingType) {
-    const ending = ENDING_MESSAGES[endingType];
-    if (!ending) {
-      console.error(`오류: 엔딩 메시지를 찾을 수 없습니다 - ${endingType}`);
-      return false;
-    }
-    room.status = 'game_over';
-    io.to(roomCode).emit('gameOver', { winner: ending.winner, reason: ending.reason, detailLog: detailLog });
-    io.to(ADMIN_ROOM).emit('updateAdmin', { rooms: gameRooms });
+    endGame(roomCode, endingType, detailLog);
     return true;
   }
 
   return false;
 }
+
 function checkSpecialVictoryConditions(roomCode) {
   const room = gameRooms[roomCode];
   // ★★★ 핵심 수정: '== 5' 가 아닌 '>= 5' 로 변경하여 5일차 이후에도 계속 승리 판정을 하던 오류 수정
@@ -792,7 +813,7 @@ io.on('connection', (socket) => {
 
       broadcastUpdates(code); // 최종 상태 업데이트
       console.log(`[${code}] Ejection minigame resolved. Moving to night phase.`);
-    }, 4000); // 4초 지연 (클라이언트 애니메이션 시간)
+    }, 3000); // 4초 지연 (클라이언트 애니메이션 시간)
   });
 
 
@@ -1379,8 +1400,8 @@ io.on('connection', (socket) => {
     const { type, options, result, failureEnding } = room.crisis;
     const isSuccess = result === options[0];
 
-    const ROULETTE_DURATION = 4000;
-    const VIEW_DURATION = 2000;
+    const ROULETTE_DURATION = 3000;
+    const VIEW_DURATION = 1500;
     const HIDE_DELAY = ROULETTE_DURATION + VIEW_DURATION;
 
     io.to(roomCode).emit('showRoulette', {
@@ -1587,15 +1608,15 @@ io.on('connection', (socket) => {
     const room = gameRooms[roomCode];
     const alienEgg = room.players.find(p => p.id === selectorId);
 
-    if (!alienEgg || alienEgg.role !== '에일리언 알' || room.day !== 3 || alienEgg.abilityUsed) {
+    if (!alienEgg || alienEgg.role !== '에일리언 알' || room.day !== 2 || alienEgg.abilityUsed) {
       return;
     }
 
     alienEgg.abilityUsed = true;
     const isHatch = Math.random() < 0.5;
     const result = isHatch ? '부화' : '오염';
-    const ROULETTE_DURATION = 4000;
-    const VIEW_DURATION = 2000;
+    const ROULETTE_DURATION = 3000;
+    const VIEW_DURATION = 1500;
 
     io.to(roomCode).emit('showRoulette', {
       title: '에일리언 알 부화 시퀀스',
@@ -1698,8 +1719,8 @@ io.on('connection', (socket) => {
     psychic.abilityUsed = true;
     const isSuccess = Math.random() < 0.5;
     const result = isSuccess ? '성공' : '실패';
-    const ROULETTE_DURATION = 4000;
-    const VIEW_DURATION = 2000;
+    const ROULETTE_DURATION = 3000;
+    const VIEW_DURATION = 1500;
 
     io.to(roomCode).emit('showRoulette', {
       title: '초능력 판정',

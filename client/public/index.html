@@ -482,7 +482,7 @@
                             confirmBtn.disabled = huntSelections.length < 1 || huntSelections.length > 4;
                         }
                     }, 0);
-                } else if (me.role === '에일리언 알' && room.day === 3 && !me.abilityUsed) {
+                } else if (me.role === '에일리언 알' && room.day === 2 && !me.abilityUsed) {
                     abilityContent = `<h4>알에서 깨어날 시간입니다...</h4><p>(룰렛 결과에 따라 '부화'하여 동료가 되거나, 주변을 '오염'시켜 적을 제거합니다.)</p><button id="start-hatch-btn" class="target-btn" style="width: 100%; background-color:#6f42c1;">부화 시작</button>`;
                 } else {
                     abilityContent = `<h4>사용할 수 있는 특별한 능력이 없습니다.</h4><p>'내 미션' 탭을 확인하여 탐사대의 공동 임무를 해결하거나, 적의 임무를 방해하세요!</p>`;
@@ -847,9 +847,8 @@
             const reasonContainer = document.getElementById('ending-reason-container');
             typewriter(reasonContainer, data.reason, 50);
         });
-        // index.html의 <script> 태그 안
 
-        // 기존 socket.on('alienAction', ...) 리스너를 아래 코드로 통째로 교체해주세요.
+        
         socket.on('alienAction', (data) => {
             if (!amIAlive || data.targets.length === 0) return;
             clearContainer();
