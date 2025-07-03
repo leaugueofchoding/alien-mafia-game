@@ -1687,11 +1687,16 @@ io.on('connection', (socket) => {
     const room = gameRooms[roomCode];
     const psychic = room.players.find(p => p.id === selectorId);
 
+    if (!Array.isArray(targetIds) || targetIds.length < 1 || targetIds.length > 4) {
+      console.error(`[${roomCode}] Invalid psychic target count: ${targetIds.length}`);
+      return; // 잘못된 요청이면 처리 중단
+    }
+
     if (!psychic || psychic.role !== '초능력자' || psychic.abilityUsed) return;
     if (!psychic.group) return io.to(selectorId).emit('abilityError', '모둠을 먼저 선택해야 능력을 사용할 수 있습니다.');
 
     psychic.abilityUsed = true;
-    const isSuccess = Math.random() < 0.45;
+    const isSuccess = Math.random() < 0.5;
     const result = isSuccess ? '성공' : '실패';
     const ROULETTE_DURATION = 4000;
     const VIEW_DURATION = 2000;

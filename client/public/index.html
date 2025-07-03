@@ -467,19 +467,19 @@
                     abilityContent = `<h4>역할을 폭로할 대상을 선택하세요.</h4><p>(선택된 대상의 역할은 모두에게 공개됩니다.)</p><ul class="player-grid-list">${targets.map(t => `<li><button class="target-btn" data-ability="chatterbox" data-target-id="${t.id}">${t.name}</button></li>`).join('')}</ul>`;
                 } else if (me.role === '초능력자' && !me.abilityUsed) {
                     const targets = room.players.filter(p => p.status === 'alive' && p.id !== me.id);
-                    // 렌더링 시, 기존에 선택된 버튼인지 확인하여 'pre-selected' 클래스를 부여
-                    abilityContent = `<h4>정체를 꿰뚫어볼 4명을 선택하세요.</h4><p>(단 한 번만 사용 가능하며, 실패 시 큰 위험이 따릅니다.)</p><ul class="player-grid-list">${targets.map(t => {
+                    // ★★★ 수정: 안내 문구 및 버튼 활성화 조건 변경 ★★★
+                    abilityContent = `<h4>정체를 꿰뚫어볼 대상 1~4명을 선택하세요.</h4><p>(단 한 번만 사용 가능하며, 실패 시 큰 위험이 따릅니다.)</p><ul class="player-grid-list">${targets.map(t => {
                         const isSelected = huntSelections.includes(t.id) ? 'pre-selected' : '';
                         return `<li><button class="target-btn ${isSelected}" data-ability="psychic" data-target-id="${t.id}">${t.name}</button></li>`;
                     }).join('')
-                        }</ul><button id="confirm-psychic-ability" disabled>선택 완료 (0/4)</button>`;
+                        }</ul><button id="confirm-psychic-ability" disabled>선택 완료 (0명)</button>`;
 
-                    // 화면이 다시 그려진 후, '선택 완료' 버튼의 상태도 복원
                     setTimeout(() => {
                         const confirmBtn = document.getElementById('confirm-psychic-ability');
                         if (confirmBtn) {
-                            confirmBtn.textContent = `선택 완료 (${huntSelections.length}/4)`;
-                            confirmBtn.disabled = huntSelections.length !== 4;
+                            confirmBtn.textContent = `선택 완료 (${huntSelections.length}명)`;
+                            // 선택된 인원이 1명 이상 4명 이하일 때 버튼 활성화
+                            confirmBtn.disabled = huntSelections.length < 1 || huntSelections.length > 4;
                         }
                     }, 0);
                 } else if (me.role === '에일리언 알' && room.day === 3 && !me.abilityUsed) {
@@ -1187,7 +1187,8 @@
             }
 
             if (target.id === 'confirm-psychic-ability') {
-                if (huntSelections.length === 4) {
+                // ★★★ 수정: 선택 인원 수 조건 변경 ★★★
+                if (huntSelections.length >= 1 && huntSelections.length <= 4) {
                     socket.emit('usePsychicAbility', { targetIds: huntSelections });
                     target.textContent = '능력 사용됨';
                     target.disabled = true;
@@ -1240,13 +1241,15 @@
                         huntSelections.splice(index, 1);
                         target.classList.remove('pre-selected');
                     } else {
+                        // ★★★ 수정: 4명까지만 선택 가능하도록 제한 ★★★
                         if (huntSelections.length < 4) {
                             huntSelections.push(target.dataset.targetId);
                             target.classList.add('pre-selected');
                         }
                     }
-                    confirmBtn.textContent = `선택 완료 (${huntSelections.length}/4)`;
-                    confirmBtn.disabled = huntSelections.length !== 4;
+                    confirmBtn.textContent = `선택 완료 (${huntSelections.length}명)`;
+                    // ★★★ 수정: 버튼 활성화 조건 변경 ★★★
+                    confirmBtn.disabled = huntSelections.length < 1 || huntSelections.length > 4;
                     return;
                 }
 

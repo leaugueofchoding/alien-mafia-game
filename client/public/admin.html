@@ -832,29 +832,28 @@
             else if (classList.contains('start-ejection-minigame-btn')) {
                 const roomData = gameRoomsState[roomCode];
 
-                // ★★★ 수정된 미투표 모둠 확인 로직 ★★★
-                const alivePlayerGroups = new Set(
-                    roomData.players
-                        .filter(p => p.status === 'alive' && p.group)
-                        .map(p => p.group) // player.group은 문자열
-                );
+                const unvotedPlayerNames = [];
+                const alivePlayers = roomData.players.filter(p => p.status === 'alive' && p.group);
 
-                // ejectionNominations의 키도 문자열이므로, 숫자로 변환하지 않고 그대로 사용
-                const nominatedGroups = new Set(Object.keys(roomData.ejectionNominations || {}));
-
-                const unnominatedGroups = [];
-                alivePlayerGroups.forEach(groupNum => { // groupNum은 문자열
-                    // 문자열과 문자열을 직접 비교
-                    if (!nominatedGroups.has(groupNum)) {
-                        unnominatedGroups.push(groupNum);
+                // 그룹별로 순회하며 투표가 필요한 그룹인지 확인
+                const alivePlayerGroups = new Set(alivePlayers.map(p => p.group));
+                alivePlayerGroups.forEach(groupNum => {
+                    const groupMembers = alivePlayers.filter(p => p.group === groupNum);
+                    // 모둠원이 2명 이상이라 투표가 필요한 경우에만 체크
+                    if (groupMembers.length > 1) {
+                        groupMembers.forEach(member => {
+                            // 해당 멤버가 투표 기록에 없으면 미투표자 목록에 추가
+                            if (!roomData.ejectionVotes?.[groupNum]?.[member.id]) {
+                                unvotedPlayerNames.push(member.name);
+                            }
+                        });
                     }
                 });
 
-                if (unnominatedGroups.length > 0) {
-                    alert(`아직 다음 모둠이 후보를 지목하지 않았습니다: ${unnominatedGroups.join(', ')}모둠`);
+                if (unvotedPlayerNames.length > 0) {
+                    alert(`아직 다음 참가자가 후보를 지목하지 않았습니다: ${unvotedPlayerNames.join(', ')}`);
                     return;
                 }
-                // ★★★ 여기까지 ★★★
 
                 if (confirm('모든 참가자에게 방출 미니게임을 시작합니다. 진행할까요?')) {
                     socket.emit('startEjectionMinigame', { code: roomCode });
