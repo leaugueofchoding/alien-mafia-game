@@ -884,6 +884,12 @@ io.on('connection', (socket) => {
       console.log(`[${code}] Cleared existing meeting timer.`);
     }
 
+    if (phase === 'meeting') {
+      if (room.gameLog) {
+        room.gameLog.unshift({ text: `[${day}일차 회의 시작]`, type: 'phase_change' });
+      }
+    }
+
     room.phase = phase;
     room.day = parseInt(day, 10);
 
@@ -911,10 +917,6 @@ io.on('connection', (socket) => {
     broadcastUpdates(code);
   });
 
-  // server/index.js -> triggerAlienAction 함수를 아래 코드로 교체
-
-  // server/index.js -> triggerAlienAction 함수 전체를 아래 코드로 교체해주세요.
-
   socket.on('triggerAlienAction', (data) => {
     const { code } = data;
     const room = gameRooms[code];
@@ -922,6 +924,10 @@ io.on('connection', (socket) => {
 
     try {
       room.alienActionTriggered = true;
+
+      if (room.gameLog) {
+        room.gameLog.unshift({ text: `[에일리언 활동 시작]`, type: 'phase_change' });
+      }
 
       const livingPlayers = room.players.filter(p => p && p.status === 'alive');
       const allAlienRoles = livingPlayers.filter(p => p.role && p.role.includes('에일리언'));
@@ -1165,6 +1171,10 @@ io.on('connection', (socket) => {
 
     // ★★★ 추가된 부분: 활동이 시작되었음을 상태에 기록 ★★★
     room.crewActionTriggered = true;
+
+    if (room.gameLog) {
+      room.gameLog.unshift({ text: `[탐사대 활동 시작]`, type: 'phase_change' });
+    }
 
     const livingPlayers = room.players.filter(p => p.status === 'alive');
 
@@ -1609,7 +1619,7 @@ io.on('connection', (socket) => {
     } else {
       // ★★★ 수정: 여기에 로그 추가 ★★★
       if (room.gameLog) {
-        room.gameLog.unshift({ text: '엔지니어가 [계속 싸운다]를 선택했습니다. 여왕의 만찬이 시작됩니다.', type: 'log' });
+        room.gameLog.unshift({ text: '엔지니어가 [계속 싸운다]를 선택했습니다. 여왕의 만찬이 시작됩니다.', type: 'phase_change' });
       }
       console.log(`[${roomCode}] 엔지니어가 싸움을 선택했습니다. 여왕의 만찬을 준비합니다.`);
       room.pendingAction = 'queen_rampage';
@@ -1630,7 +1640,7 @@ io.on('connection', (socket) => {
 
     // ★★★ 수정: 여기에 로그 추가 ★★★
     if (room.gameLog) {
-      room.gameLog.unshift({ text: '[시스템] 엔지니어가 [비상탈출캡슐]을 가동하기로 선택했습니다.', type: 'log' });
+      room.gameLog.unshift({ text: '[시스템] 엔지니어가 [비상탈출캡슐]을 가동하기로 선택했습니다.', type: 'phase_change' });
     }
 
     const livingPlayers = room.players.filter(p => p.status === 'alive');
@@ -1844,6 +1854,10 @@ io.on('connection', (socket) => {
     room.day += 1;
     room.phase = 'meeting';
 
+    if (room.gameLog) {
+      room.gameLog.unshift({ text: `[${room.day}일차 회의 시작]`, type: 'phase_change' });
+    }
+
     // 밤 단계와 관련된 모든 상태를 여기서 다시 한번 초기화합니다.
     delete room.selections;
     delete room.alienActionTriggered;
@@ -1924,7 +1938,7 @@ io.on('connection', (socket) => {
         { progress: 0.6, message: '[60%] 탐사대의 지성이 증가했습니다. [비상탈출] 위기 극복 확률이 10% 증가합니다.' },
         { progress: 0.7, message: '[70%] 탐사대의 손재주가 증가했습니다. [비상탈출] 위기 극복 확률이 추가로 10% 더 증가합니다. (총 20%)' },
         { progress: 0.8, message: '[80%] 탐사대의 의지가 증가했습니다. 함장 사망 시 [여왕의 만찬]을 저지합니다.' },
-        { progress: 1.0, message: '[100%] 탐사대의 결의가 극에 달합니다. 에일리언의 다음 [포식]을 1회 저지합니다.' }
+        { progress: 0.9, message: '[90%] 탐사대의 결의가 극에 달합니다. 에일리언의 다음 [포식]을 1회 저지합니다.' }
       ];
 
       milestones.forEach(ms => {
