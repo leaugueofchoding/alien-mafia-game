@@ -457,9 +457,9 @@ io.on('connection', (socket) => {
     // --- 미션 보드 생성 로직 (기존과 동일) ---
     const missionSet = MISSIONS[selectedPreset];
 
-    if (missionSet && missionSet.length >= 25) {
+    if (missionSet && missionSet.length >= 0) {
       const shuffledMissions = shuffle([...missionSet]);
-      const selectedMissions = shuffledMissions.slice(0, 25);
+      const selectedMissions = shuffledMissions.slice(0, 30);
 
       room.missionBoard = {
         progress: 0,

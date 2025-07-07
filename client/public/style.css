@@ -404,8 +404,8 @@ li.dead {
 .mission-board-grid {
     display: grid;
     grid-template-columns: repeat(5, 1fr);
-    grid-template-rows: repeat(5, 80px);
-    /* 각 칸의 높이를 80px로 지정 */
+    /* ★★★ 수정: grid-template-rows 속성을 삭제하여 행 개수를 자동으로 조절합니다. ★★★ */
+    grid-auto-rows: 60px; /* 모든 행의 높이를 60px로 유지 */
     gap: 10px;
     padding: 10px;
     border: 1px solid #00d1ff;
