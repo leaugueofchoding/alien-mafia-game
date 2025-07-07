@@ -1887,19 +1887,27 @@ io.on('connection', (socket) => {
     if (roomCode) {
       const room = gameRooms[roomCode];
       const player = room.players.find(p => p.id === playerId);
+      if (!room.missionBoard) return;
       const problem = room.missionBoard.problems[problemIndex];
 
       if (!player || !problem || problem.status !== 'unsolved') return;
 
-      const solvedCount = room.dailyMissionSolves[playerId] || 0;
-      if (solvedCount >= 1) {
-        return socket.emit('missionError', '오늘은 이미 미션을 해결했습니다. 내일을 기다려주세요!');
+      // ★★★ 수정된 부분 1: 도전 기회 확인 및 즉시 차감 ★★★
+      const attemptedCount = room.dailyMissionSolves[playerId] || 0;
+      if (attemptedCount >= 1) {
+        return socket.emit('missionError', '오늘은 이미 미션에 도전했습니다. 내일을 기다려주세요!');
       }
 
-      if (answer.trim().toLowerCase() === problem.answer.trim().toLowerCase()) {
+      // 정답 확인 전에 도전 횟수를 먼저 기록하여 기회를 차감합니다.
+      room.dailyMissionSolves[playerId] = attemptedCount + 1;
+      // ★★★ 여기까지 ★★★
+
+      const isCorrect = answer.trim().toLowerCase() === problem.answer.trim().toLowerCase();
+
+      if (isCorrect) {
         problem.status = 'solved';
         problem.solvedBy = player.name;
-        room.dailyMissionSolves[playerId] = solvedCount + 1;
+        // 여기서 도전 횟수를 올리던 기존 코드는 삭제되었습니다.
       } else {
         problem.status = 'failed';
         problem.failedBy = player.name;
@@ -1907,29 +1915,28 @@ io.on('connection', (socket) => {
 
       const oldProgress = room.missionBoard.progress || 0;
       const totalSolved = room.missionBoard.problems.filter(p => p.status === 'solved').length;
-      room.missionBoard.progress = totalSolved / 25;
+      const totalProblems = room.missionBoard.problems.length;
+      room.missionBoard.progress = totalProblems > 0 ? (totalSolved / totalProblems) : 0;
       const newProgress = room.missionBoard.progress;
 
-      // ★★★ 추가: 단계별 미션 보상 및 로그 추가 로직 ★★★
       const milestones = [
-        { progress: 0.5, message: '[미션해결50%]탐사대의 사기가 증가했습니다. [초능력자] 능력 판정 확률이 15% 증가합니다.' },
-        { progress: 0.6, message: '[미션해결60%]탐사대의 지성이 증가했습니다. [비상탈출] 위기 극복 확률이 10% 증가합니다.' },
-        { progress: 0.7, message: '[미션해결70%]탐사대의 손재주가 증가했습니다. [비상탈출] 위기 극복 확률이 추가로 10% 더 증가합니다. (총 20%)' },
-        { progress: 0.8, message: '[미션해결80%]탐사대의 의지가 증가했습니다. 함장 사망 시 [여왕의 만찬]을 저지합니다.' },
-        { progress: 1.0, message: '[미션해결100%]탐사대의 결의가 극에 달합니다. 에일리언의 다음 [포식]을 1회 저지합니다.' }
+        { progress: 0.5, message: '[50%] 탐사대의 사기가 증가했습니다. [초능력자] 능력 판정 확률이 15% 증가합니다.' },
+        { progress: 0.6, message: '[60%] 탐사대의 지성이 증가했습니다. [비상탈출] 위기 극복 확률이 10% 증가합니다.' },
+        { progress: 0.7, message: '[70%] 탐사대의 손재주가 증가했습니다. [비상탈출] 위기 극복 확률이 추가로 10% 더 증가합니다. (총 20%)' },
+        { progress: 0.8, message: '[80%] 탐사대의 의지가 증가했습니다. 함장 사망 시 [여왕의 만찬]을 저지합니다.' },
+        { progress: 1.0, message: '[100%] 탐사대의 결의가 극에 달합니다. 에일리언의 다음 [포식]을 1회 저지합니다.' }
       ];
 
       milestones.forEach(ms => {
         if (oldProgress < ms.progress && newProgress >= ms.progress) {
           room.gameLog.unshift({ text: ms.message, type: 'mission_buff' });
           if (ms.progress === 1.0) {
-            room.alienAttackBlocked = true; // 100% 달성 시 포식 저지 플래그 설정
+            room.alienAttackBlocked = true;
           }
         }
       });
-      // ★★★ 여기까지 ★★★
 
-      console.log(`[${roomCode}] Mission Progress: ${totalSolved}/25 (${newProgress * 100}%)`);
+      console.log(`[${roomCode}] Mission Progress: ${totalSolved}/${totalProblems} (${(newProgress * 100).toFixed(0)}%)`);
       broadcastUpdates(roomCode);
     }
   });
