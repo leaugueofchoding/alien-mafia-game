@@ -384,7 +384,7 @@ io.on('connection', (socket) => {
       day: 0,
       phase: 'lobby',
       settings: {},
-      groupCount: 4,
+      groupCount: 6,
       gameLog: [] // ★★★ 로그 저장 공간 추가 ★★★
     };
     console.log(`[${code}] Admin created a new room.`);
