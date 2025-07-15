@@ -274,10 +274,18 @@ function checkWinConditions(roomCode) {
 
 function checkSpecialVictoryConditions(roomCode) {
   const room = gameRooms[roomCode];
-  // ★★★ 핵심 수정: '== 5' 가 아닌 '>= 5' 로 변경하여 5일차 이후에도 계속 승리 판정을 하던 오류 수정
   if (!room || room.status !== 'playing' || room.day < 5) return false;
 
-  // --- 의사 승리 조건 (우선순위 1) ---
+  // ★★★ 신규 추가: 5일차 에일리언 승리 조건 (최우선) ★★★
+  const alienQueen = room.players.find(p => p.role === '에일리언 여왕');
+  if (alienQueen && alienQueen.status === 'alive') {
+    // 5일차 아침에 여왕이 살아있으면 즉시 에일리언 승리
+    console.log(`[${roomCode}] Alien Queen is alive on Day 5. Alien victory.`);
+    endGame(roomCode, 'alien_win_escape_timeout', '탐사대는 너무 오랜 시간을 허비했습니다. 결국 함선은 에일리언의 차지가 되었습니다.');
+    return true; // 에일리언 승리로 게임 종료
+  }
+
+  // --- 의사 승리 조건 (우선순위 2) ---
   const initialDoctorCount = room.initialSettings['의사'] || 0;
   if (initialDoctorCount > 0) {
     const aliveDoctors = room.players.filter(p => p.role === '의사' && p.status === 'alive').length;
@@ -288,11 +296,10 @@ function checkSpecialVictoryConditions(roomCode) {
     }
   }
 
-  // --- 신의 사도 승리 조건 (우선순위 2) ---
+  // --- 신의 사도 승리 조건 (우선순위 3) ---
   const apostle = room.players.find(p => p.role === '신의 사도');
   if (apostle && apostle.status === 'alive') {
     const history = room.playerGroupHistory[apostle.id];
-    // 4일간의 기록이 있고 (1,2,3,4일차), 모든 기록이 첫날의 선택과 동일한지 확인
     if (history && history.length >= 4) {
       const firstChoice = history[0];
       const isConsistent = history.slice(0, 4).every(choice => choice === firstChoice);
