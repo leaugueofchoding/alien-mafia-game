@@ -201,6 +201,26 @@ function broadcastUpdates(roomCode) {
   }
 }
 
+function transitionToNightPhase(roomCode) {
+  const room = gameRooms[roomCode];
+  if (!room) return;
+
+  console.log(`[${roomCode}] Cleaning up minigame and transitioning to night phase.`);
+
+  // 다음 단계를 위해 모든 미니게임 관련 상태를 깨끗하게 초기화합니다.
+  room.phase = 'night_alien_action';
+  room.selections = {}; // 밤 활동을 위한 selections 객체 초기화
+  delete room.alienActionTriggered;
+  delete room.crewActionTriggered;
+  delete room.ejectionState;
+  delete room.ejectionVotes;
+  delete room.ejectionNominations;
+  delete room.ejectionMinigame;
+
+  // 변경된 최종 상태를 모든 클라이언트에 전파합니다.
+  broadcastUpdates(roomCode);
+}
+
 function checkWinConditions(roomCode) {
   const room = gameRooms[roomCode];
   if (!room || room.status !== 'playing') return false;
@@ -776,63 +796,68 @@ io.on('connection', (socket) => {
     broadcastUpdates(code);
   });
 
-  // 기존의 socket.on('selectEjectionCard', ...) 핸들러를 찾아서 아래 코드로 완전히 교체해주세요.
+  // 기존 socket.on('selectEjectionCard', ...) 핸들러를 삭제하고 아래 코드로 교체
 
   socket.on('selectEjectionCard', (data) => {
     const { roomCode, cardId } = data;
     const candidateId = socket.id;
     const room = gameRooms[roomCode];
 
-    if (!room || !['minigame_active', 'minigame_all_selected'].includes(room.ejectionState) || !room.ejectionMinigame) {
-      console.error(`[${roomCode}] ERROR: Invalid state for selectEjectionCard.`);
+    // 방, 미니게임, selections 객체의 유효성을 먼저 확인하여 안정성을 높입니다.
+    if (!room || !room.ejectionMinigame || !room.ejectionMinigame.selections) {
+      console.error(`[${roomCode}] ERROR: Room or ejection minigame not properly initialized for selectEjectionCard.`);
       return;
     }
 
-    if (!room.ejectionMinigame.selections) {
-      room.ejectionMinigame.selections = {};
+    if (!['minigame_active', 'minigame_all_selected'].includes(room.ejectionState)) {
+      console.error(`[${roomCode}] ERROR: Card selection attempted in invalid state (${room.ejectionState}).`);
+      return;
     }
 
     const { candidates, selections } = room.ejectionMinigame;
 
-    if (candidates.includes(candidateId) && !selections[candidateId] && !Object.values(selections).includes(cardId)) {
+    // 플레이어가 유효한 후보인지, 이미 선택했는지, 다른 사람이 선택한 카드인지 확인합니다.
+    const isCandidate = candidates.includes(candidateId);
+    const hasAlreadySelected = !!selections[candidateId];
+    const isCardTaken = Object.values(selections).includes(cardId);
+
+    if (isCandidate && !hasAlreadySelected && !isCardTaken) {
       selections[candidateId] = cardId;
+      console.log(`[STATE_UPDATE][${roomCode}] Player ${candidateId} selected card ${cardId}. Current Selections:`, JSON.stringify(selections));
 
-      // ★★★ 디버깅용 로그 추가 ★★★
-      // 이 로그가 서버 콘솔에 정상적으로 출력되는지 확인해주세요.
-      console.log(`[STATE_DEBUG][${roomCode}] Player ${candidateId} selected card. Current Selections:`, JSON.stringify(selections));
-
-      const allCandidatesSelected = candidates.length === Object.keys(selections).length;
+      // 모든 후보가 카드를 선택했는지 확인합니다.
+      const allCandidatesSelected = candidates.every(id => !!selections[id]);
       if (allCandidatesSelected) {
         room.ejectionState = 'minigame_all_selected';
         if (room.gameLog) {
-          room.gameLog.unshift('[방출 미니게임] 모든 후보가 선택을 마쳤습니다. 관리자는 결과를 공개해주세요.');
+          room.gameLog.unshift({ text: '[방출 미니게임] 모든 후보가 선택을 마쳤습니다. 관리자는 결과를 공개해주세요.', type: 'log' });
         }
+        console.log(`[${roomCode}] All candidates have selected. State is now 'minigame_all_selected'.`);
       }
       broadcastUpdates(roomCode);
+    } else {
+      // 선택 실패 시 원인을 로그로 남겨 디버깅을 돕습니다.
+      console.warn(`[${roomCode}] Card selection failed for ${candidateId}. isCandidate: ${isCandidate}, hasAlreadySelected: ${hasAlreadySelected}, isCardTaken: ${isCardTaken}`);
     }
   });
 
-  // 기존의 socket.on('resolveEjectionMinigame', ...) 핸들러를 찾아서 아래 코드로 완전히 교체해주세요.
-
+  // 교체할 내용 1: resolveEjectionMinigame 핸들러 (최종)
   socket.on('resolveEjectionMinigame', (data) => {
     const { code } = data;
     const room = gameRooms[code];
-    if (!room || !['minigame_active', 'minigame_all_selected'].includes(room.ejectionState) || !room.ejectionMinigame) return;
-
-    console.log(`[STATE_DEBUG][${code}] Admin triggered resolve. Current Selections on Server:`, JSON.stringify(room.ejectionMinigame.selections));
+    if (!room || !['minigame_active', 'minigame_all_selected'].includes(room.ejectionState) || !room.ejectionMinigame) {
+      return;
+    }
 
     const { candidates, selections, cards } = room.ejectionMinigame;
-    const unselectedIds = candidates.filter(id => !selections || !selections[id]);
-
+    const unselectedIds = candidates.filter(id => selections[id] === undefined);
     if (unselectedIds.length > 0) {
-      // [경로 A] 미선택자가 1명이라도 있는 경우
       const unselectedNames = unselectedIds.map(id => room.players.find(p => p.id === id)?.name || 'Unknown').join(', ');
       socket.emit('confirmForceEject', {
         playerIds: unselectedIds,
         playerNames: unselectedNames
       });
     } else {
-      // [경로 B] 모든 후보가 카드를 선택한 경우
       let ejectedPlayerId = null;
       for (const candidateId in selections) {
         const cardId = selections[candidateId];
@@ -843,8 +868,17 @@ io.on('connection', (socket) => {
         }
       }
 
+      const finalEjectedIds = ejectedPlayerId ? [ejectedPlayerId] : [];
+      const ejectedNames = finalEjectedIds.length > 0
+        ? room.players.find(p => p.id === ejectedPlayerId)?.name
+        : '없음';
+
+      if (room.gameLog) {
+        room.gameLog.unshift({ text: `[방출 미니게임] 결과, ${ejectedNames}님이 방출되었습니다.`, type: 'log' });
+      }
+
       io.to(code).emit('revealEjectionResult', {
-        ejectedPlayerIds: ejectedPlayerId ? [ejectedPlayerId] : [],
+        ejectedPlayerIds: finalEjectedIds,
         cards: cards,
         selections: selections
       });
@@ -853,19 +887,9 @@ io.on('connection', (socket) => {
         if (ejectedPlayerId) {
           eliminatePlayer(code, ejectedPlayerId, 'ejected_minigame', false);
         }
-
-        // ★★★ 여기가 누락되었던 핵심 초기화 코드입니다 ★★★
-        if (gameRooms[code]?.status === 'game_over') return;
-
-        room.phase = 'night_alien_action';
-        room.selections = {};
-        delete room.alienActionTriggered;
-        delete room.crewActionTriggered;
-        delete room.ejectionState;
-        delete room.ejectionVotes;
-        delete room.ejectionNominations;
-        delete room.ejectionMinigame;
-        broadcastUpdates(code);
+        if (gameRooms[code]?.status !== 'game_over') {
+          transitionToNightPhase(code);
+        }
       }, 5000);
     }
   });
@@ -926,7 +950,7 @@ io.on('connection', (socket) => {
     }, 5000);
   });
 
-  // ★★★ [6/6] 플레이어 퇴장 시 투표 기록도 확인하여 처리
+  // 교체할 부분 2: disconnect 핸들러
   socket.on('disconnect', () => {
     console.log(`Player disconnected: ${socket.id}`);
     for (const code in gameRooms) {
@@ -934,13 +958,11 @@ io.on('connection', (socket) => {
       const disconnectedPlayer = room.players.find(p => p.id === socket.id);
 
       if (disconnectedPlayer) {
-        // 진행 중인 게임에서 살아있는 플레이어가 나간 경우
         if (room.status === 'playing' && disconnectedPlayer.status === 'alive') {
           const playerName = disconnectedPlayer.name;
           console.log(`[${code}] Player ${playerName} is being eliminated due to disconnection.`);
           eliminatePlayer(code, disconnectedPlayer.id, 'disconnection');
         }
-        // 대기실에서 나간 경우
         else if (room.status === 'waiting') {
           const playerIndex = room.players.findIndex(p => p.id === socket.id);
           if (playerIndex > -1) {
@@ -950,19 +972,20 @@ io.on('connection', (socket) => {
           }
         }
 
-        // ★★★ 추가: 만약 진행중인 지목 투표가 있었다면, 해당 플레이어의 투표를 확인하여 재검증
+        // ★★★ 아래 if 블록 전체를 삭제해주세요. ★★★
+        /*
         if (room.ejectionState === 'nominating' && disconnectedPlayer.group) {
           const groupNum = disconnectedPlayer.group;
           const groupMembers = room.players.filter(p => p.status === 'alive' && p.group === groupNum);
-          // 만약 나간 사람 때문에 해당 모둠의 모든 생존자가 투표를 완료한 상태가 되었다면, 후보를 즉시 결정
           if (groupMembers.length > 0 && groupMembers.every(p => room.ejectionVotes?.[groupNum]?.[p.id])) {
-            // 기존 로직 재활용을 위해 가상으로 이벤트를 호출하는 것처럼 처리
-            socket.emit('nominateForEjection', { roomCode: code, targetId: null }); // targetId는 중요하지 않음
+            socket.emit('nominateForEjection', { roomCode: code, targetId: null });
           }
         }
+        */
+        // ★★★ 여기까지 삭제 ★★★
 
         broadcastUpdates(code);
-        break; // 해당 플레이어를 찾았으므로 루프 종료
+        break;
       }
     }
   });
@@ -1015,10 +1038,16 @@ io.on('connection', (socket) => {
 
     // ★★★ 회의 단계가 시작될 때, 미니게임 관련 상태를 초기화합니다.
     if (phase === 'meeting' && room.settings.useEjectionMinigame) {
-      room.ejectionState = 'pending_start'; // '지목 시작 대기' 상태
-      room.ejectionVotes = {}; // 모둠별 투표 기록
-      room.ejectionNominations = {}; // 모둠별 최종 후보
-      room.ejectionMinigame = {}; // 미니게임 데이터
+      console.log(`[${code}] Initializing ejection minigame states for Day ${room.day}.`);
+      room.ejectionState = 'pending_start';
+      room.ejectionVotes = {};
+      room.ejectionNominations = {};
+      room.ejectionMinigame = {
+        candidates: [],
+        cards: [],
+        selections: {}, // selections 객체를 확실하게 초기화합니다.
+        results: null
+      };
     }
 
 
