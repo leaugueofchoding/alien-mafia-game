@@ -756,12 +756,7 @@
                                 settingsColumn.appendChild(triggerBtn);
                             }
                         } else if (roomData.phase === 'night_crew_action') {
-                            if (!roomData.crewActionTriggered) {
-                                const crewBtn = document.createElement('button');
-                                crewBtn.className = 'trigger-crew-action-btn';
-                                crewBtn.textContent = '탐사대 활동 시작';
-                                settingsColumn.appendChild(crewBtn);
-                            }
+                            // ★★★ '탐사대 활동 시작' 버튼을 삭제하고 '활동 종료' 버튼만 남깁니다 ★★★
                             const endBtn = document.createElement('button');
                             endBtn.className = 'end-night-btn';
                             endBtn.textContent = '활동 종료 및 아침으로';

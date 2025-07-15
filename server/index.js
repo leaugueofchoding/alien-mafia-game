@@ -360,6 +360,32 @@ function eliminatePlayer(roomCode, playerId, cause = 'unknown', broadcast = true
   return false;
 }
 
+function startCrewActionPhase(roomCode) {
+  const room = gameRooms[roomCode];
+  if (!room) return;
+
+  room.crewActionTriggered = true;
+  if (room.gameLog) {
+    room.gameLog.unshift({ text: `[탐사대 활동 시작]`, type: 'phase_change' });
+  }
+
+  const livingPlayers = room.players.filter(p => p.status === 'alive');
+
+  const soldier = livingPlayers.find(p => p.role === '군인' && p.bullets > 0);
+  if (soldier) {
+    const targets = livingPlayers.filter(p => p.id !== soldier.id);
+    io.to(soldier.id).emit('soldierAction', { targets, bulletsLeft: soldier.bullets });
+  }
+
+  const captain = livingPlayers.find(p => p.role === '함장' && p.bullets > 0);
+  if (captain) {
+    const targets = livingPlayers.filter(p => p.id !== captain.id);
+    io.to(captain.id).emit('captainAction', { targets, bulletsLeft: captain.bullets });
+  }
+
+  broadcastUpdates(roomCode);
+}
+
 // (이하 모든 소켓 이벤트 핸들러는 생략 - 기존 코드와 동일)
 io.on('connection', (socket) => {
 
@@ -750,24 +776,34 @@ io.on('connection', (socket) => {
     broadcastUpdates(code);
   });
 
-  // ★★★ [4/6] 방출 후보자가 카드를 선택했을 때
+  // 기존의 socket.on('selectEjectionCard', ...) 핸들러를 찾아서 아래 코드로 완전히 교체해주세요.
+
   socket.on('selectEjectionCard', (data) => {
     const { roomCode, cardId } = data;
     const candidateId = socket.id;
     const room = gameRooms[roomCode];
-    if (!room || room.ejectionState !== 'minigame_active' || !room.ejectionMinigame) return;
 
-    const { candidates, selections, cards } = room.ejectionMinigame;
+    if (!room || !['minigame_active', 'minigame_all_selected'].includes(room.ejectionState) || !room.ejectionMinigame) {
+      console.error(`[${roomCode}] ERROR: Invalid state for selectEjectionCard.`);
+      return;
+    }
+
+    if (!room.ejectionMinigame.selections) {
+      room.ejectionMinigame.selections = {};
+    }
+
+    const { candidates, selections } = room.ejectionMinigame;
 
     if (candidates.includes(candidateId) && !selections[candidateId] && !Object.values(selections).includes(cardId)) {
       selections[candidateId] = cardId;
-      console.log(`[${roomCode}] Candidate ${candidateId} selected card ${cardId}.`);
+
+      // ★★★ 디버깅용 로그 추가 ★★★
+      // 이 로그가 서버 콘솔에 정상적으로 출력되는지 확인해주세요.
+      console.log(`[STATE_DEBUG][${roomCode}] Player ${candidateId} selected card. Current Selections:`, JSON.stringify(selections));
 
       const allCandidatesSelected = candidates.length === Object.keys(selections).length;
       if (allCandidatesSelected) {
         room.ejectionState = 'minigame_all_selected';
-        console.log(`[${roomCode}] All candidates have selected a card.`);
-        // ★★★ 이 부분을 여기에 추가해주세요. ★★★
         if (room.gameLog) {
           room.gameLog.unshift('[방출 미니게임] 모든 후보가 선택을 마쳤습니다. 관리자는 결과를 공개해주세요.');
         }
@@ -776,50 +812,108 @@ io.on('connection', (socket) => {
     }
   });
 
+  // 기존의 socket.on('resolveEjectionMinigame', ...) 핸들러를 찾아서 아래 코드로 완전히 교체해주세요.
+
   socket.on('resolveEjectionMinigame', (data) => {
     const { code } = data;
     const room = gameRooms[code];
-    // ejectionState가 minigame_active나 minigame_all_selected일 때 모두 처리 가능하도록 조건 변경
     if (!room || !['minigame_active', 'minigame_all_selected'].includes(room.ejectionState) || !room.ejectionMinigame) return;
 
-    const { candidates, selections, cards } = room.ejectionMinigame;
+    console.log(`[STATE_DEBUG][${code}] Admin triggered resolve. Current Selections on Server:`, JSON.stringify(room.ejectionMinigame.selections));
 
-    // ★★★ 신규 추가: 미선택자 확인 로직 ★★★
-    const unselectedIds = candidates.filter(id => !selections[id]);
+    const { candidates, selections, cards } = room.ejectionMinigame;
+    const unselectedIds = candidates.filter(id => !selections || !selections[id]);
+
     if (unselectedIds.length > 0) {
-      const unselectedNames = unselectedIds.map(id => room.players.find(p => p.id === id)?.name || '알 수 없는 플레이어').join(', ');
-      // 관리자에게만 확인 요청을 보냄
+      // [경로 A] 미선택자가 1명이라도 있는 경우
+      const unselectedNames = unselectedIds.map(id => room.players.find(p => p.id === id)?.name || 'Unknown').join(', ');
       socket.emit('confirmForceEject', {
         playerIds: unselectedIds,
         playerNames: unselectedNames
       });
-      return; // 로직 중단
-    }
+    } else {
+      // [경로 B] 모든 후보가 카드를 선택한 경우
+      let ejectedPlayerId = null;
+      for (const candidateId in selections) {
+        const cardId = selections[candidateId];
+        const card = cards.find(c => c.id === cardId);
+        if (card && card.content === '방출') {
+          ejectedPlayerId = candidateId;
+          break;
+        }
+      }
 
-    // (기존 로직) 모든 후보가 카드를 선택한 경우
-    let ejectedPlayerId = null;
+      io.to(code).emit('revealEjectionResult', {
+        ejectedPlayerIds: ejectedPlayerId ? [ejectedPlayerId] : [],
+        cards: cards,
+        selections: selections
+      });
+
+      setTimeout(() => {
+        if (ejectedPlayerId) {
+          eliminatePlayer(code, ejectedPlayerId, 'ejected_minigame', false);
+        }
+
+        // ★★★ 여기가 누락되었던 핵심 초기화 코드입니다 ★★★
+        if (gameRooms[code]?.status === 'game_over') return;
+
+        room.phase = 'night_alien_action';
+        room.selections = {};
+        delete room.alienActionTriggered;
+        delete room.crewActionTriggered;
+        delete room.ejectionState;
+        delete room.ejectionVotes;
+        delete room.ejectionNominations;
+        delete room.ejectionMinigame;
+        broadcastUpdates(code);
+      }, 5000);
+    }
+  });
+
+  // 기존의 socket.on('forceEjectPlayers', ...) 핸들러를 찾아서 아래 코드로 완전히 교체해주세요.
+
+  socket.on('forceEjectPlayers', (data) => {
+    const { roomCode, playerIds } = data;
+    const room = gameRooms[roomCode];
+    if (!room || !room.ejectionMinigame) return;
+
+    const { selections, cards } = room.ejectionMinigame;
+    let realEjectedPlayerId = null;
     for (const candidateId in selections) {
       const cardId = selections[candidateId];
       const card = cards.find(c => c.id === cardId);
       if (card && card.content === '방출') {
-        ejectedPlayerId = candidateId;
+        realEjectedPlayerId = candidateId;
         break;
       }
     }
 
-    room.ejectionMinigame.results = cards;
-    io.to(code).emit('revealEjectionResult', {
-      ejectedPlayerId,
-      cards: cards,
-      selections: selections
+    // 미선택자와 실제 방출자를 모두 포함하여 최종 방출자 목록 생성
+    const finalEjectedIds = new Set(playerIds);
+    if (realEjectedPlayerId) {
+      finalEjectedIds.add(realEjectedPlayerId);
+    }
+    const finalEjectedIdsArray = Array.from(finalEjectedIds);
+
+    io.to(roomCode).emit('revealEjectionResult', {
+      ejectedPlayerIds: finalEjectedIdsArray,
+      cards: room.ejectionMinigame.cards,
+      selections: room.ejectionMinigame.selections
     });
-    console.log(`[${code}] Revealing ejection results. Ejected player ID: ${ejectedPlayerId}`);
 
     setTimeout(() => {
-      if (ejectedPlayerId) {
-        eliminatePlayer(code, ejectedPlayerId, 'ejected_minigame', false);
+      finalEjectedIdsArray.forEach(playerId => {
+        eliminatePlayer(roomCode, playerId, 'ejected_minigame', false);
+      });
+
+      if (room.gameLog) {
+        const ejectedNames = finalEjectedIdsArray.map(id => room.players.find(p => p.id === id)?.name).join(', ');
+        room.gameLog.unshift(`[방출 미니게임] ${ejectedNames}님이 방출되었습니다.`);
       }
-      if (gameRooms[code].status === 'game_over') return;
+
+      // ★★★ 여기가 누락되었던 핵심 초기화 코드입니다 ★★★
+      if (gameRooms[roomCode]?.status === 'game_over') return;
+
       room.phase = 'night_alien_action';
       room.selections = {};
       delete room.alienActionTriggered;
@@ -828,41 +922,8 @@ io.on('connection', (socket) => {
       delete room.ejectionVotes;
       delete room.ejectionNominations;
       delete room.ejectionMinigame;
-      broadcastUpdates(code);
-      console.log(`[${code}] Ejection minigame resolved. Moving to night phase.`);
+      broadcastUpdates(roomCode);
     }, 5000);
-  });
-
-  // ★★★ 신규 추가: 관리자의 강제 방출 승인을 처리하는 핸들러 ★★★
-  socket.on('forceEjectPlayers', (data) => {
-    const { roomCode, playerIds } = data;
-    const room = gameRooms[roomCode];
-    if (!room) return;
-
-    playerIds.forEach(playerId => {
-      eliminatePlayer(roomCode, playerId, 'ejected_minigame', false); // 중간 업데이트 방지
-    });
-
-    if (room.gameLog) {
-      const ejectedNames = playerIds.map(id => room.players.find(p => p.id === id)?.name).join(', ');
-      room.gameLog.unshift(`[방출 미니게임] ${ejectedNames}님이 시간 내에 카드를 선택하지 않아 방출되었습니다.`);
-    }
-
-    if (room.status === 'game_over') return;
-
-    // 상태를 다음 단계로 전환
-    room.phase = 'night_alien_action';
-    room.selections = {};
-    delete room.alienActionTriggered;
-    delete room.crewActionTriggered;
-    delete room.ejectionState;
-    delete room.ejectionVotes;
-    delete room.ejectionNominations;
-    delete room.ejectionMinigame;
-
-    // 모든 처리가 끝난 후 최종 업데이트
-    broadcastUpdates(roomCode);
-    console.log(`[${roomCode}] Admin forced ejection. Moving to night phase.`);
   });
 
   // ★★★ [6/6] 플레이어 퇴장 시 투표 기록도 확인하여 처리
@@ -965,6 +1026,8 @@ io.on('connection', (socket) => {
     broadcastUpdates(code);
   });
 
+  // 기존의 socket.on('triggerAlienAction', ...) 핸들러를 찾아서 아래 코드로 완전히 교체해주세요.
+
   socket.on('triggerAlienAction', (data) => {
     const { code } = data;
     const room = gameRooms[code];
@@ -972,54 +1035,75 @@ io.on('connection', (socket) => {
 
     try {
       room.alienActionTriggered = true;
-
-      if (room.gameLog) {
-        room.gameLog.unshift({ text: `[에일리언 활동 시작]`, type: 'phase_change' });
-      }
+      room.alienActionsConfirmed = [];
 
       const livingPlayers = room.players.filter(p => p && p.status === 'alive');
       const allAlienRoles = livingPlayers.filter(p => p.role && p.role.includes('에일리언'));
+      const normalAliens = allAlienRoles.filter(p => p.role === '에일리언');
+      const queen = allAlienRoles.find(p => p.role === '에일리언 여왕');
+      const egg = allAlienRoles.find(p => p.role === '에일리언 알'); // 에일리언 알을 찾습니다.
 
-      // ★★★ 핵심 수정 ★★★
-      // '활동 가능한' 에일리언이 아닌, '살아있는' 에일리언이 아무도 없을 때만 단계를 건너뛰도록 조건을 변경합니다.
-      if (allAlienRoles.length === 0) {
-        console.log(`[${code}] No living aliens. Skipping to crew action phase.`);
-        if (room.gameLog) room.gameLog.unshift(`[시스템] 이번 밤에는 활동 가능한 에일리언이 없습니다.`);
+      // '실제로 사냥 가능한' 에일리언 수를 계산합니다. (알은 사냥 불가)
+      const activeAlienCount = normalAliens.length + (queen && !queen.abilityUsed ? 1 : 0);
 
-        room.phase = 'night_crew_action';
-        delete room.alienActionTriggered;
-        delete room.selections;
+      if (activeAlienCount === 0) {
+        // 관리자용 게임 로그에 기록
+        if (room.gameLog) {
+          room.gameLog.unshift({ text: `[시스템] 오늘 밤 활동 가능한 에일리언이 없습니다.`, type: 'log' });
+        }
+        console.log(`[${code}] No active aliens. Skipping to crew action phase automatically.`);
 
-        broadcastUpdates(code);
+        // 모든 플레이어에게 안내 팝업 전송
+        io.to(code).emit('noAlienActivity');
+
+        // 4초 후 자동으로 탐사대 활동 시작
+        setTimeout(() => {
+          room.phase = 'night_crew_action';
+          delete room.alienActionTriggered;
+          delete room.selections;
+          startCrewActionPhase(code);
+        }, 4000);
         return;
       }
 
-      // (이하 기존 로직)
-      // 살아있는 에일리언이 한 명이라도 있으면, 각자의 역할에 맞는 화면을 전송합니다.
-      const normalAliens = allAlienRoles.filter(p => p.role === '에일리언');
-      const queen = allAlienRoles.find(p => p.role === '에일리언 여왕');
+      // (정상 진행) 사냥할 에일리언이 1명 이상 있을 경우
+      if (room.gameLog) {
+        room.gameLog.unshift({ text: `[에일리언 활동 시작]`, type: 'phase_change' });
+      }
 
       const allAlienIds = allAlienRoles.map(p => p.id);
       const targets = livingPlayers
         .filter(p => p && p.id && !allAlienIds.includes(p.id))
         .map(p => ({ id: p.id, name: p.name }));
 
+      // 일반 에일리언에게 사냥 화면 전송
       normalAliens.forEach(alien => {
         const otherAliens = allAlienRoles.filter(a => a.id !== alien.id).map(a => a.name);
         io.to(alien.id).emit('alienAction', { otherAliens, targets });
       });
 
+      // 에일리언 여왕 처리
       if (queen) {
         const otherAliens = allAlienRoles.filter(a => a.id !== queen.id).map(a => a.name);
         if (!queen.abilityUsed) {
+          // 능력을 아직 안 썼으면 능력 사용 화면 전송
           io.to(queen.id).emit('queenHuntAction', { otherAliens, targets });
         } else {
-          io.to(queen.id).emit('alienAction', { otherAliens, targets, observer: true });
+          // 능력을 썼고, 다른 사냥할 에일리언이 있으면 관전 화면 전송
+          if (normalAliens.length > 0) {
+            io.to(queen.id).emit('alienAction', { otherAliens, targets, observer: true });
+          }
         }
       }
 
-      broadcastUpdates(code);
+      // ★★★ 에일리언 알 관전 기능 추가 ★★★
+      // 부화 전이고, 사냥할 다른 에일리언이 있을 경우에만 관전 화면을 보냅니다.
+      if (egg && activeAlienCount > 0) {
+        const otherAliens = allAlienRoles.filter(a => a.id !== egg.id).map(a => a.name);
+        io.to(egg.id).emit('alienAction', { otherAliens, targets, observer: true });
+      }
 
+      broadcastUpdates(code);
     } catch (error) {
       console.error(`[FATAL ERROR in triggerAlienAction]`, error);
       io.to(ADMIN_ROOM).emit('adminError', `서버 오류 발생: ${error.message}.`);
@@ -1142,6 +1226,44 @@ io.on('connection', (socket) => {
     }
   });
 
+  // 기존의 socket.on('alienActionFinished', ...) 핸들러를 찾아서 아래 코드로 완전히 교체해주세요.
+
+  socket.on('alienActionFinished', () => {
+    const selectorId = socket.id;
+    let roomCode = '';
+    for (const code in gameRooms) {
+      if (gameRooms[code].players.some(p => p.id === selectorId)) { roomCode = code; break; }
+    }
+
+    if (roomCode) {
+      const room = gameRooms[roomCode];
+      if (!room || !room.alienActionsConfirmed || room.alienActionsConfirmed.includes(selectorId)) return;
+
+      room.alienActionsConfirmed.push(selectorId);
+      io.to(selectorId).emit('actionConfirmed'); // 행동한 플레이어에게 즉시 피드백
+
+      const livingAliens = room.players.filter(p => p.status === 'alive' && p.role.includes('에일리언'));
+      const normalAliens = livingAliens.filter(p => p.role === '에일리언');
+      const queen = livingAliens.find(p => p.role === '에일리언 여왕');
+
+      const activeAlienCount = normalAliens.length + (queen && !queen.abilityUsed ? 1 : 0);
+
+      // 모든 활동 가능 에일리언이 행동을 마쳤는지 확인
+      if (room.alienActionsConfirmed.length >= activeAlienCount) {
+        if (room.gameLog) {
+          room.gameLog.unshift({ text: `[시스템] 두려운 밤이 지나가고 이제 고요함만이 남았습니다.`, type: 'log' });
+        }
+
+        // ★★★ 추가: 모든 관전자에게도 활동 종료 신호 전송 ★★★
+        const observers = livingAliens.filter(p => !room.alienActionsConfirmed.includes(p.id));
+        observers.forEach(observer => {
+          io.to(observer.id).emit('actionConfirmed');
+        });
+      }
+      broadcastUpdates(roomCode);
+    }
+  });
+
   socket.on('resolveNightActions', (data) => {
     const { code } = data;
     const room = gameRooms[code];
@@ -1175,31 +1297,24 @@ io.on('connection', (socket) => {
     }
     // ★★★ 여기까지 ★★★
 
-    if (!room.selections) return;
-
-    console.log(`[${code}] 밤 활동 결과 정산 시작. 현재 선택 현황:`, room.selections);
-
-    const targetsToEliminate = [];
-    for (const selectorId in room.selections) {
-      const selection = room.selections[selectorId];
-      if (Array.isArray(selection)) {
-        targetsToEliminate.push(...selection);
-      } else {
-        targetsToEliminate.push(selection);
+    if (room.selections) {
+      const targetsToEliminate = [];
+      for (const selectorId in room.selections) {
+        const selection = room.selections[selectorId];
+        if (Array.isArray(selection)) {
+          targetsToEliminate.push(...selection);
+        } else {
+          targetsToEliminate.push(selection);
+        }
       }
+      const uniqueTargets = [...new Set(targetsToEliminate)];
+      uniqueTargets.forEach(targetId => {
+        eliminatePlayer(code, targetId, 'alien_kill');
+      });
     }
-
-    const uniqueTargets = [...new Set(targetsToEliminate)];
-    console.log(`[${code}] 제거될 대상:`, uniqueTargets);
-
-    uniqueTargets.forEach(targetId => {
-      eliminatePlayer(code, targetId, 'alien_kill');
-    });
 
     const gameEnded = checkWinConditions(code);
-    if (gameEnded) {
-      return;
-    }
+    if (gameEnded) return;
 
     if (room.pendingAction === 'queen_rampage') {
       delete room.pendingAction;
@@ -1207,39 +1322,10 @@ io.on('connection', (socket) => {
     }
 
     delete room.alienActionTriggered;
+    delete room.selections; // ★★★ 추가: 선택 기록 삭제
 
     room.phase = 'night_crew_action';
-    broadcastUpdates(code);
-  });
-
-  socket.on('triggerCrewAction', (data) => {
-    const { code } = data;
-    const room = gameRooms[code];
-    if (!room) return;
-
-    // ★★★ 추가된 부분: 활동이 시작되었음을 상태에 기록 ★★★
-    room.crewActionTriggered = true;
-
-    if (room.gameLog) {
-      room.gameLog.unshift({ text: `[탐사대 활동 시작]`, type: 'phase_change' });
-    }
-
-    const livingPlayers = room.players.filter(p => p.status === 'alive');
-
-    const soldier = livingPlayers.find(p => p.role === '군인' && p.bullets > 0);
-    if (soldier) {
-      const targets = livingPlayers.filter(p => p.id !== soldier.id);
-      io.to(soldier.id).emit('soldierAction', { targets, bulletsLeft: soldier.bullets });
-    }
-
-    const captain = livingPlayers.find(p => p.role === '함장' && p.bullets > 0);
-    if (captain) {
-      const targets = livingPlayers.filter(p => p.id !== captain.id);
-      io.to(captain.id).emit('captainAction', { targets, bulletsLeft: captain.bullets });
-    }
-
-    // ★★★ 추가된 부분: 변경된 상태를 모든 클라이언트에 전파하여 UI를 갱신 ★★★
-    broadcastUpdates(code);
+    startCrewActionPhase(code); // ★★★ 변경: broadcast 대신 새 함수 호출
   });
 
   // 'engineerChoseEscape' 핸들러 추가
@@ -1588,11 +1674,33 @@ io.on('connection', (socket) => {
     if (roomCode) {
       const room = gameRooms[roomCode];
       const queen = room.players.find(p => p.id === socket.id);
-      if (room && queen && queen.role === '에일리언 여왕' && !queen.abilityUsed && targetIds && targetIds.length === 2) {
+      if (room && queen && queen.role === '에일리언 여왕' && !queen.abilityUsed && targetIds) {
         queen.abilityUsed = true;
-        // ★★★ 핵심 수정: 여왕의 선택(배열)도 selectorId를 키로 저장합니다.
         room.selections[selectorId] = targetIds;
+
+        // ★★★ 추가: 여왕에게도 활동 완료 피드백 전송 ★★★
+        io.to(selectorId).emit('actionConfirmed');
+
+        socket.emit('alienActionFinished');
         broadcastAlienSelections(roomCode);
+      }
+    }
+  });
+
+  // ★★★ 신규 추가: 여왕이 능력 사용을 건너뛸 때 호출 ★★★
+  socket.on('skipQueenHunt', () => {
+    const selectorId = socket.id;
+    let roomCode = '';
+    for (const code in gameRooms) {
+      if (gameRooms[code].players.some(p => p.id === selectorId)) { roomCode = code; break; }
+    }
+
+    if (roomCode) {
+      const room = gameRooms[roomCode];
+      const queen = room.players.find(p => p.id === socket.id);
+      if (room && queen && queen.role === '에일리언 여왕' && !queen.abilityUsed) {
+        // 능력 사용을 건너뛰었으므로, 다른 에일리언과 마찬가지로 활동 완료 신호를 보냄
+        socket.emit('alienActionFinished');
       }
     }
   });

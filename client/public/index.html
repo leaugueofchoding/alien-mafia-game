@@ -344,22 +344,21 @@
         <p>${text}</p>`;
         }
 
-        // ★★★ showQueenHuntScreen 함수를 아래 코드로 교체해주세요. ★★★
         function showQueenHuntScreen(otherAliens, targets) {
             clearContainer();
             huntSelections = [];
 
-            // 선택 가능한 최대 인원수를 계산합니다.
             const maxSelection = Math.min(2, targets.length);
             const targetButtons = targets.map(target => `<li><button class="target-btn" data-ability="queen_hunt" data-target-id="${target.id}">${target.name}</button></li>`).join('');
 
             playerContainer.innerHTML = `
-        <h2>[여왕의 분노] 대상을 최대 ${maxSelection}명 선택하세요.</h2>
-        <p>(단 한번만 사용할 수 있는 강력한 능력입니다.)</p>
-        <p>${otherAliens.length > 0 ? `(동료 에일리언: ${otherAliens.join(', ')})` : ''}</p>
-        <ul class="player-grid-list">${targetButtons}</ul>
-        <button id="confirm-hunt-btn">선택 완료 (0/${maxSelection})</button>
-    `;
+                <h2>[여왕의 분노] 대상을 최대 ${maxSelection}명 선택하세요.</h2>
+                <p>(단 한번만 사용할 수 있는 강력한 능력입니다. 이번에 사용하지 않으면 다음 밤에 다시 사용할 수 있습니다.)</p>
+                <p>${otherAliens.length > 0 ? `(동료 에일리언: ${otherAliens.join(', ')})` : ''}</p>
+                <ul class="player-grid-list">${targetButtons}</ul>
+                <button id="confirm-hunt-btn" disabled>선택 완료 (${maxSelection}명 선택)</button>
+                <button id="skip-hunt-btn" style="margin-top: 10px; background-color: #6c757d;">이번 밤에는 사용 안 함</button>
+            `;
         }
 
         function showQueenRampageScreen(targets) {
@@ -591,6 +590,9 @@
                 });
             });
             showLobby(room, playerContainer.querySelector('#lobby-content'), { showGroup: false });
+            setTimeout(() => {
+                document.querySelector('.tab-link[data-tab="situation"]')?.click();
+            }, 0);
         }
 
 
@@ -792,7 +794,6 @@
                         if (!room.alienActionTriggered) {
                             showAlienNightScreen("모두 눈을 감아주세요. 관리자가 활동을 시작하기를 기다립니다.");
                         } else {
-                            // 에일리언에게만 사냥 화면을 보여주는 로직 (기존 socket.on('alienAction')에서 처리)
                         }
                         break;
                     case 'night_crew_action':
@@ -839,6 +840,19 @@
             amIAlive = false;
             // showDeathScreen() 호출을 제거하고, 다음 updateRoom 이벤트에서 처리하도록 변경
         });
+
+        socket.on('noAlienActivity', () => {
+            if (!amIAlive) return;
+            clearContainer();
+            playerContainer.innerHTML = `
+                <h2>밤이 되었습니다.</h2>
+                <p style="font-size: 1.2em; color: #00d1ff; margin-top: 30px;">
+                    오늘 밤에는 활동할 수 있는 에일리언이 없습니다. 다행입니다!
+                </p>
+            `;
+            // 서버에서 4초 후 자동으로 다음 단계로 넘겨주므로, 클라이언트는 화면만 보여주면 됩니다.
+        });
+
         socket.on('gameOver', (data) => showGameOverScreen(data));
         socket.on('missionError', (message) => {
             alert(message);
@@ -857,20 +871,22 @@
             if (!amIAlive || data.targets.length === 0) return;
             clearContainer();
 
-            // ★★★ 핵심 수정 ★★★
-            const isObserver = data.observer || false; // 관전자 모드인지 확인
-            const title = isObserver ? "부하 에일리언의 사냥을 지켜보세요." : "오늘 밤의 사냥감을 선택하세요.";
+            const isObserver = data.observer || false;
+            const title = isObserver ? "에일리언의 사냥을 지켜보세요." : "오늘 밤의 사냥감을 선택하세요.";
 
-            // 관전자 모드일 경우 모든 버튼에 'disabled' 속성을 추가
             const targetButtons = data.targets.map(target =>
                 `<li><button class="target-btn" data-ability="alien" data-target-id="${target.id}" ${isObserver ? 'disabled' : ''}>${target.name}</button></li>`
             ).join('');
 
+            // ★★★ 추가: 관전자가 아니면 '선택 완료' 버튼을 추가 (기본은 비활성화) ★★★
+            const confirmButtonHtml = isObserver ? '' : '<button id="confirm-alien-action-btn" disabled>선택 완료</button>';
+
             playerContainer.innerHTML = `
-        <h2>${title}</h2>
-        <p>${data.otherAliens.length > 0 ? `(동료 에일리언: ${data.otherAliens.join(', ')})` : '(동료 에일리언 없음)'}</p>
-        <ul class="player-grid-list">${targetButtons}</ul>
-    `;
+                <h2>${title}</h2>
+                <p>${data.otherAliens.length > 0 ? `(동료 에일리언: ${data.otherAliens.join(', ')})` : '(동료 에일리언 없음)'}</p>
+                <ul class="player-grid-list">${targetButtons}</ul>
+                ${confirmButtonHtml}
+            `;
         });
 
         socket.on('abilityError', (message) => {
@@ -879,10 +895,20 @@
 
         socket.on('nightSelectionUpdate', (data) => {
             if (!amIAlive) return;
+
             const allSelectedTargetIds = new Set(Object.values(data.selections).flat());
+            // ★★★ 추가: 현재 플레이어가 대상을 선택했는지 여부를 저장할 변수 ★★★
+            let mySelectionExists = !!data.selections[socket.id];
+
             document.querySelectorAll('.target-btn').forEach(btn => {
                 btn.classList.toggle('pre-selected', allSelectedTargetIds.has(btn.dataset.targetId));
             });
+
+            // ★★★ 추가: '선택 완료' 버튼을 찾아 활성화/비활성화 상태를 업데이트 ★★★
+            const confirmBtn = document.getElementById('confirm-alien-action-btn');
+            if (confirmBtn) {
+                confirmBtn.disabled = !mySelectionExists;
+            }
         });
 
         socket.on('timerUpdate', (data) => {
@@ -938,19 +964,16 @@
             }
         });
 
-        // index.html -> <script> 태그 안
-
-        // ★★★ 기존 rouletteResult 리스너 다음에 이 코드를 추가해주세요. ★★★
         socket.on('revealEjectionResult', (data) => {
-            const { ejectedPlayerId, cards, selections } = data;
-            const ejectedPlayerName = gameRoomsState[currentRoomCode]?.players.find(p => p.id === ejectedPlayerId)?.name || '누군가';
+            // ★★★ 신규 로직: 다중 방출을 처리하도록 ejectedPlayerIds 배열을 받음 ★★★
+            const { ejectedPlayerIds, cards, selections } = data;
 
+            // 모든 카드 버튼에 결과를 표시하고, 방출자의 카드는 실패(빨간색)로 표시
             document.querySelectorAll('.ejection-card-btn').forEach(btn => {
                 const cardId = parseInt(btn.dataset.cardId, 10);
                 const cardData = cards.find(c => c.id === cardId);
                 if (cardData) {
-                    btn.innerHTML = cardData.content; // 내용만 변경
-                    // 클래스 추가로 색상 변경
+                    btn.innerHTML = cardData.content;
                     if (cardData.content === '방출') {
                         btn.classList.add('failure');
                     } else {
@@ -960,13 +983,20 @@
                 btn.disabled = true;
             });
 
-            // 1.5초 후, 방출 메시지를 타이핑 효과로 보여줌
+            // 3초 후, 최종 방출자 명단을 타이핑 효과로 보여줌
             setTimeout(() => {
+                const ejectedNames = (ejectedPlayerIds || [])
+                    .map(id => gameRoomsState[currentRoomCode]?.players.find(p => p.id === id)?.name || '누군가')
+                    .join(', ');
+
+                const message = ejectedNames
+                    ? `에어락이 개방되어 ${ejectedNames}님이 함선 외부로 방출되었습니다.`
+                    : `방출자 없이 무사히 넘어갑니다.`;
+
                 const container = playerContainer;
                 container.innerHTML = `<h2 id="ejection-message-container" style="font-size: 1.8em; line-height: 1.6;"></h2>`;
                 const messageContainer = document.getElementById('ejection-message-container');
-                typewriter(messageContainer, `에어락이 개방되어 ${ejectedPlayerName}님이 함선 외부로 방출되었습니다.`);
-                // 서버에서 4초 후에 updateRoom을 보내므로 클라이언트는 기다리기만 하면 됨
+                typewriter(messageContainer, message);
             }, 3000);
         });
 
@@ -1044,7 +1074,8 @@
         socket.on('actionConfirmed', () => {
             console.log("Action Confirmed event received!");
             if (amIAlive) {
-                showAlienNightScreen("선택이 완료되었습니다. 다른 에일리언들을 기다립니다.");
+                // ★★★ 수정: UI/UX 개선을 위해 안내 문구 변경 ★★★
+                showAlienNightScreen("선택이 완료되었습니다. 조용히 다시 엎드려주세요.");
             }
         });
 
@@ -1067,6 +1098,11 @@
                     socket.emit('joinGame', { name: nameInput.value, code: currentRoomCode });
                 } else { alert('이름과 초대 코드를 모두 입력해주세요.'); }
                 return;
+            }
+
+            if (target.id === 'confirm-alien-action-btn') {
+                socket.emit('alienActionFinished');
+                return; // 다른 핸들러와 충돌 방지
             }
 
             if (target.id === 'admin-button') {
@@ -1164,11 +1200,22 @@
                 return;
             }
 
+            // ★★★ 신규 추가: 여왕 능력 건너뛰기 버튼 처리 ★★★
+            else if (target.id === 'skip-hunt-btn') {
+                socket.emit('skipQueenHunt');
+                target.textContent = '활동 종료';
+                target.disabled = true;
+                document.getElementById('confirm-hunt-btn').disabled = true;
+                return;
+            }
+
             if (target.id === 'confirm-hunt-btn') {
-                if (huntSelections.length === 2) {
+                const maxSelection = Math.min(2, document.querySelectorAll('.target-btn[data-ability="queen_hunt"]').length);
+                if (huntSelections.length === maxSelection) {
                     socket.emit('useQueenHunt', { targetIds: huntSelections });
                     target.textContent = '선택 완료';
                     target.disabled = true;
+                    document.getElementById('skip-hunt-btn').disabled = true;
                 }
                 return;
             }
@@ -1206,18 +1253,20 @@
 
                 if (abilityType === 'queen_hunt') {
                     const confirmBtn = document.getElementById('confirm-hunt-btn');
+                    const maxSelection = Math.min(2, document.querySelectorAll('.target-btn[data-ability="queen_hunt"]').length);
                     const index = huntSelections.indexOf(targetId);
+
                     if (index > -1) {
                         huntSelections.splice(index, 1);
                         target.classList.remove('pre-selected');
                     } else {
-                        if (huntSelections.length < 2) {
+                        if (huntSelections.length < maxSelection) {
                             huntSelections.push(targetId);
                             target.classList.add('pre-selected');
                         }
                     }
-                    confirmBtn.textContent = `선택 완료 (${huntSelections.length}/2)`;
-                    confirmBtn.disabled = huntSelections.length !== 2;
+                    confirmBtn.textContent = `선택 완료 (${huntSelections.length}/${maxSelection})`;
+                    confirmBtn.disabled = huntSelections.length !== maxSelection;
                     return;
                 }
 
