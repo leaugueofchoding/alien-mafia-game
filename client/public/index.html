@@ -1202,10 +1202,16 @@
 
             // ★★★ 신규 추가: 여왕 능력 건너뛰기 버튼 처리 ★★★
             else if (target.id === 'skip-hunt-btn') {
+                // 1. 서버에 '능력 건너뛰기' 이벤트를 전송합니다.
                 socket.emit('skipQueenHunt');
+
+                // 2. 버튼을 비활성화하여 중복 클릭을 방지합니다.
                 target.textContent = '활동 종료';
                 target.disabled = true;
-                document.getElementById('confirm-hunt-btn').disabled = true;
+                const confirmBtn = document.getElementById('confirm-hunt-btn');
+                if (confirmBtn) {
+                    confirmBtn.disabled = true;
+                }
                 return;
             }
 

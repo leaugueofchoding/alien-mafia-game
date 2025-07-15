@@ -221,6 +221,34 @@ function transitionToNightPhase(roomCode) {
   broadcastUpdates(roomCode);
 }
 
+// server/index.js의 checkWinConditions 함수 바로 위에 추가합니다.
+
+function checkAllAlienActionsComplete(roomCode) {
+  const room = gameRooms[roomCode];
+  if (!room || !room.alienActionsConfirmed) return;
+
+  const livingAliens = room.players.filter(p => p.status === 'alive' && p.role.includes('에일리언'));
+  const normalAliens = livingAliens.filter(p => p.role === '에일리언');
+  const queen = livingAliens.find(p => p.role === '에일리언 여왕');
+
+  const activeAlienCount = normalAliens.length + (queen && !queen.abilityUsed ? 1 : 0);
+  console.log(`[${roomCode}] 활동 완료 확인 중... (완료: ${room.alienActionsConfirmed.length} / 필요: ${activeAlienCount})`);
+
+  // 모든 활동 가능 에일리언이 행동을 마쳤다면
+  if (room.alienActionsConfirmed.length >= activeAlienCount) {
+    if (room.gameLog) {
+      room.gameLog.unshift({ text: `[시스템] 에일리언이 사냥감 선택을 마쳤습니다.`, type: 'log' });
+    }
+
+    // 활동한 플레이어와 관전자 모두에게 '활동 종료' 신호를 보냅니다.
+    livingAliens.forEach(alien => {
+      io.to(alien.id).emit('actionConfirmed');
+    });
+
+    broadcastUpdates(roomCode);
+  }
+}
+
 function checkWinConditions(roomCode) {
   const room = gameRooms[roomCode];
   if (!room || room.status !== 'playing') return false;
@@ -990,146 +1018,117 @@ io.on('connection', (socket) => {
     }
   });
 
-  // ★★★ 기존 nextPhase 핸들러를 아래 코드로 완전히 교체해주세요. ★★★
+  // 교체할 내용 1: nextPhase 핸들러
   socket.on('nextPhase', (data) => {
     const { code, phase, day } = data;
-    console.log(`[${code}] Received nextPhase event. Target phase: ${phase}, Day: ${day}`);
-
     const room = gameRooms[code];
-    if (!room) {
-      console.error(`[${code}] Error: Room not found for nextPhase.`);
-      return;
-    }
+    if (!room) return;
 
     if (room.phase === 'meeting' && room.needsGroupSelection) {
       const unselectedPlayers = room.players.filter(p => p.status === 'alive' && !p.group);
       if (unselectedPlayers.length > 0) {
         const names = unselectedPlayers.map(p => p.name).join(', ');
-        socket.emit('adminError', `아직 모둠을 선택하지 않은 참가자가 있습니다: ${names}`);
-        return;
+        return socket.emit('adminError', `아직 모둠을 선택하지 않은 참가자가 있습니다: ${names}`);
       }
     }
 
     if (timerIntervals[code]) {
       clearInterval(timerIntervals[code]);
       delete timerIntervals[code];
-      console.log(`[${code}] Cleared existing meeting timer.`);
     }
 
-    if (phase === 'meeting') {
-      if (room.gameLog) {
+    // ★★★ 핵심 수정: 밤으로 이동할 때, 활동 가능 에일리언을 '미리' 확인합니다. ★★★
+    if (phase === 'night_alien_action') {
+      const livingPlayers = room.players.filter(p => p.status === 'alive');
+      const normalAliens = livingPlayers.filter(p => p.role === '에일리언');
+      const queen = livingPlayers.find(p => p.role === '에일리언 여왕');
+      const activeAlienCount = normalAliens.length + (queen && !queen.abilityUsed ? 1 : 0);
+
+      // 만약 활동할 에일리언이 없다면,
+      if (activeAlienCount === 0) {
+        console.log(`[${code}] No active aliens. Skipping alien action phase.`);
+        // '에일리언 활동' 단계를 건너뛰고 바로 '탐사대 활동'으로 넘어갑니다.
+        room.phase = 'night_crew_action';
+        io.to(code).emit('noAlienActivity'); // 클라이언트에게 즉시 공지
+        if (room.gameLog) {
+          room.gameLog.unshift({ text: `[시스템] 활동 가능한 에일리언이 없어, 바로 탐사대 활동을 시작합니다.`, type: 'log' });
+        }
+      } else {
+        // 활동할 에일리언이 있으면, 정상적으로 '에일리언 활동' 단계로 진입합니다.
+        room.phase = phase;
+        if (room.gameLog) {
+          room.gameLog.unshift({ text: `[${day}일차 밤] 에일리언 활동을 시작합니다.`, type: 'phase_change' });
+        }
+      }
+    } else {
+      // 밤이 아닌 다른 단계로 이동하는 경우
+      room.phase = phase;
+      if (phase === 'meeting' && room.gameLog) {
         room.gameLog.unshift({ text: `[${day}일차 회의 시작]`, type: 'phase_change' });
       }
     }
 
-    room.phase = phase;
     room.day = parseInt(day, 10);
 
-    if (phase === 'night_alien_action') {
+    // 밤 단계가 시작될 때 공통적으로 상태를 초기화합니다.
+    if (room.phase === 'night_alien_action' || room.phase === 'night_crew_action') {
       room.selections = {};
       delete room.alienActionTriggered;
       delete room.crewActionTriggered;
-      // ★★★ 밤이 되면 미니게임 관련 상태를 모두 초기화합니다.
       delete room.ejectionState;
       delete room.ejectionVotes;
       delete room.ejectionNominations;
       delete room.ejectionMinigame;
     }
 
-    // ★★★ 회의 단계가 시작될 때, 미니게임 관련 상태를 초기화합니다.
-    if (phase === 'meeting' && room.settings.useEjectionMinigame) {
-      console.log(`[${code}] Initializing ejection minigame states for Day ${room.day}.`);
-      room.ejectionState = 'pending_start';
-      room.ejectionVotes = {};
-      room.ejectionNominations = {};
-      room.ejectionMinigame = {
-        candidates: [],
-        cards: [],
-        selections: {}, // selections 객체를 확실하게 초기화합니다.
-        results: null
-      };
-    }
-
-
-    console.log(`[${code}] Room state updated. New phase: ${room.phase}. Broadcasting...`);
     broadcastUpdates(code);
   });
 
   // 기존의 socket.on('triggerAlienAction', ...) 핸들러를 찾아서 아래 코드로 완전히 교체해주세요.
 
+  // 교체할 내용 2: triggerAlienAction 핸들러
   socket.on('triggerAlienAction', (data) => {
     const { code } = data;
     const room = gameRooms[code];
-    if (!room) return;
+    // ★★★ 수정: 이제 이 핸들러는 에일리언이 '있을 때만' 호출되므로, 유무 확인 로직을 모두 삭제합니다.
+    if (!room || room.phase !== 'night_alien_action') return;
 
     try {
       room.alienActionTriggered = true;
       room.alienActionsConfirmed = [];
 
-      const livingPlayers = room.players.filter(p => p && p.status === 'alive');
-      const allAlienRoles = livingPlayers.filter(p => p.role && p.role.includes('에일리언'));
+      const livingPlayers = room.players.filter(p => p.status === 'alive');
+      const allAlienRoles = livingPlayers.filter(p => p.role.includes('에일리언'));
       const normalAliens = allAlienRoles.filter(p => p.role === '에일리언');
       const queen = allAlienRoles.find(p => p.role === '에일리언 여왕');
-      const egg = allAlienRoles.find(p => p.role === '에일리언 알'); // 에일리언 알을 찾습니다.
-
-      // '실제로 사냥 가능한' 에일리언 수를 계산합니다. (알은 사냥 불가)
-      const activeAlienCount = normalAliens.length + (queen && !queen.abilityUsed ? 1 : 0);
-
-      if (activeAlienCount === 0) {
-        // 관리자용 게임 로그에 기록
-        if (room.gameLog) {
-          room.gameLog.unshift({ text: `[시스템] 오늘 밤 활동 가능한 에일리언이 없습니다.`, type: 'log' });
-        }
-        console.log(`[${code}] No active aliens. Skipping to crew action phase automatically.`);
-
-        // 모든 플레이어에게 안내 팝업 전송
-        io.to(code).emit('noAlienActivity');
-
-        // 4초 후 자동으로 탐사대 활동 시작
-        setTimeout(() => {
-          room.phase = 'night_crew_action';
-          delete room.alienActionTriggered;
-          delete room.selections;
-          startCrewActionPhase(code);
-        }, 4000);
-        return;
-      }
-
-      // (정상 진행) 사냥할 에일리언이 1명 이상 있을 경우
-      if (room.gameLog) {
-        room.gameLog.unshift({ text: `[에일리언 활동 시작]`, type: 'phase_change' });
-      }
+      const egg = allAlienRoles.find(p => p.role === '에일리언 알');
 
       const allAlienIds = allAlienRoles.map(p => p.id);
       const targets = livingPlayers
-        .filter(p => p && p.id && !allAlienIds.includes(p.id))
+        .filter(p => !allAlienIds.includes(p.id))
         .map(p => ({ id: p.id, name: p.name }));
 
-      // 일반 에일리언에게 사냥 화면 전송
+      // 각 에일리언에게 역할을 부여하는 로직은 그대로 유지합니다.
       normalAliens.forEach(alien => {
         const otherAliens = allAlienRoles.filter(a => a.id !== alien.id).map(a => a.name);
         io.to(alien.id).emit('alienAction', { otherAliens, targets });
       });
 
-      // 에일리언 여왕 처리
       if (queen) {
         const otherAliens = allAlienRoles.filter(a => a.id !== queen.id).map(a => a.name);
         if (!queen.abilityUsed) {
-          // 능력을 아직 안 썼으면 능력 사용 화면 전송
           io.to(queen.id).emit('queenHuntAction', { otherAliens, targets });
-        } else {
-          // 능력을 썼고, 다른 사냥할 에일리언이 있으면 관전 화면 전송
-          if (normalAliens.length > 0) {
-            io.to(queen.id).emit('alienAction', { otherAliens, targets, observer: true });
-          }
+        } else if (normalAliens.length > 0) {
+          io.to(queen.id).emit('alienAction', { otherAliens, targets, observer: true });
         }
       }
 
-      // ★★★ 에일리언 알 관전 기능 추가 ★★★
-      // 부화 전이고, 사냥할 다른 에일리언이 있을 경우에만 관전 화면을 보냅니다.
-      if (egg && activeAlienCount > 0) {
+      if (egg) {
         const otherAliens = allAlienRoles.filter(a => a.id !== egg.id).map(a => a.name);
-        io.to(egg.id).emit('alienAction', { otherAliens, targets, observer: true });
+        // 관전 조건: 일반 에일리언이 있거나, 능력을 안 쓴 여왕이 있거나
+        if (normalAliens.length > 0 || (queen && !queen.abilityUsed)) {
+          io.to(egg.id).emit('alienAction', { otherAliens, targets, observer: true });
+        }
       }
 
       broadcastUpdates(code);
@@ -1255,8 +1254,6 @@ io.on('connection', (socket) => {
     }
   });
 
-  // 기존의 socket.on('alienActionFinished', ...) 핸들러를 찾아서 아래 코드로 완전히 교체해주세요.
-
   socket.on('alienActionFinished', () => {
     const selectorId = socket.id;
     let roomCode = '';
@@ -1268,28 +1265,10 @@ io.on('connection', (socket) => {
       const room = gameRooms[roomCode];
       if (!room || !room.alienActionsConfirmed || room.alienActionsConfirmed.includes(selectorId)) return;
 
+      io.to(selectorId).emit('actionConfirmed'); // 행동을 완료한 플레이어에게 즉시 피드백
+
       room.alienActionsConfirmed.push(selectorId);
-      io.to(selectorId).emit('actionConfirmed'); // 행동한 플레이어에게 즉시 피드백
-
-      const livingAliens = room.players.filter(p => p.status === 'alive' && p.role.includes('에일리언'));
-      const normalAliens = livingAliens.filter(p => p.role === '에일리언');
-      const queen = livingAliens.find(p => p.role === '에일리언 여왕');
-
-      const activeAlienCount = normalAliens.length + (queen && !queen.abilityUsed ? 1 : 0);
-
-      // 모든 활동 가능 에일리언이 행동을 마쳤는지 확인
-      if (room.alienActionsConfirmed.length >= activeAlienCount) {
-        if (room.gameLog) {
-          room.gameLog.unshift({ text: `[시스템] 두려운 밤이 지나가고 이제 고요함만이 남았습니다.`, type: 'log' });
-        }
-
-        // ★★★ 추가: 모든 관전자에게도 활동 종료 신호 전송 ★★★
-        const observers = livingAliens.filter(p => !room.alienActionsConfirmed.includes(p.id));
-        observers.forEach(observer => {
-          io.to(observer.id).emit('actionConfirmed');
-        });
-      }
-      broadcastUpdates(roomCode);
+      checkAllAlienActionsComplete(roomCode);
     }
   });
 
@@ -1692,6 +1671,7 @@ io.on('connection', (socket) => {
     }
   });
 
+  // 교체할 내용: useQueenHunt 핸들러
   socket.on('useQueenHunt', (data) => {
     const { targetIds } = data;
     const selectorId = socket.id;
@@ -1703,20 +1683,27 @@ io.on('connection', (socket) => {
     if (roomCode) {
       const room = gameRooms[roomCode];
       const queen = room.players.find(p => p.id === socket.id);
+
       if (room && queen && queen.role === '에일리언 여왕' && !queen.abilityUsed && targetIds) {
-        queen.abilityUsed = true;
+        // 여왕의 선택을 서버에 기록합니다.
         room.selections[selectorId] = targetIds;
 
-        // ★★★ 추가: 여왕에게도 활동 완료 피드백 전송 ★★★
-        io.to(selectorId).emit('actionConfirmed');
+        // 관리자에게 로그를 남깁니다.
+        if (room.gameLog) {
+          const targetNames = targetIds.map(id => room.players.find(p => p.id === id)?.name).join(', ');
+          room.gameLog.unshift({ text: `[시스템] 에일리언 여왕이 [사냥] 능력으로 ${targetNames}을(를) 선택했습니다.`, type: 'log' });
+        }
 
-        socket.emit('alienActionFinished');
-        broadcastAlienSelections(roomCode);
+        // ★★★ 핵심 수정 ★★★
+        // 여왕의 행동은 '활동 완료'로 간주하지 않고, 턴 종료를 확인하지 않습니다.
+        // 그냥 여왕의 화면만 업데이트하고, 다른 에일리언들이 이 선택을 볼 수 있게 합니다.
+        io.to(selectorId).emit('actionConfirmed'); // 여왕에게 선택이 완료되었음을 알림
+        broadcastAlienSelections(roomCode);     // 다른 에일리언에게 선택 현황 공유
+        broadcastUpdates(roomCode);              // 관리자 화면 업데이트
       }
     }
   });
 
-  // ★★★ 신규 추가: 여왕이 능력 사용을 건너뛸 때 호출 ★★★
   socket.on('skipQueenHunt', () => {
     const selectorId = socket.id;
     let roomCode = '';
@@ -1728,8 +1715,14 @@ io.on('connection', (socket) => {
       const room = gameRooms[roomCode];
       const queen = room.players.find(p => p.id === socket.id);
       if (room && queen && queen.role === '에일리언 여왕' && !queen.abilityUsed) {
-        // 능력 사용을 건너뛰었으므로, 다른 에일리언과 마찬가지로 활동 완료 신호를 보냄
-        socket.emit('alienActionFinished');
+
+        io.to(selectorId).emit('actionConfirmed'); // 여왕에게 즉시 피드백
+
+        // 여왕이 행동을 '완료'했음을 기록하고, 턴 종료 여부를 확인합니다.
+        if (!room.alienActionsConfirmed.includes(selectorId)) {
+          room.alienActionsConfirmed.push(selectorId);
+        }
+        checkAllAlienActionsComplete(roomCode);
       }
     }
   });
@@ -1755,7 +1748,7 @@ io.on('connection', (socket) => {
   });
 
   // 수정 후 코드
-  socket.on('useQueenRampage', (data) => {
+  socket.on('useQueenHunt', (data) => {
     const { targetIds } = data;
     const selectorId = socket.id;
     let roomCode = '';
@@ -1767,17 +1760,19 @@ io.on('connection', (socket) => {
       const room = gameRooms[roomCode];
       const queen = room.players.find(p => p.id === socket.id);
 
-      if (room && queen && queen.role === '에일리언 여왕' && room.pendingAction === 'queen_rampage' && Array.isArray(targetIds)) {
-        if (!room.selections) room.selections = {};
+      if (room && queen && queen.role === '에일리언 여왕' && !queen.abilityUsed && targetIds) {
+        // ★★★ 핵심: 능력 사용 기록을 다시 추가합니다. ★★★
+        queen.abilityUsed = true;
         room.selections[selectorId] = targetIds;
 
-        // ★★★ 핵심 수정: "여왕이 행동을 마쳤음" 상태를 기록
-        room.queenActionTaken = true;
+        if (room.gameLog) {
+          const targetNames = targetIds.map(id => room.players.find(p => p.id === id)?.name).join(', ');
+          room.gameLog.unshift({ text: `[시스템] 에일리언 여왕이 [사냥] 능력으로 ${targetNames}을(를) 선택했습니다.`, type: 'log' });
+        }
 
-        console.log(`[${roomCode}] 여왕이 만찬 대상을 선택했습니다:`, targetIds);
+        // 여왕에게만 행동 완료 피드백을 보내고, 턴 종료는 확인하지 않습니다.
         io.to(selectorId).emit('actionConfirmed');
-
-        // 변경된 상태(queenActionTaken = true)를 관리자 페이지에 알림
+        broadcastAlienSelections(roomCode);
         broadcastUpdates(roomCode);
       }
     }
