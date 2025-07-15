@@ -779,11 +779,25 @@ io.on('connection', (socket) => {
   socket.on('resolveEjectionMinigame', (data) => {
     const { code } = data;
     const room = gameRooms[code];
-    if (!room || room.ejectionState !== 'minigame_all_selected' || !room.ejectionMinigame) return;
+    // ejectionState가 minigame_active나 minigame_all_selected일 때 모두 처리 가능하도록 조건 변경
+    if (!room || !['minigame_active', 'minigame_all_selected'].includes(room.ejectionState) || !room.ejectionMinigame) return;
 
-    const { selections, cards } = room.ejectionMinigame;
+    const { candidates, selections, cards } = room.ejectionMinigame;
+
+    // ★★★ 신규 추가: 미선택자 확인 로직 ★★★
+    const unselectedIds = candidates.filter(id => !selections[id]);
+    if (unselectedIds.length > 0) {
+      const unselectedNames = unselectedIds.map(id => room.players.find(p => p.id === id)?.name || '알 수 없는 플레이어').join(', ');
+      // 관리자에게만 확인 요청을 보냄
+      socket.emit('confirmForceEject', {
+        playerIds: unselectedIds,
+        playerNames: unselectedNames
+      });
+      return; // 로직 중단
+    }
+
+    // (기존 로직) 모든 후보가 카드를 선택한 경우
     let ejectedPlayerId = null;
-
     for (const candidateId in selections) {
       const cardId = selections[candidateId];
       const card = cards.find(c => c.id === cardId);
@@ -803,12 +817,9 @@ io.on('connection', (socket) => {
 
     setTimeout(() => {
       if (ejectedPlayerId) {
-        // ★★★ 수정: eliminatePlayer 호출 시 마지막에 false를 추가하여 중간 업데이트를 막습니다. ★★★
         eliminatePlayer(code, ejectedPlayerId, 'ejected_minigame', false);
       }
-
       if (gameRooms[code].status === 'game_over') return;
-
       room.phase = 'night_alien_action';
       room.selections = {};
       delete room.alienActionTriggered;
@@ -817,11 +828,41 @@ io.on('connection', (socket) => {
       delete room.ejectionVotes;
       delete room.ejectionNominations;
       delete room.ejectionMinigame;
-
-      // 모든 상태 변경이 끝난 후, 여기서 최종 업데이트를 한 번만 보냅니다.
       broadcastUpdates(code);
       console.log(`[${code}] Ejection minigame resolved. Moving to night phase.`);
     }, 5000);
+  });
+
+  // ★★★ 신규 추가: 관리자의 강제 방출 승인을 처리하는 핸들러 ★★★
+  socket.on('forceEjectPlayers', (data) => {
+    const { roomCode, playerIds } = data;
+    const room = gameRooms[roomCode];
+    if (!room) return;
+
+    playerIds.forEach(playerId => {
+      eliminatePlayer(roomCode, playerId, 'ejected_minigame', false); // 중간 업데이트 방지
+    });
+
+    if (room.gameLog) {
+      const ejectedNames = playerIds.map(id => room.players.find(p => p.id === id)?.name).join(', ');
+      room.gameLog.unshift(`[방출 미니게임] ${ejectedNames}님이 시간 내에 카드를 선택하지 않아 방출되었습니다.`);
+    }
+
+    if (room.status === 'game_over') return;
+
+    // 상태를 다음 단계로 전환
+    room.phase = 'night_alien_action';
+    room.selections = {};
+    delete room.alienActionTriggered;
+    delete room.crewActionTriggered;
+    delete room.ejectionState;
+    delete room.ejectionVotes;
+    delete room.ejectionNominations;
+    delete room.ejectionMinigame;
+
+    // 모든 처리가 끝난 후 최종 업데이트
+    broadcastUpdates(roomCode);
+    console.log(`[${roomCode}] Admin forced ejection. Moving to night phase.`);
   });
 
   // ★★★ [6/6] 플레이어 퇴장 시 투표 기록도 확인하여 처리

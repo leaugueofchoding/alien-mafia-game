@@ -319,6 +319,17 @@
             renderAdminView();
         });
 
+        // ★★★ 신규 추가: 강제 방출 확인 요청 처리 ★★★
+        socket.on('confirmForceEject', (data) => {
+            const { playerIds, playerNames } = data;
+            const roomDiv = document.querySelector('.room'); // 현재는 방이 하나만 있다는 가정
+            const roomCode = roomDiv.dataset.code;
+
+            if (confirm(`[${playerNames}] 님이(가) 카드를 선택하지 않았습니다. 이들을 즉시 방출시키겠습니까?`)) {
+                socket.emit('forceEjectPlayers', { roomCode: roomCode, playerIds: playerIds });
+            }
+        });
+
         socket.on('adminError', (message) => {
             alert(message);
         });
@@ -872,27 +883,10 @@
                     socket.emit('startEjectionMinigame', { code: roomCode });
                 }
             }
-            // ★★★ resolve-ejection-minigame-btn 핸들러를 아래 코드로 교체 ★★★
+            // ★★★ resolve-ejection-minigame-btn 핸들러를 아래의 간소화된 코드로 교체 ★★★
             else if (classList.contains('resolve-ejection-minigame-btn')) {
-                const roomData = gameRoomsState[roomCode];
-                const candidates = roomData.ejectionMinigame?.candidates || [];
-                const selections = roomData.ejectionMinigame?.selections || {};
-                const selectedCandidates = Object.keys(selections);
-
-                // 아직 모두가 선택하지 않은 경우
-                if (selectedCandidates.length < candidates.length) {
-                    const unselectedIds = candidates.filter(id => !selectedCandidates.includes(id));
-                    const unselectedNames = unselectedIds.map(id => {
-                        return roomData.players.find(p => p.id === id)?.name || 'Unknown';
-                    }).join(', ');
-
-                    alert(`아직 카드를 선택하지 않은 후보가 있습니다: ${unselectedNames}`);
-                }
-                // 모두 선택한 경우
-                else {
-                    if (confirm('모든 후보가 선택을 마쳤습니다. 결과를 공개하고 방출자를 확정하시겠습니까?')) {
-                        socket.emit('resolveEjectionMinigame', { code: roomCode });
-                    }
+                if (confirm('결과를 공개하고 방출자를 확정하시겠습니까?\n(선택하지 않은 후보가 있으면 강제 방출 여부를 다시 묻습니다.)')) {
+                    socket.emit('resolveEjectionMinigame', { code: roomCode });
                 }
             }
             else if (classList.contains('trigger-rampage-btn')) {
