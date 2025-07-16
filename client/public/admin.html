@@ -634,6 +634,30 @@
                             notice.textContent = '엔지니어가 [계속 싸운다] 또는 [비상탈출]을 선택하기를 기다리는 중입니다...';
                             notice.style.cssText = 'font-weight: bold; color: #007bff;';
                             settingsColumn.appendChild(notice);
+                        } else if (roomData.pendingAction === 'escape_role_claim') {
+                            const livingPlayers = roomData.players.filter(p => p.status === 'alive');
+                            const claimedCount = Object.keys(roomData.claimedRoles || {}).length;
+
+                            settingsColumn.innerHTML += `
+        <h4>역할 주장 진행 중 (${claimedCount}/${livingPlayers.length})</h4>
+        <p>모든 생존자가 자신의 역할을 주장하기를 기다리고 있습니다.</p>
+    `;
+                            const claimedList = livingPlayers.map(p => {
+                                const claimedRole = roomData.claimedRoles[p.id];
+                                return `<li>${p.name}: ${claimedRole ? `<b>${claimedRole}</b>` : '선택 중...'}</li>`;
+                            }).join('');
+                            settingsColumn.innerHTML += `<ul style="text-align: left; padding-left: 15px;">${claimedList}</ul>`;
+                        }
+                        else if (roomData.pendingAction === 'escape_vote_pending') {
+                            settingsColumn.innerHTML += `
+        <h4>역할 주장 완료</h4>
+        <p>모든 생존자가 역할 주장을 마쳤습니다. 아래 버튼을 눌러 최종 탑승자 투표를 시작하세요.</p>
+    `;
+                            const startVoteBtn = document.createElement('button');
+                            startVoteBtn.className = 'start-escape-vote-btn';
+                            startVoteBtn.textContent = '최종 투표 시작';
+                            startVoteBtn.style.backgroundColor = '#28a745';
+                            settingsColumn.appendChild(startVoteBtn);
                         } else if (roomData.pendingAction === 'escape_survivor_selection') {
                             const livingPlayers = roomData.players.filter(p => p.status === 'alive').length;
                             const votedPlayers = Object.keys(roomData.escapeVotes || {}).length;
@@ -917,6 +941,10 @@
                 socket.emit('triggerCrewAction', { code: roomCode });
             } else if (classList.contains('end-night-btn')) {
                 socket.emit('endNightAndStartMeeting', { code: roomCode });
+            } else if (classList.contains('start-escape-vote-btn')) {
+                if (confirm('모든 생존자에게 투표 화면을 띄웁니다. 진행할까요?')) {
+                    socket.emit('startEscapeVote', { code: roomCode });
+                }
             } else if (classList.contains('start-escape-sequence-btn')) {
                 const roomData = gameRoomsState[roomCode];
                 const survivorIds = (roomData.escapees || []).map(p => p.id);

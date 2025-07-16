@@ -572,3 +572,54 @@ li.dead {
     border-radius: 3px;
     margin-bottom: 8px;
 }
+
+.player-grid-list li.claimed {
+    background-color: #28a745;
+    /* 선택 완료 시 초록색으로 표시 */
+    color: white;
+}
+
+/* client/public/style.css 에 추가 */
+
+/* 투표 버튼 스타일 */
+.escape-vote-btn {
+    width: 100%;
+    height: 80px;
+    /* 모든 버튼의 높이를 80px로 고정 */
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    /* 내용을 세로로 정렬 */
+    justify-content: center;
+    /* 내용을 세로 중앙에 배치 */
+    align-items: center;
+    /* 내용을 가로 중앙에 배치 */
+    line-height: 1.4;
+    /* 줄 간격 조정 */
+    box-sizing: border-box;
+}
+
+.vote-btn-name {
+    font-weight: bold;
+    font-size: 1.1em;
+}
+
+.vote-btn-role {
+    font-size: 0.9em;
+    color: #571fbecb;
+    /* 역할 텍스트는 약간 연한 색으로 */
+}
+
+.claim-role-btn {
+    width: 100%;
+    height: 80px;
+    /* 모든 버튼의 높이를 80px로 고정 */
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    font-size: 1.1em;
+    /* 폰트 크기 살짝 조정 */
+    box-sizing: border-box;
+}

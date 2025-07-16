@@ -651,6 +651,49 @@ io.on('connection', (socket) => {
     }
   });
 
+  socket.on('claimRoleForEscape', (data) => {
+    const { roomCode, role } = data;
+    const playerId = socket.id;
+    const room = gameRooms[roomCode];
+
+    if (!room || room.pendingAction !== 'escape_role_claim' || room.claimedRoles[playerId]) {
+      return;
+    }
+
+    const player = room.players.find(p => p.id === playerId);
+    if (player) {
+      room.claimedRoles[playerId] = role;
+      console.log(`[${roomCode}] ${player.name}님이 역할로 '${role}'을(를) 주장했습니다.`);
+
+      const livingPlayers = room.players.filter(p => p.status === 'alive');
+      const allClaimed = livingPlayers.every(p => room.claimedRoles[p.id]);
+
+      if (allClaimed) {
+        console.log(`[${roomCode}] 모든 생존자가 역할 주장을 마쳤습니다. 관리자의 투표 시작을 대기합니다.`);
+        if (room.gameLog) {
+          room.gameLog.unshift({ text: '[시스템] 모든 생존자가 역할 주장을 마쳤습니다. 관리자는 투표를 시작해주세요.', type: 'log' });
+        }
+        room.pendingAction = 'escape_vote_pending'; // 관리자가 투표 시작 버튼을 누를 수 있는 상태
+      }
+      broadcastUpdates(roomCode);
+    }
+  });
+
+  socket.on('startEscapeVote', (data) => {
+    const { code } = data;
+    const room = gameRooms[code];
+    if (!room || room.pendingAction !== 'escape_vote_pending') return;
+
+    console.log(`[${code}] 관리자가 최종 탑승자 투표를 시작했습니다.`);
+    if (room.gameLog) {
+      room.gameLog.unshift({ text: '[시스템] 최종 탑승자 선정을 위한 투표가 시작되었습니다.', type: 'phase_change' });
+    }
+
+    room.pendingAction = 'escape_survivor_selection';
+    room.escapeVotes = {}; // 투표 결과 저장 객체 초기화
+    broadcastUpdates(code);
+  });
+
   socket.on('disconnect', () => {
     console.log(`Player disconnected: ${socket.id}`);
     for (const code in gameRooms) {
@@ -1366,34 +1409,6 @@ io.on('connection', (socket) => {
     startCrewActionPhase(code); // ★★★ 변경: broadcast 대신 새 함수 호출
   });
 
-  socket.on('engineerChoseEscape', () => {
-    let roomCode = '';
-    for (const code in gameRooms) {
-      if (gameRooms[code].players.some(p => p.id === socket.id)) { roomCode = code; break; }
-    }
-    if (!roomCode) return;
-
-    const room = gameRooms[roomCode];
-    console.log(`[${roomCode}] 엔지니어가 비상탈출을 선택했습니다.`);
-
-    if (room.gameLog) {
-      room.gameLog.unshift({ text: '[시스템] 엔지니어가 [비상탈출캡슐]을 가동하기로 선택했습니다.', type: 'phase_change' });
-    }
-
-    const livingPlayers = room.players.filter(p => p.status === 'alive');
-    if (livingPlayers.length < 4) {
-      console.log(`[${roomCode}] 생존자가 4명 미만이라 비상탈출이 불가능합니다.`);
-      const detailLog = `생존 인원이 4명보다 적어 비상탈출 캡슐을 가동할 수 없습니다.`;
-      endGame(roomCode, 'alien_win_escape_malfunction', detailLog);
-      return;
-    }
-
-    // ★★★ 핵심 수정: 투표 상태로 변경 및 투표 데이터 초기화 ★★★
-    room.pendingAction = 'escape_survivor_selection';
-    room.escapeVotes = {}; // 투표 결과를 저장할 객체 초기화
-    broadcastUpdates(roomCode);
-  });
-
   socket.on('startEscapeSequence', (data) => {
     const { code, survivorIds } = data;
     const room = gameRooms[code];
@@ -1869,27 +1884,36 @@ io.on('connection', (socket) => {
   socket.on('engineerChoseEscape', () => {
     let roomCode = '';
     for (const code in gameRooms) {
-      if (gameRooms[code].players.some(p => p.id === socket.id)) { roomCode = code; break; }
+      if (gameRooms[code].players.some(p => p.id === socket.id)) {
+        roomCode = code;
+        break;
+      }
     }
     if (!roomCode) return;
 
     const room = gameRooms[roomCode];
+    if (!room) return;
+
     console.log(`[${roomCode}] 엔지니어가 비상탈출을 선택했습니다.`);
 
-    // ★★★ 수정: 여기에 로그 추가 ★★★
     if (room.gameLog) {
-      room.gameLog.unshift({ text: '[시스템] 엔지니어가 [비상탈출캡슐]을 가동하기로 선택했습니다.', type: 'phase_change' });
+      room.gameLog.unshift({
+        text: '[시스템] 엔지니어가 [비상탈출캡슐]을 가동하기로 선택했습니다.',
+        type: 'phase_change'
+      });
     }
 
     const livingPlayers = room.players.filter(p => p.status === 'alive');
     if (livingPlayers.length < 4) {
       console.log(`[${roomCode}] 생존자가 4명 미만이라 비상탈출이 불가능합니다.`);
-      const detailLog = `생존 인원이 4명보다 적어 비상탈출 캡슐을 가동할 수 없습니다.`;
+      const detailLog = '생존 인원이 4명보다 적어 비상탈출 캡슐을 가동할 수 없습니다.';
       endGame(roomCode, 'alien_win_escape_malfunction', detailLog);
       return;
     }
 
-    room.pendingAction = 'escape_survivor_selection';
+    // ★★★ 핵심 수정: '역할 주장' 단계로 상태를 올바르게 변경합니다. ★★★
+    room.pendingAction = 'escape_role_claim';
+    room.claimedRoles = {}; // 역할 주장 정보를 저장할 객체를 초기화합니다.
     broadcastUpdates(roomCode);
   });
 
