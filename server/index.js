@@ -1733,6 +1733,35 @@ io.on('connection', (socket) => {
     }
   });
 
+  socket.on('useQueenRampage', (data) => {
+    const { targetIds } = data;
+    const selectorId = socket.id;
+    let roomCode = '';
+    for (const code in gameRooms) {
+      if (gameRooms[code].players.some(p => p.id === selectorId)) { roomCode = code; break; }
+    }
+    if (!roomCode) return;
+    const room = gameRooms[roomCode];
+    const queen = room.players.find(p => p.id === socket.id);
+
+    if (room && queen && queen.role === '에일리언 여왕' && room.rampageTriggered) {
+      // ★★★ 시작: 아래 로직을 추가해주세요. ★★★
+      room.selections = room.selections || {};
+      room.selections[selectorId] = targetIds;
+      room.queenActionTaken = true; // 여왕이 행동을 마쳤음을 기록
+
+      const targetNames = targetIds.map(id => room.players.find(p => p.id === id)?.name).join(', ');
+      if (room.gameLog) {
+        room.gameLog.unshift({ text: `[여왕의 만찬] 여왕이 ${targetNames}을(를) 선택했습니다.`, type: 'log' });
+      }
+      console.log(`[${roomCode}] Queen rampage selection: ${targetNames}`);
+
+      io.to(selectorId).emit('actionConfirmed'); // 여왕에게 선택 완료 피드백
+      broadcastUpdates(roomCode); // 모든 클라이언트에게 상태 업데이트
+      // ★★★ 종료: 여기까지 추가해주세요. ★★★
+    }
+  });
+
   socket.on('skipQueenHunt', () => {
     const selectorId = socket.id;
     let roomCode = '';
