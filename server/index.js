@@ -1366,7 +1366,6 @@ io.on('connection', (socket) => {
     startCrewActionPhase(code); // ★★★ 변경: broadcast 대신 새 함수 호출
   });
 
-  // 'engineerChoseEscape' 핸들러 추가
   socket.on('engineerChoseEscape', () => {
     let roomCode = '';
     for (const code in gameRooms) {
@@ -1377,22 +1376,24 @@ io.on('connection', (socket) => {
     const room = gameRooms[roomCode];
     console.log(`[${roomCode}] 엔지니어가 비상탈출을 선택했습니다.`);
 
-    // ★★★ 추가: 생존자 수 체크 ★★★
+    if (room.gameLog) {
+      room.gameLog.unshift({ text: '[시스템] 엔지니어가 [비상탈출캡슐]을 가동하기로 선택했습니다.', type: 'phase_change' });
+    }
+
     const livingPlayers = room.players.filter(p => p.status === 'alive');
     if (livingPlayers.length < 4) {
       console.log(`[${roomCode}] 생존자가 4명 미만이라 비상탈출이 불가능합니다.`);
-      room.status = 'game_over';
-      const ending = { winner: '에일리언', reason: `생존 인원이 4명보다 적어 비상탈출 캡슐을 가동할 수 없습니다. 남은 탐사대는 절망에 빠졌습니다.` };
-      io.to(roomCode).emit('gameOver', ending);
-      io.to(ADMIN_ROOM).emit('updateAdmin', { rooms: gameRooms });
+      const detailLog = `생존 인원이 4명보다 적어 비상탈출 캡슐을 가동할 수 없습니다.`;
+      endGame(roomCode, 'alien_win_escape_malfunction', detailLog);
       return;
     }
 
+    // ★★★ 핵심 수정: 투표 상태로 변경 및 투표 데이터 초기화 ★★★
     room.pendingAction = 'escape_survivor_selection';
+    room.escapeVotes = {}; // 투표 결과를 저장할 객체 초기화
     broadcastUpdates(roomCode);
   });
 
-  // ★★★ 기존 startEscapeSequence 함수를 이 코드로 교체해주세요. ★★★
   socket.on('startEscapeSequence', (data) => {
     const { code, survivorIds } = data;
     const room = gameRooms[code];
@@ -1402,12 +1403,11 @@ io.on('connection', (socket) => {
 
     room.escapees = room.players.filter(p => survivorIds.includes(p.id));
     room.phase = 'escape_sequence';
-    room.escapeStep = 0; // 0단계부터 시작
+    room.escapeStep = 0;
     room.escapeLog = [];
     delete room.pendingAction;
 
     room.escapeLog.push(">>> 비상탈출 시퀀스 가동. 캡슐 인원 확인 시작...");
-    // ★★★ 수정: 불필요하고 혼란을 주던 로그를 아래의 명확한 로그로 변경
     room.escapeLog.push(`>>> 관리자는 [관문 1단계 확인] 버튼을 눌러 다음 검사를 진행하세요.`);
 
     broadcastUpdates(code);
@@ -2163,7 +2163,112 @@ io.on('connection', (socket) => {
       broadcastUpdates(roomCode);
     }
   });
+  socket.on('voteForEscape', (data) => {
+    const { roomCode, targetId } = data;
+    const voterId = socket.id;
+    const room = gameRooms[roomCode];
+
+    if (!room || room.pendingAction !== 'escape_survivor_selection' || room.escapeVotes[voterId]) {
+      return;
+    }
+
+    const voter = room.players.find(p => p.id === voterId);
+    const target = room.players.find(p => p.id === targetId);
+
+    if (voter && target) {
+      room.escapeVotes[voterId] = targetId;
+      console.log(`[${roomCode}] ${voter.name} voted for ${target.name} to escape.`);
+
+      const livingPlayers = room.players.filter(p => p.status === 'alive');
+      const allVoted = livingPlayers.every(p => room.escapeVotes[p.id]);
+
+      if (allVoted) {
+        console.log(`[${roomCode}] All players have voted for escape. Resolving.`);
+        resolveEscapeVotes(roomCode);
+      } else {
+        broadcastUpdates(roomCode);
+      }
+    }
+  });
 });
+
+function resolveEscapeVotes(roomCode) {
+  const room = gameRooms[roomCode];
+  if (!room) return;
+
+  const voteCounts = {};
+  const livingPlayers = room.players.filter(p => p.status === 'alive');
+
+  // 모든 생존자를 0표로 초기화
+  livingPlayers.forEach(player => {
+    voteCounts[player.id] = 0;
+  });
+
+  // 받은 표를 집계
+  Object.values(room.escapeVotes).forEach(votedForId => {
+    if (voteCounts.hasOwnProperty(votedForId)) {
+      voteCounts[votedForId]++;
+    }
+  });
+
+  // 득표수를 기준으로 정렬하고, 동점일 경우 랜덤으로 순서를 정합니다.
+  const sortedCandidates = Object.entries(voteCounts)
+    .sort((a, b) => {
+      if (a[1] !== b[1]) return b[1] - a[1]; // 득표수 내림차순
+      return Math.random() - 0.5; // 동점이면 랜덤
+    });
+
+  // 상위 4명을 탈출자로 선정
+  const survivorIds = sortedCandidates.slice(0, 4).map(c => c[0]);
+  const survivorNames = survivorIds.map(id => room.players.find(p => p.id === id)?.name).join(', ');
+
+  if (room.gameLog) {
+    room.gameLog.unshift({ text: `[투표 결과] ${survivorNames} (이)가 최종 탑승자로 선정되었습니다.`, type: 'log' });
+  }
+
+  // 투표 결과를 'escapees'에 저장하고, 관리자가 다음 단계를 누를 수 있도록 상태 변경
+  room.escapees = room.players.filter(p => survivorIds.includes(p.id));
+  room.pendingAction = 'escape_ready';
+
+  broadcastUpdates(roomCode);
+}
+
+function resolveEscapeVotes(roomCode) {
+  const room = gameRooms[roomCode];
+  if (!room) return;
+
+  const voteCounts = {};
+  const livingPlayers = room.players.filter(p => p.status === 'alive');
+
+  livingPlayers.forEach(player => {
+    voteCounts[player.id] = 0;
+  });
+
+  Object.values(room.escapeVotes).forEach(votedForId => {
+    if (voteCounts.hasOwnProperty(votedForId)) {
+      voteCounts[votedForId]++;
+    }
+  });
+
+  const sortedCandidates = Object.entries(voteCounts)
+    .sort((a, b) => {
+      if (a[1] !== b[1]) return b[1] - a[1];
+      return Math.random() - 0.5;
+    });
+
+  const survivorIds = sortedCandidates.slice(0, 4).map(c => c[0]);
+  const survivorNames = survivorIds.map(id => room.players.find(p => p.id === id)?.name).join(', ');
+
+  if (room.gameLog) {
+    room.gameLog.unshift({ text: `[투표 결과] ${survivorNames} (이)가 최종 탑승자로 선정되었습니다.`, type: 'log' });
+  }
+
+  // ★★★ 핵심 수정: 'escapees'에 탈출자를 저장하고, 관리자가 다음 단계를 누를 수 있도록 상태를 'escape_ready'로 변경
+  room.escapees = room.players.filter(p => survivorIds.includes(p.id));
+  room.pendingAction = 'escape_ready';
+
+  broadcastUpdates(roomCode);
+}
 
 server.listen(PORT, () => {
   console.log(`서버가 ${PORT}번 포트에서 실행 중입니다.`);

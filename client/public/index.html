@@ -629,20 +629,50 @@
     `;
         }
 
-        function showEscapeSelectionAnnouncement() {
+        function showEscapeSelectionAnnouncement(room) {
+            const me = room.players.find(p => p.id === socket.id);
+            if (!me) return;
+
             clearContainer();
+            const alreadyVoted = room.escapeVotes && room.escapeVotes[me.id];
+            let contentHtml = '';
+
+            if (alreadyVoted) {
+                const votedForPlayer = room.players.find(p => p.id === room.escapeVotes[me.id]);
+                contentHtml = `
+            <h2>투표 완료</h2>
+            <p><strong>${votedForPlayer ? votedForPlayer.name : '알수없음'}</strong> 님에게 투표했습니다.</p>
+            <p>다른 생존자들이 투표를 마칠 때까지 잠시만 기다려주세요...</p>
+        `;
+            } else {
+                // ★★★ 핵심 수정: 자기 자신(me.id)을 제외한 생존자 목록을 만듭니다. ★★★
+                const livingPlayers = room.players.filter(p => p.status === 'alive' && p.id !== me.id);
+                const playerButtons = livingPlayers.map(p => `<li><button class="escape-vote-btn" data-target-id="${p.id}">${p.name}</button></li>`).join('');
+
+                contentHtml = `
+            <h2>비상탈출 인원 투표</h2>
+            <p>캡슐에 탑승할 동료 1명에게 투표하세요.</p>
+            <div style="margin-top:25px; padding: 15px; border: 1px solid #ffc107; border-radius: 5px; background-color: rgba(255, 193, 7, 0.1);">
+                <h4 style="margin-top:0; color: #ffc107;">선정 기준 힌트</h4>
+                <ul style="text-align: left; margin: 10px auto; max-width: 400px; padding-left: 20px;">
+                    <li><b style="color: #28a745;">군인, 엔지니어, 의사</b>가 없으면 위기가 발생할 수 있습니다.</li>
+                    <li><b style="color: #dc3545;">뚱이, 에일리언</b>이 탑승하면 위기가 발생할 수 있습니다.</li>
+                </ul>
+            </div>
+            <ul class="player-grid-list" style="margin-top: 20px;">${playerButtons}</ul>
+        `;
+            }
+
+            playerContainer.innerHTML = `${contentHtml}<h1 class="timer" id="timer-display" style="margin-top: 30px;"></h1>`;
+        }
+
+        function showEscapeVoteResult(room) {
+            clearContainer();
+            const survivorNames = (room.escapees || []).map(p => p.name).join(', ');
             playerContainer.innerHTML = `
-        <h2>비상탈출 인원 선정</h2>
-        <p style="font-size: 1.2em; margin-top: 20px;">이제 탐사선의 운명이 걸린 마지막 선택의 시간입니다.</p>
-        <p>생존자들은 회의를 통해 캡슐에 탑승할 4명을 선정해야 합니다.</p>
-        <div style="margin-top:25px; padding: 15px; border: 1px solid #ffc107; border-radius: 5px; background-color: rgba(255, 193, 7, 0.1);">
-            <h4 style="margin-top:0; color: #ffc107;">주의사항</h4>
-            <ul style="text-align: left; margin: 10px auto; max-width: 400px;">
-                <li><b style="color: #28a745;">군인, 엔지니어, 의사</b>가 없으면 위기가 찾아옵니다.</li>
-                <li><b style="color: #dc3545;">뚱이, 에일리언</b>이 탑승하면 위기가 찾아옵니다.</li>
-            </ul>
-        </div>
-        <h1 class="timer" id="timer-display" style="margin-top: 30px;">03:30</h1>
+        <h2>비상탈출 투표 결과</h2>
+        <p style="font-size: 1.5em; color: #00d1ff; margin: 20px 0;">최종 탑승자: ${survivorNames}</p>
+        <p>관리자가 비상탈출 시퀀스를 시작하기를 기다리고 있습니다...</p>
     `;
         }
 
@@ -771,7 +801,7 @@
             }
 
             if (room.pendingAction === 'escape_survivor_selection') {
-                showEscapeSelectionAnnouncement();
+                showEscapeSelectionAnnouncement(room); // room 객체를 전달합니다.
                 return;
             }
 
@@ -810,6 +840,11 @@
                 showLobby(room, playerContainer);
             } else {
                 showInitialScreen();
+            }
+
+            if (room.pendingAction === 'escape_ready') {
+                showEscapeVoteResult(room);
+                return;
             }
 
             // ★★★ 핵심 수정: 탭 컨테이너가 있을 때만 아래 로직을 실행하도록 변경 ★★★
@@ -1215,7 +1250,14 @@
                 alert('엔지니어만 이 결정을 내릴 수 있습니다.');
                 return;
             }
-
+            if (target.classList.contains('escape-vote-btn')) {
+                const targetId = target.dataset.targetId;
+                const targetName = target.textContent;
+                if (confirm(`'${targetName}' 님을 최종 탑승자로 선택하시겠습니까? (선택 후 변경 불가)`)) {
+                    socket.emit('voteForEscape', { roomCode: currentRoomCode, targetId: targetId });
+                }
+                return;
+            }
             // ★★★ 신규 추가: 여왕 능력 건너뛰기 버튼 처리 ★★★
             else if (target.id === 'skip-hunt-btn') {
                 // 1. 서버에 '능력 건너뛰기' 이벤트를 전송합니다.

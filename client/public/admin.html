@@ -635,15 +635,13 @@
                             notice.style.cssText = 'font-weight: bold; color: #007bff;';
                             settingsColumn.appendChild(notice);
                         } else if (roomData.pendingAction === 'escape_survivor_selection') {
-                            settingsColumn.innerHTML += '<h4>비상탈출 캡슐에 탑승할 4명을 선택하세요.</h4>';
-                            const survivorList = document.createElement('ul');
-                            survivorList.style.cssText = 'list-style-type: none; padding: 0;';
-                            roomData.players.filter(p => p.status === 'alive').forEach(p => {
-                                const item = document.createElement('li');
-                                item.innerHTML = `<label><input type="checkbox" class="survivor-checkbox" value="${p.id}"> ${p.name} (${p.role || '역할 미정'})</label>`;
-                                survivorList.appendChild(item);
-                            });
-                            settingsColumn.appendChild(survivorList);
+                            const livingPlayers = roomData.players.filter(p => p.status === 'alive').length;
+                            const votedPlayers = Object.keys(roomData.escapeVotes || {}).length;
+
+                            settingsColumn.innerHTML += `
+        <h4>비상탈출 투표 진행 중 (${votedPlayers}/${livingPlayers})</h4>
+        <p>모든 인원이 투표를 마치거나, 시간 초과 시 자동으로 결과가 집계됩니다.</p>
+    `;
 
                             const timerBtn = document.createElement('button');
                             timerBtn.className = 'escape-timer-btn';
@@ -653,10 +651,19 @@
 
                             const forceFailBtn = document.createElement('button');
                             forceFailBtn.className = 'force-escape-fail-btn';
-                            forceFailBtn.textContent = '시간 초과로 실패 처리';
+                            forceFailBtn.textContent = '시간 초과로 투표 종료';
                             forceFailBtn.style.backgroundColor = '#dc3545';
                             settingsColumn.appendChild(forceFailBtn);
-
+                        }
+                        // ★★★ 신규 추가: 투표 완료 후, 시퀀스 시작 버튼을 보여주는 UI ★★★
+                        else if (roomData.pendingAction === 'escape_ready') {
+                            const survivorNames = (roomData.escapees || []).map(p => `${p.name} (${p.role})`).join('<br>');
+                            settingsColumn.innerHTML += `
+        <h4>최종 탑승자 명단</h4>
+        <div style="padding: 10px; background-color: #e9e9e9; border-radius: 5px; text-align: left;">
+            ${survivorNames}
+        </div>
+    `;
                             const startEscapeBtn = document.createElement('button');
                             startEscapeBtn.className = 'start-escape-sequence-btn';
                             startEscapeBtn.textContent = '비상탈출 시퀀스 시작';
@@ -911,12 +918,13 @@
             } else if (classList.contains('end-night-btn')) {
                 socket.emit('endNightAndStartMeeting', { code: roomCode });
             } else if (classList.contains('start-escape-sequence-btn')) {
-                const checkedBoxes = roomDiv.querySelectorAll('.survivor-checkbox:checked');
-                if (checkedBoxes.length !== 4) {
-                    return alert('반드시 4명을 선택해야 합니다.');
+                const roomData = gameRoomsState[roomCode];
+                const survivorIds = (roomData.escapees || []).map(p => p.id);
+                if (survivorIds.length !== 4) {
+                    return alert('오류: 최종 탑승자가 4명이 아닙니다. 투표가 잘못된 것 같습니다.');
                 }
-                const survivorIds = Array.from(checkedBoxes).map(box => box.value);
                 socket.emit('startEscapeSequence', { code: roomCode, survivorIds: survivorIds });
+
             } else if (classList.contains('escape-timer-btn')) {
                 socket.emit('startEscapeTimer', roomCode);
                 target.textContent = '타이머 작동 중...';
