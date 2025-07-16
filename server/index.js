@@ -247,8 +247,6 @@ function transitionToNightPhase(roomCode) {
   }
 }
 
-// server/index.js의 checkWinConditions 함수 바로 위에 추가합니다.
-
 function checkAllAlienActionsComplete(roomCode) {
   const room = gameRooms[roomCode];
   if (!room || !room.alienActionsConfirmed) return;

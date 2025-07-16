@@ -692,7 +692,7 @@
                             const timerBtn = document.createElement('button');
                             timerBtn.className = 'timer-btn toggle-meeting-timer-btn'; // 클래스 추가
                             const isPaused = roomData.meetingTimer && roomData.meetingTimer.isPaused;
-                            timerBtn.textContent = isPaused ? '타이머 다시 시작' : '타이머 일시 정지';
+                            timerBtn.textContent = isPaused ? '타이머 다시 시작' : '타이머 작동';
                             timerBtn.style.backgroundColor = isPaused ? '#28a745' : '#ffc107';
                             settingsColumn.appendChild(timerBtn);
 
