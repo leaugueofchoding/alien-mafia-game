@@ -841,16 +841,16 @@
             // showDeathScreen() 호출을 제거하고, 다음 updateRoom 이벤트에서 처리하도록 변경
         });
 
-        socket.on('noAlienActivity', () => {
+        socket.on('noAlienActivity', (data) => {
             if (!amIAlive) return;
             clearContainer();
+            const message = data.message || "오늘 밤에는 활동할 수 있는 에일리언이 없습니다.";
             playerContainer.innerHTML = `
-                <h2>밤이 되었습니다.</h2>
-                <p style="font-size: 1.2em; color: #00d1ff; margin-top: 30px;">
-                    오늘 밤에는 활동할 수 있는 에일리언이 없습니다. 다행입니다!
-                </p>
-            `;
-            // 서버에서 4초 후 자동으로 다음 단계로 넘겨주므로, 클라이언트는 화면만 보여주면 됩니다.
+        <h2>밤이 되었습니다.</h2>
+        <p style="font-size: 1.2em; color: #00d1ff; margin-top: 30px;">
+            ${message}
+        </p>
+    `;
         });
 
         socket.on('gameOver', (data) => showGameOverScreen(data));

@@ -207,18 +207,43 @@ function transitionToNightPhase(roomCode) {
 
   console.log(`[${roomCode}] Cleaning up minigame and transitioning to night phase.`);
 
-  // 다음 단계를 위해 모든 미니게임 관련 상태를 깨끗하게 초기화합니다.
-  room.phase = 'night_alien_action';
-  room.selections = {}; // 밤 활동을 위한 selections 객체 초기화
-  delete room.alienActionTriggered;
-  delete room.crewActionTriggered;
+  // 미니게임 관련 상태를 먼저 초기화합니다.
   delete room.ejectionState;
   delete room.ejectionVotes;
   delete room.ejectionNominations;
   delete room.ejectionMinigame;
 
-  // 변경된 최종 상태를 모든 클라이언트에 전파합니다.
-  broadcastUpdates(roomCode);
+  // ★★★ 핵심 수정: 에일리언 유무 확인 로직을 이 함수에 통합합니다. ★★★
+  const livingPlayers = room.players.filter(p => p.status === 'alive');
+  const normalAliens = livingPlayers.filter(p => p.role === '에일리언');
+  const queen = livingPlayers.find(p => p.role === '에일리언 여왕');
+  const activeAlienCount = normalAliens.length + (queen && !queen.abilityUsed ? 1 : 0);
+
+  if (activeAlienCount === 0) {
+    const logMessage = '[시스템] 능력을 사용할 수 있는 에일리언이 없습니다.';
+    console.log(`[${roomCode}] No active aliens. Announcing and scheduling next phase.`);
+
+    if (room.gameLog) {
+      room.gameLog.unshift({ text: logMessage, type: 'log' });
+    }
+    io.to(roomCode).emit('noAlienActivity', { message: "오늘 밤에는 능력을 사용할 수 있는 에일리언이 없습니다. 바로 탐사대 활동을 시작합니다." });
+    broadcastUpdates(roomCode);
+
+    setTimeout(() => {
+      const roomNow = gameRooms[roomCode];
+      if (roomNow && roomNow.status === 'playing') {
+        roomNow.phase = 'night_crew_action';
+        startCrewActionPhase(roomCode);
+      }
+    }, 4000);
+  } else {
+    // 활동할 에일리언이 있으면, 정상적으로 밤 단계를 준비합니다.
+    room.phase = 'night_alien_action';
+    room.selections = {};
+    delete room.alienActionTriggered;
+    delete room.crewActionTriggered;
+    broadcastUpdates(roomCode);
+  }
 }
 
 // server/index.js의 checkWinConditions 함수 바로 위에 추가합니다.
@@ -922,8 +947,6 @@ io.on('connection', (socket) => {
     }
   });
 
-  // 기존의 socket.on('forceEjectPlayers', ...) 핸들러를 찾아서 아래 코드로 완전히 교체해주세요.
-
   socket.on('forceEjectPlayers', (data) => {
     const { roomCode, playerIds } = data;
     const room = gameRooms[roomCode];
@@ -940,7 +963,6 @@ io.on('connection', (socket) => {
       }
     }
 
-    // 미선택자와 실제 방출자를 모두 포함하여 최종 방출자 목록 생성
     const finalEjectedIds = new Set(playerIds);
     if (realEjectedPlayerId) {
       finalEjectedIds.add(realEjectedPlayerId);
@@ -963,18 +985,11 @@ io.on('connection', (socket) => {
         room.gameLog.unshift(`[방출 미니게임] ${ejectedNames}님이 방출되었습니다.`);
       }
 
-      // ★★★ 여기가 누락되었던 핵심 초기화 코드입니다 ★★★
       if (gameRooms[roomCode]?.status === 'game_over') return;
 
-      room.phase = 'night_alien_action';
-      room.selections = {};
-      delete room.alienActionTriggered;
-      delete room.crewActionTriggered;
-      delete room.ejectionState;
-      delete room.ejectionVotes;
-      delete room.ejectionNominations;
-      delete room.ejectionMinigame;
-      broadcastUpdates(roomCode);
+      // ★★★ 핵심 수정: 상태를 직접 변경하는 대신, 통합된 함수를 호출합니다. ★★★
+      transitionToNightPhase(roomCode);
+
     }, 5000);
   });
 
@@ -1036,6 +1051,7 @@ io.on('connection', (socket) => {
       delete timerIntervals[code];
     }
 
+    // ★★★ 핵심 수정 ★★★
     if (phase === 'night_alien_action') {
       const livingPlayers = room.players.filter(p => p.status === 'alive');
       const normalAliens = livingPlayers.filter(p => p.role === '에일리언');
@@ -1043,12 +1059,26 @@ io.on('connection', (socket) => {
       const activeAlienCount = normalAliens.length + (queen && !queen.abilityUsed ? 1 : 0);
 
       if (activeAlienCount === 0) {
-        console.log(`[${code}] No active aliens. Skipping alien action phase.`);
-        room.phase = 'night_crew_action';
-        io.to(code).emit('noAlienActivity');
+        const logMessage = '[시스템] 능력을 사용할 수 있는 에일리언이 없습니다.';
+        console.log(`[${code}] No active aliens. Announcing and scheduling next phase.`);
+
         if (room.gameLog) {
-          room.gameLog.unshift({ text: `[시스템] 활동 가능한 에일리언이 없어, 바로 탐사대 활동을 시작합니다.`, type: 'log' });
+          room.gameLog.unshift({ text: logMessage, type: 'log' });
         }
+        // 클라이언트에게 공지 메시지 전송
+        io.to(code).emit('noAlienActivity', { message: "오늘 밤에는 능력을 사용할 수 있는 에일리언이 없습니다. 바로 탐사대 활동을 시작합니다." });
+        broadcastUpdates(code); // 관리자에게 로그를 즉시 보여주기 위해 업데이트
+
+        // 4초 후 탐사대 활동 단계로 자동 전환
+        setTimeout(() => {
+          const roomNow = gameRooms[code];
+          if (roomNow && roomNow.status === 'playing') {
+            roomNow.phase = 'night_crew_action';
+            startCrewActionPhase(code); // 탐사대 활동 시작 및 상태 전파
+          }
+        }, 4000);
+
+        return; // 즉시 다음 단계로 넘어가지 않도록 여기서 함수 종료
       } else {
         room.phase = phase;
         if (room.gameLog) {
@@ -1061,7 +1091,6 @@ io.on('connection', (socket) => {
         if (room.gameLog) {
           room.gameLog.unshift({ text: `[${day}일차 회의 시작]`, type: 'phase_change' });
         }
-        // ★★★ 핵심 수정: 1일차 회의 시작 시 미니게임 상태를 초기화합니다. ★★★
         if (room.settings.useEjectionMinigame) {
           room.ejectionState = 'pending_start';
           room.ejectionVotes = {};
