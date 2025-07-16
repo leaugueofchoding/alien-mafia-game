@@ -213,7 +213,6 @@ function transitionToNightPhase(roomCode) {
   delete room.ejectionNominations;
   delete room.ejectionMinigame;
 
-  // ★★★ 핵심 수정: 에일리언 유무 확인 로직을 이 함수에 통합합니다. ★★★
   const livingPlayers = room.players.filter(p => p.status === 'alive');
   const normalAliens = livingPlayers.filter(p => p.role === '에일리언');
   const queen = livingPlayers.find(p => p.role === '에일리언 여왕');
@@ -226,8 +225,11 @@ function transitionToNightPhase(roomCode) {
     if (room.gameLog) {
       room.gameLog.unshift({ text: logMessage, type: 'log' });
     }
+    // ★★★ 핵심 수정: broadcastUpdates(roomCode) 호출을 제거합니다. ★★★
     io.to(roomCode).emit('noAlienActivity', { message: "오늘 밤에는 능력을 사용할 수 있는 에일리언이 없습니다. 바로 탐사대 활동을 시작합니다." });
-    broadcastUpdates(roomCode);
+    // 관리자에게는 로그가 포함된 업데이트를 한 번 보내줍니다.
+    io.to(ADMIN_ROOM).emit('updateAdmin', { rooms: gameRooms, presets: PRESETS, missionPresets: Object.keys(MISSIONS) });
+
 
     setTimeout(() => {
       const roomNow = gameRooms[roomCode];
@@ -237,7 +239,6 @@ function transitionToNightPhase(roomCode) {
       }
     }, 4000);
   } else {
-    // 활동할 에일리언이 있으면, 정상적으로 밤 단계를 준비합니다.
     room.phase = 'night_alien_action';
     room.selections = {};
     delete room.alienActionTriggered;
