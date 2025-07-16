@@ -1018,7 +1018,6 @@ io.on('connection', (socket) => {
     }
   });
 
-  // 교체할 내용 1: nextPhase 핸들러
   socket.on('nextPhase', (data) => {
     const { code, phase, day } = data;
     const room = gameRooms[code];
@@ -1037,40 +1036,43 @@ io.on('connection', (socket) => {
       delete timerIntervals[code];
     }
 
-    // ★★★ 핵심 수정: 밤으로 이동할 때, 활동 가능 에일리언을 '미리' 확인합니다. ★★★
     if (phase === 'night_alien_action') {
       const livingPlayers = room.players.filter(p => p.status === 'alive');
       const normalAliens = livingPlayers.filter(p => p.role === '에일리언');
       const queen = livingPlayers.find(p => p.role === '에일리언 여왕');
       const activeAlienCount = normalAliens.length + (queen && !queen.abilityUsed ? 1 : 0);
 
-      // 만약 활동할 에일리언이 없다면,
       if (activeAlienCount === 0) {
         console.log(`[${code}] No active aliens. Skipping alien action phase.`);
-        // '에일리언 활동' 단계를 건너뛰고 바로 '탐사대 활동'으로 넘어갑니다.
         room.phase = 'night_crew_action';
-        io.to(code).emit('noAlienActivity'); // 클라이언트에게 즉시 공지
+        io.to(code).emit('noAlienActivity');
         if (room.gameLog) {
           room.gameLog.unshift({ text: `[시스템] 활동 가능한 에일리언이 없어, 바로 탐사대 활동을 시작합니다.`, type: 'log' });
         }
       } else {
-        // 활동할 에일리언이 있으면, 정상적으로 '에일리언 활동' 단계로 진입합니다.
         room.phase = phase;
         if (room.gameLog) {
           room.gameLog.unshift({ text: `[${day}일차 밤] 에일리언 활동을 시작합니다.`, type: 'phase_change' });
         }
       }
     } else {
-      // 밤이 아닌 다른 단계로 이동하는 경우
       room.phase = phase;
-      if (phase === 'meeting' && room.gameLog) {
-        room.gameLog.unshift({ text: `[${day}일차 회의 시작]`, type: 'phase_change' });
+      if (phase === 'meeting') {
+        if (room.gameLog) {
+          room.gameLog.unshift({ text: `[${day}일차 회의 시작]`, type: 'phase_change' });
+        }
+        // ★★★ 핵심 수정: 1일차 회의 시작 시 미니게임 상태를 초기화합니다. ★★★
+        if (room.settings.useEjectionMinigame) {
+          room.ejectionState = 'pending_start';
+          room.ejectionVotes = {};
+          room.ejectionNominations = {};
+          room.ejectionMinigame = {};
+        }
       }
     }
 
     room.day = parseInt(day, 10);
 
-    // 밤 단계가 시작될 때 공통적으로 상태를 초기화합니다.
     if (room.phase === 'night_alien_action' || room.phase === 'night_crew_action') {
       room.selections = {};
       delete room.alienActionTriggered;
@@ -1671,7 +1673,6 @@ io.on('connection', (socket) => {
     }
   });
 
-  // 교체할 내용: useQueenHunt 핸들러
   socket.on('useQueenHunt', (data) => {
     const { targetIds } = data;
     const selectorId = socket.id;

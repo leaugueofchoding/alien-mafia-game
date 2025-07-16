@@ -1089,7 +1089,10 @@
         document.addEventListener('click', function (event) {
             const target = event.target;
             const closestMissionItem = target.closest('.mission-item');
-
+            if (target.id === 'confirm-alien-action-btn') {
+                socket.emit('alienActionFinished');
+                return; // 다른 핸들러와 충돌 방지
+            }
             if (target.id === 'join-button') {
                 const nameInput = document.getElementById('name-input');
                 const codeInput = document.getElementById('code-input');
@@ -1192,6 +1195,19 @@
                     if (confirm("비상탈출을 시작하면 돌이킬 수 없습니다. 정말 가동하시겠습니까?")) {
                         socket.emit('engineerChoseEscape');
                     }
+                }
+                return;
+            }  // ★★★ 신규 추가: 여왕 능력 건너뛰기 버튼 처리 ★★★
+            else if (target.id === 'skip-hunt-btn') {
+                // 1. 서버에 '능력 건너뛰기' 이벤트를 전송합니다.
+                socket.emit('skipQueenHunt');
+
+                // 2. 버튼을 비활성화하여 중복 클릭을 방지합니다.
+                target.textContent = '활동 종료';
+                target.disabled = true;
+                const confirmBtn = document.getElementById('confirm-hunt-btn');
+                if (confirmBtn) {
+                    confirmBtn.disabled = true;
                 }
                 return;
             }
