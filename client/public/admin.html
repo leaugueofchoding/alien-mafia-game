@@ -360,13 +360,10 @@
 
             roomsContainer.innerHTML = '';
             if (Object.keys(gameRoomsState).length === 0) {
-                // ★★★★★ 2. 방이 없으면 생성 UI를 보여줍니다. ★★★★★
                 if (createRoomContainer) createRoomContainer.style.display = 'block';
-
                 roomsContainer.innerHTML = '<p>아직 활성화된 게임방이 없습니다.</p>';
                 return;
             } else {
-                // ★★★★★ 3. 방이 하나라도 있으면 생성 UI를 숨깁니다. ★★★★★
                 if (createRoomContainer) createRoomContainer.style.display = 'none';
             }
 
@@ -392,14 +389,16 @@
                 contentDiv.style.display = 'flex';
                 contentDiv.style.gap = '20px';
 
-                const playerColumn = document.createElement('div');
-                playerColumn.style.flex = 6;
-                const settingsColumn = document.createElement('div');
-                settingsColumn.style.flex = 2;
-
-                // admin.html -> renderAdminView 함수 내부
-
                 if (roomData.status === 'waiting') {
+                    // --- 대기실 3단 레이아웃 ---
+                    const playerColumn = document.createElement('div');
+                    playerColumn.style.flex = 5;
+                    const gameSettingsColumn = document.createElement('div');
+                    gameSettingsColumn.style.flex = 3;
+                    const roleSettingsColumn = document.createElement('div');
+                    roleSettingsColumn.style.flex = 2;
+
+                    // 1열: 참가자 목록
                     playerColumn.innerHTML = '<h3>참가자 목록</h3>';
                     const playerList = document.createElement('ul');
                     playerList.className = 'player-grid-list';
@@ -419,17 +418,17 @@
                     });
                     playerColumn.appendChild(playerList);
 
-                    settingsColumn.innerHTML = '<h3>게임 설정</h3>';
+                    // 2열: 게임 설정
+                    gameSettingsColumn.innerHTML = '<h3>게임 설정</h3>';
                     const helpBox = document.createElement('div');
                     helpBox.style.cssText = 'padding: 10px; margin-top: 15px; border: 1px solid #28a745; border-radius: 5px; background-color: #f8f9fa; text-align: left; color: #333;';
                     helpBox.innerHTML = '<b>[진행 가이드]</b> 모든 학생이 참가했는지 확인 후, 역할 인원을 맞추고 <b>\'게임 시작\'</b> 버튼을 누르세요.';
-                    settingsColumn.appendChild(helpBox);
+                    gameSettingsColumn.appendChild(helpBox);
 
                     const missionPresetDiv = document.createElement('div');
                     missionPresetDiv.className = 'mission-preset-settings';
                     missionPresetDiv.style.marginTop = '15px';
                     missionPresetDiv.innerHTML = '<h4>미션 프리셋 설정</h4>';
-
                     if (missionPresetsState.length > 0) {
                         const presetSelect = document.createElement('select');
                         presetSelect.className = 'preset-select';
@@ -440,32 +439,27 @@
                             option.textContent = presetName;
                             presetSelect.appendChild(option);
                         });
-                        // 페이지 로딩 시 랜덤한 프리셋을 기본으로 선택
                         presetSelect.selectedIndex = Math.floor(Math.random() * missionPresetsState.length);
                         missionPresetDiv.appendChild(presetSelect);
                     } else {
                         missionPresetDiv.innerHTML += '<p>사용 가능한 미션 프리셋이 없습니다.</p>';
                     }
-                    settingsColumn.appendChild(missionPresetDiv);
+                    gameSettingsColumn.appendChild(missionPresetDiv);
 
-                    // ================== ★★★ 문제의 코드 수정 ★★★ ==================
-                    // minigameToggleDiv를 여기서 먼저 선언하고 정의해야 합니다.
                     const minigameToggleDiv = document.createElement('div');
                     minigameToggleDiv.className = 'mission-preset-settings';
                     minigameToggleDiv.style.marginTop = '15px';
                     minigameToggleDiv.innerHTML = `
-        <h4>온라인 방출 미니게임</h4>
-        <label style="display: flex; align-items: center; justify-content: space-between; padding: 5px; background-color: #e9e9e9; border-radius: 4px;">
-            <span>미니게임 기능 사용 (ON/OFF)</span>
-            <input type="checkbox" class="ejection-minigame-toggle" id="ejection-minigame-toggle-${code}" checked>
-        </label>
-    `;
-                    settingsColumn.appendChild(minigameToggleDiv);
-                    // =================================================================
+                        <h4>온라인 방출 미니게임</h4>
+                        <label style="display: flex; align-items: center; justify-content: space-between; padding: 5px; background-color: #e9e9e9; border-radius: 4px;">
+                            <span>미니게임 기능 사용 (ON/OFF)</span>
+                            <input type="checkbox" class="ejection-minigame-toggle" id="ejection-minigame-toggle-${code}" checked>
+                        </label>`;
+                    gameSettingsColumn.appendChild(minigameToggleDiv);
 
                     const groupSettingsDiv = document.createElement('div');
                     groupSettingsDiv.className = 'group-settings';
-                    groupSettingsDiv.innerHTML = '<h4>모둠 수 설정 </h4>';
+                    groupSettingsDiv.innerHTML = '<h4>모둠 수 설정</h4>';
                     const groupCountInput = document.createElement('input');
                     groupCountInput.type = 'number';
                     groupCountInput.className = 'group-count-input';
@@ -473,81 +467,100 @@
                     groupCountInput.value = roomData.groupCount || 6;
                     groupCountInput.min = 2;
                     groupSettingsDiv.appendChild(groupCountInput);
-                    settingsColumn.appendChild(groupSettingsDiv);
-
-                    const roleSettingsDiv = document.createElement('div');
-                    roleSettingsDiv.className = 'role-settings';
-                    roleSettingsDiv.innerHTML = '<h4>역할 인원 설정</h4>';
-                    const currentCounts = (roomData.settings && Object.keys(roomData.settings).length > 1)
-                        ? roomData.settings
-                        : getDefaultRoleCounts(roomData.players.length); ALL_ROLES.forEach(roleName => {
-                            const itemDiv = document.createElement('div');
-                            itemDiv.className = 'role-item';
-                            const nameSpan = document.createElement('span');
-                            nameSpan.textContent = roleName;
-                            const controlsDiv = document.createElement('div');
-                            controlsDiv.className = 'role-controls';
-                            const countInput = document.createElement('input');
-                            countInput.type = 'number';
-                            countInput.value = currentCounts[roleName] || 0;
-                            countInput.min = 0;
-                            countInput.dataset.role = roleName;
-                            controlsDiv.appendChild(countInput);
-                            itemDiv.appendChild(nameSpan);
-                            itemDiv.appendChild(controlsDiv);
-                            roleSettingsDiv.appendChild(itemDiv);
-                        });
-                    settingsColumn.appendChild(roleSettingsDiv);
+                    gameSettingsColumn.appendChild(groupSettingsDiv);
 
                     const startButton = document.createElement('button');
                     startButton.className = 'start-game-btn';
                     startButton.textContent = '게임 시작';
-                    settingsColumn.appendChild(startButton);
+                    gameSettingsColumn.appendChild(startButton);
 
-                } else {
+                    // 3열: 역할 인원 설정 (총원 기능 포함)
+                    roleSettingsColumn.innerHTML = '<h3>역할 인원 설정</h3>';
+                    const roleSettingsHeader = document.createElement('div');
+                    roleSettingsHeader.style.display = 'flex';
+                    roleSettingsHeader.style.justifyContent = 'space-between';
+                    roleSettingsHeader.style.alignItems = 'center';
+                    roleSettingsHeader.style.marginBottom = '10px';
+
+                    const totalRolesSpan = document.createElement('span');
+                    totalRolesSpan.id = `total-roles-${code}`;
+                    totalRolesSpan.style.fontWeight = 'bold';
+                    roleSettingsHeader.appendChild(document.createTextNode(''));
+                    roleSettingsHeader.appendChild(totalRolesSpan);
+                    roleSettingsColumn.appendChild(roleSettingsHeader);
+
+                    const roleSettingsDiv = document.createElement('div');
+                    roleSettingsDiv.className = 'role-settings';
+                    roleSettingsDiv.style.borderTop = 'none';
+
+                    const currentCounts = (roomData.settings && Object.keys(roomData.settings).length > 1) ? roomData.settings : getDefaultRoleCounts(roomData.players.length);
+                    let initialTotal = 0;
+
+                    ALL_ROLES.forEach(roleName => {
+                        const itemDiv = document.createElement('div');
+                        itemDiv.className = 'role-item';
+                        const nameSpan = document.createElement('span');
+                        nameSpan.textContent = roleName;
+                        const controlsDiv = document.createElement('div');
+                        controlsDiv.className = 'role-controls';
+                        const countInput = document.createElement('input');
+                        countInput.type = 'number';
+                        const currentRoleCount = currentCounts[roleName] || 0;
+                        countInput.value = currentRoleCount;
+                        initialTotal += currentRoleCount;
+                        countInput.min = 0;
+                        countInput.dataset.role = roleName;
+                        countInput.addEventListener('input', () => {
+                            let currentTotal = 0;
+                            const allInputs = roomDiv.querySelectorAll('.role-controls input');
+                            allInputs.forEach(input => {
+                                currentTotal += parseInt(input.value, 10) || 0;
+                            });
+                            totalRolesSpan.textContent = `총원: ${currentTotal}`;
+                        });
+                        controlsDiv.appendChild(countInput);
+                        itemDiv.appendChild(nameSpan);
+                        itemDiv.appendChild(controlsDiv);
+                        roleSettingsDiv.appendChild(itemDiv);
+                    });
+                    totalRolesSpan.textContent = `총원: ${initialTotal}`;
+                    roleSettingsColumn.appendChild(roleSettingsDiv);
+
+                    contentDiv.appendChild(playerColumn);
+                    contentDiv.appendChild(gameSettingsColumn);
+                    contentDiv.appendChild(roleSettingsColumn);
+
+                } else { // 게임이 시작된 후
+                    const playerColumn = document.createElement('div');
+                    const settingsColumn = document.createElement('div');
+
+                    // 참가자 현황 및 로그 (항상 왼쪽 열에 표시)
                     const livingPlayers = roomData.players.filter(p => p.status === 'alive').length;
                     playerColumn.innerHTML = `<h3>참가자 현황 (${livingPlayers}/${roomData.players.length})</h3>`;
                     const playerList = document.createElement('ul');
                     playerList.className = 'player-grid-list';
                     roomData.players.forEach(player => {
                         const playerItem = document.createElement('li');
-
-                        // 정보를 담을 컨테이너 생성
                         const playerInfoContainer = document.createElement('div');
                         playerInfoContainer.className = 'player-info-container';
-
-                        // 1. 이름 (Name)
                         const nameLine = `<div class="player-info-name">${player.name}</div>`;
-
-                        // 2. 모둠 (Group)
                         const groupText = player.group ? `${player.group}모둠` : '모둠 미정';
                         const groupLine = `<div class="player-info-group">${groupText}</div>`;
-
                         let roleText = player.role || '역할 미정';
-                        // 경호원의 보호 대상 표시
                         if (player.role === '경호원' && roomData.bodyguardProtection === player.id) {
                             const protectedPlayer = roomData.players.find(p => p.id === roomData.bodyguardProtection);
-                            if (protectedPlayer) {
-                                roleText += ` <span style="color: #28a745;">▶ ${protectedPlayer.name} 보호 중</span>`;
-                            }
+                            if (protectedPlayer) roleText += ` <span style="color: #28a745;">▶ ${protectedPlayer.name} 보호 중</span>`;
                         }
-                        // 주술사의 저주 대상 표시
                         if (player.role === '에일리언 주술사' && roomData.selections && roomData.selections[player.id]) {
                             const cursedPlayer = roomData.players.find(p => p.id === roomData.selections[player.id]);
-                            if (cursedPlayer) {
-                                roleText += ` <span style="color: #6f42c1;">▶ ${cursedPlayer.name} 저주 중</span>`;
-                            }
+                            if (cursedPlayer) roleText += ` <span style="color: #6f42c1;">▶ ${cursedPlayer.name} 저주 중</span>`;
                         }
                         if ((player.role === '함장' || player.role === '군인') && typeof player.bullets !== 'undefined') {
                             roleText += ` (총알: ${player.bullets})`;
                         }
                         const roleLine = `<div class="player-info-role">${roleText}</div>`;
-
-                        // 3줄 정보를 합쳐서 컨테이너에 삽입
                         playerInfoContainer.innerHTML = nameLine + groupLine + roleLine;
                         playerItem.appendChild(playerInfoContainer);
-
-                        // 사망/생존에 따른 버튼 추가 (기존 로직과 동일)
                         if (player.status === 'dead') {
                             playerItem.classList.add('dead');
                             const reviveButton = document.createElement('button');
@@ -566,7 +579,7 @@
                     });
                     playerColumn.appendChild(playerList);
                     const logContainer = document.createElement('div');
-                    logContainer.className = 'admin-log-box'; // admin.html 전용 로그 박스 스타일
+                    logContainer.className = 'admin-log-box';
                     const gameLogHtml = (roomData.gameLog || []).map(logEntry => {
                         const text = typeof logEntry === 'string' ? logEntry : logEntry.text;
                         const type = typeof logEntry === 'string' ? 'log' : (logEntry.type || 'log');
@@ -574,7 +587,8 @@
                     }).join('');
                     logContainer.innerHTML = gameLogHtml;
                     playerColumn.appendChild(logContainer);
-                    // ★★★ 여기까지 추가 ★★★
+
+                    // 가운데 열 기본 컨텐츠
                     settingsColumn.innerHTML = '<h3>게임 진행</h3>';
                     const phaseInfo = document.createElement('div');
                     phaseInfo.className = 'phase-info';
@@ -585,233 +599,188 @@
                     else if (roomData.phase === 'escape_sequence') phaseText = '현재 상태: 비상탈출 시퀀스 진행 중';
                     phaseInfo.textContent = (roomData.status === 'game_over') ? `게임 종료 - ${roomData.winner} 승리` : phaseText;
                     settingsColumn.appendChild(phaseInfo);
-                    if (roomData.phaseTimer) {
-                        const timer = roomData.phaseTimer;
-                        const minutes = Math.floor(timer.timeLeft / 60);
-                        const seconds = (timer.timeLeft % 60).toString().padStart(2, '0');
-                        const timerDisplayDiv = document.createElement('div');
-                        timerDisplayDiv.style.cssText = 'font-weight: bold; font-size: 1.2em; margin-top: 10px; color: #dc3545;';
-                        timerDisplayDiv.textContent = `남은 시간: ${minutes}:${seconds}`;
-                        settingsColumn.appendChild(timerDisplayDiv);
-                    }
-                    const helpBox = document.createElement('div');
-                    helpBox.style.cssText = 'padding: 10px; margin-top: 15px; border: 1px solid #007bff; border-radius: 5px; background-color: #f8f9fa; text-align: left; color: #333;';
-                    let helpText = '';
 
-                    if (roomData.pendingAction === 'crisis_roulette') {
-                        helpText = '<b>[진행 가이드]</b> 위기 상황이 발생했습니다! 아래의 예상 결과를 확인하고, 원하는 타이밍에 <b>[룰렛 시작]</b> 버튼을 눌러 모든 플레이어와 함께 결과를 확인하세요.';
+                    // 역할 주장 상태일 때만 3단 레이아웃으로 변경
+                    if (roomData.pendingAction === 'escape_role_claim') {
+                        playerColumn.style.flex = 5;
+                        settingsColumn.style.flex = 3;
+
+                        const roleClaimColumn = document.createElement('div');
+                        roleClaimColumn.style.flex = 2;
+
+                        const livingPlayersInClaim = roomData.players.filter(p => p.status === 'alive');
+                        const claimedCount = Object.keys(roomData.claimedRoles || {}).length;
+
+                        roleClaimColumn.innerHTML = `<h3>역할 주장 진행 중 (${claimedCount}/${livingPlayersInClaim.length})</h3>`;
+                        const claimedListHtml = livingPlayersInClaim.map(p => {
+                            const claimedRole = roomData.claimedRoles[p.id];
+                            return `<li>${p.name}: ${claimedRole ? `<b>${claimedRole}</b>` : '선택 중...'}</li>`;
+                        }).join('');
+                        roleClaimColumn.innerHTML += `<ul style="text-align: left; padding-left: 15px; list-style:none;">${claimedListHtml}</ul>`;
+
+                        contentDiv.appendChild(playerColumn);
+                        contentDiv.appendChild(settingsColumn);
+                        contentDiv.appendChild(roleClaimColumn);
                     } else {
-                        switch (roomData.phase) {
-                            case 'role_reveal':
-                                helpText = '<b>[진행 가이드]</b> 학생들이 자신의 역할을 확인할 시간을 주세요. 모두 확인했다면 아래의 <b>\'1일차 회의 시작\'</b> 버튼을 누르세요.';
-                                break;
-                            case 'meeting':
-                                helpText = '<b>[진행 가이드]</b> 타이머를 켜고 모둠별로 한 명을 방출 후보로 지목하게 하세요. 2분 후 방출 후보끼리 가위바위보를 합니다. 관리자가 빨간 버튼을 눌러 꼴찌를 방출 시킵니다. 그 후 <b>\'밤으로 이동\'</b> 버튼을 누르세요.';
-                                break;
-                            case 'night_alien_action':
-                                helpText = '<b>[진행 가이드]</b> 먼저 모두 엎드리게 하세요. \'에일리언 활동 시작\'을 누르면 에일리언에게 사냥 화면이 나옵니다. 모든 에일리언이 다시 고개를 숙이면 \'활동 결과 반영\'을 눌러주세요.';
-                                break;
-                            case 'night_crew_action':
-                                helpText = '<b>[진행 가이드]</b> 고개를 들어 결과를 확인하게 하세요. \'탐사대 활동 시작\'을 누르면 특수 직업들의 능력이 오픈됩니다. 일반 승객은 미션을 해결하도록 안내하세요. 충분한 시간이 지나면 \'활동 종료 및 아침으로\' 버튼을 누르세요. ';
-                                break;
-                            default:
-                                helpText = '<b>[진행 가이드]</b> 게임의 다음 단계를 진행할 준비가 되면 아래 버튼을 눌러주세요.';
-                        }
-                    }
-                    helpBox.innerHTML = helpText;
-                    settingsColumn.appendChild(helpBox);
+                        // 그 외 모든 게임 진행 상황: 2단 레이아웃
+                        playerColumn.style.flex = 6;
+                        settingsColumn.style.flex = 2;
 
-                    if (roomData.status === 'playing') {
-
-                        if (roomData.pendingAction === 'crisis_roulette') {
-                            const crisis = roomData.crisis || {};
-                            const crisisBtn = document.createElement('button');
-                            crisisBtn.className = 'start-crisis-roulette-btn';
-                            crisisBtn.textContent = `[${crisis.type || '위기'}] 룰렛 시작`;
-                            crisisBtn.style.backgroundColor = '#6f42c1';
-                            const resultText = document.createElement('p');
-                            resultText.style.fontWeight = 'bold';
-                            resultText.innerHTML = `(예상 결과: <span style="color: #dc3545;">${crisis.result || '알 수 없음'}</span>)`;
-                            settingsColumn.appendChild(crisisBtn);
-                            settingsColumn.appendChild(resultText);
-                        } else if (roomData.phase === 'escape_sequence') {
-                            const escapeLogDiv = document.createElement('div');
-                            escapeLogDiv.style.cssText = 'background-color: #222; color: lime; padding: 10px; border-radius: 5px; font-family: monospace; height: 150px; overflow-y: auto;';
-                            escapeLogDiv.innerHTML = (roomData.escapeLog || []).join('<br>');
-                            settingsColumn.appendChild(escapeLogDiv);
-                            const resolveStepBtn = document.createElement('button');
-                            resolveStepBtn.className = 'resolve-escape-step-btn';
-                            resolveStepBtn.textContent = `관문 ${roomData.escapeStep + 1}단계 확인`;
-                            resolveStepBtn.style.cssText = 'background-color: #fd7e14; width: 100%; padding: 10px; margin-top: 15px; border:none; color:white; border-radius:5px; font-size:1em; cursor:pointer;';
-                            settingsColumn.appendChild(resolveStepBtn);
-                        } else if (roomData.pendingAction === 'engineer_choice') {
-                            const notice = document.createElement('p');
-                            notice.textContent = '엔지니어가 [계속 싸운다] 또는 [비상탈출]을 선택하기를 기다리는 중입니다...';
-                            notice.style.cssText = 'font-weight: bold; color: #007bff;';
-                            settingsColumn.appendChild(notice);
-                        } else if (roomData.pendingAction === 'escape_role_claim') {
-                            const livingPlayers = roomData.players.filter(p => p.status === 'alive');
-                            const claimedCount = Object.keys(roomData.claimedRoles || {}).length;
-
-                            settingsColumn.innerHTML += `
-        <h4>역할 주장 진행 중 (${claimedCount}/${livingPlayers.length})</h4>
-        <p>모든 생존자가 자신의 역할을 주장하기를 기다리고 있습니다.</p>
-    `;
-                            const claimedList = livingPlayers.map(p => {
-                                const claimedRole = roomData.claimedRoles[p.id];
-                                return `<li>${p.name}: ${claimedRole ? `<b>${claimedRole}</b>` : '선택 중...'}</li>`;
-                            }).join('');
-                            settingsColumn.innerHTML += `<ul style="text-align: left; padding-left: 15px;">${claimedList}</ul>`;
-                        }
-                        else if (roomData.pendingAction === 'escape_vote_pending') {
-                            settingsColumn.innerHTML += `
-        <h4>역할 주장 완료</h4>
-        <p>모든 생존자가 역할 주장을 마쳤습니다. 아래 버튼을 눌러 최종 탑승자 투표를 시작하세요.</p>
-    `;
-                            const startVoteBtn = document.createElement('button');
-                            startVoteBtn.className = 'start-escape-vote-btn';
-                            startVoteBtn.textContent = '최종 투표 시작';
-                            startVoteBtn.style.backgroundColor = '#28a745';
-                            settingsColumn.appendChild(startVoteBtn);
-                        } else if (roomData.pendingAction === 'escape_survivor_selection') {
-                            const livingPlayers = roomData.players.filter(p => p.status === 'alive').length;
-                            const votedPlayers = Object.keys(roomData.escapeVotes || {}).length;
-
-                            settingsColumn.innerHTML += `
-        <h4>비상탈출 투표 진행 중 (${votedPlayers}/${livingPlayers})</h4>
-        <p>모든 인원이 투표를 마치거나, 시간 초과 시 자동으로 결과가 집계됩니다.</p>
-    `;
-
-                            const timerBtn = document.createElement('button');
-                            timerBtn.className = 'escape-timer-btn';
-                            timerBtn.textContent = '3분 30초 타이머 시작';
-                            timerBtn.style.cssText = 'background-color: #ffc107; color: #212529;';
-                            settingsColumn.appendChild(timerBtn);
-
-                            const forceFailBtn = document.createElement('button');
-                            forceFailBtn.className = 'force-escape-fail-btn';
-                            forceFailBtn.textContent = '시간 초과로 투표 종료';
-                            forceFailBtn.style.backgroundColor = '#dc3545';
-                            settingsColumn.appendChild(forceFailBtn);
-                        }
-                        // ★★★ 신규 추가: 투표 완료 후, 시퀀스 시작 버튼을 보여주는 UI ★★★
-                        else if (roomData.pendingAction === 'escape_ready') {
-                            const survivorNames = (roomData.escapees || []).map(p => `${p.name} (${p.role})`).join('<br>');
-                            settingsColumn.innerHTML += `
-        <h4>최종 탑승자 명단</h4>
-        <div style="padding: 10px; background-color: #e9e9e9; border-radius: 5px; text-align: left;">
-            ${survivorNames}
-        </div>
-    `;
-                            const startEscapeBtn = document.createElement('button');
-                            startEscapeBtn.className = 'start-escape-sequence-btn';
-                            startEscapeBtn.textContent = '비상탈출 시퀀스 시작';
-                            startEscapeBtn.style.backgroundColor = '#6f42c1';
-                            settingsColumn.appendChild(startEscapeBtn);
-
-                        } else if (roomData.pendingAction === 'queen_rampage') {
-
-                            if (!roomData.queenActionTaken) {
-                                const rampageBtn = document.createElement('button');
-                                rampageBtn.className = 'trigger-rampage-btn';
-                                rampageBtn.textContent = '여왕의 만찬 시작';
-                                settingsColumn.appendChild(rampageBtn);
-                            }
-                            else {
-                                const resolveBtn = document.createElement('button');
-                                resolveBtn.id = 'resolve-rampage-btn';
-                                resolveBtn.textContent = '여왕의 만찬 결과 적용';
-                                resolveBtn.className = 'resolve-night-btn';
-                                settingsColumn.appendChild(resolveBtn);
-                            }
-
-                        } else if (roomData.phase === 'role_reveal') {
-                            const btn = document.createElement('button');
-                            btn.className = 'next-phase-btn';
-                            btn.dataset.phase = 'meeting';
-                            btn.dataset.day = 1;
-                            btn.textContent = '1일차 회의 시작';
-                            settingsColumn.appendChild(btn);
-                        } // admin.html -> renderAdminView() 함수 안
-
-                        else if (roomData.phase === 'meeting') {
-                            const timerBtn = document.createElement('button');
-                            timerBtn.className = 'timer-btn toggle-meeting-timer-btn'; // 클래스 추가
-                            const isPaused = roomData.meetingTimer && roomData.meetingTimer.isPaused;
-                            timerBtn.textContent = isPaused ? '타이머 다시 시작' : '타이머 작동';
-                            timerBtn.style.backgroundColor = isPaused ? '#28a745' : '#ffc107';
-                            settingsColumn.appendChild(timerBtn);
-
-                            if (roomData.settings.useEjectionMinigame) {
-                                helpBox.innerHTML = '<b>[진행 가이드]</b><br>1. 모든 참가자가 모둠 선택을 마쳤는지 확인하세요.<br>2. <b>[1차 후보 지목 시작]</b>을 눌러 투표를 받으세요.<br>3. 모든 활성 모둠이 후보를 내면 <b>[미니게임 시작]</b> 버튼이 활성화됩니다.<br>4. 모든 후보가 카드를 고르면 <b>[결과 공개]</b> 버튼이 활성화됩니다.';
-
-                                // ★★★ 핵심 수정: 실제로 플레이어가 있는 모둠 수를 계산합니다. ★★★
-                                const alivePlayerGroups = new Set(
-                                    roomData.players
-                                        .filter(p => p.status === 'alive' && p.group)
-                                        .map(p => p.group)
-                                );
-                                const totalActiveGroups = alivePlayerGroups.size;
-                                const allGroupsNominated = roomData.ejectionNominations && Object.keys(roomData.ejectionNominations).length === totalActiveGroups && totalActiveGroups > 0;
-
-                                // 1. 후보 지목 시작 버튼
-                                const startNominationBtn = document.createElement('button');
-                                startNominationBtn.className = 'start-nomination-btn';
-                                startNominationBtn.textContent = '1차 후보 지목 시작';
-                                startNominationBtn.style.backgroundColor = '#fd7e14';
-                                startNominationBtn.disabled = roomData.ejectionState !== 'pending_start';
-                                settingsColumn.appendChild(startNominationBtn);
-
-                                // 2. 미니게임 시작 버튼 (활성화 조건을 수정된 로직으로 변경)
-                                const startMinigameBtn = document.createElement('button');
-                                startMinigameBtn.className = 'start-ejection-minigame-btn';
-                                startMinigameBtn.textContent = '방출 미니게임 시작';
-                                startMinigameBtn.style.backgroundColor = '#6f42c1';
-                                //startMinigameBtn.disabled = !allGroupsNominated || roomData.ejectionState !== 'minigame_pending';
-                                settingsColumn.appendChild(startMinigameBtn);
-
-                                // 3. 결과 공개 및 방출 실행 버튼
-                                const resolveBtn = document.createElement('button');
-                                resolveBtn.className = 'resolve-ejection-minigame-btn';
-                                resolveBtn.textContent = '결과 공개 및 방출 실행';
-                                resolveBtn.style.backgroundColor = '#dc3545';
-                                resolveBtn.disabled = roomData.ejectionState !== 'minigame_active' && roomData.ejectionState !== 'minigame_all_selected';
-                                settingsColumn.appendChild(resolveBtn);
-
+                        // ================== ★★★ 누락되었던 버튼 생성 로직 시작 ★★★ ==================
+                        if (roomData.status === 'playing') {
+                            const helpBox = document.createElement('div');
+                            helpBox.style.cssText = 'padding: 10px; margin-top: 15px; border: 1px solid #007bff; border-radius: 5px; background-color: #f8f9fa; text-align: left; color: #333;';
+                            let helpText = '';
+                            if (roomData.pendingAction === 'crisis_roulette') {
+                                helpText = '<b>[진행 가이드]</b> 위기 상황이 발생했습니다! 아래의 예상 결과를 확인하고, 원하는 타이밍에 <b>[룰렛 시작]</b> 버튼을 눌러 모든 플레이어와 함께 결과를 확인하세요.';
                             } else {
-                                const nextBtn = document.createElement('button');
-                                nextBtn.className = 'next-phase-btn';
-                                nextBtn.dataset.phase = 'night_alien_action';
-                                nextBtn.dataset.day = roomData.day;
-                                nextBtn.textContent = '밤으로 이동';
-                                settingsColumn.appendChild(nextBtn);
+                                switch (roomData.phase) {
+                                    case 'role_reveal': helpText = '<b>[진행 가이드]</b> 학생들이 자신의 역할을 확인할 시간을 주세요. 모두 확인했다면 아래의 <b>\'1일차 회의 시작\'</b> 버튼을 누르세요.'; break;
+                                    case 'meeting': helpText = '<b>[진행 가이드]</b> 타이머를 켜고 모둠별로 한 명을 방출 후보로 지목하게 하세요. 2분 후 방출 후보끼리 가위바위보를 합니다. 관리자가 빨간 버튼을 눌러 꼴찌를 방출 시킵니다. 그 후 <b>\'밤으로 이동\'</b> 버튼을 누르세요.'; break;
+                                    case 'night_alien_action': helpText = '<b>[진행 가이드]</b> 먼저 모두 엎드리게 하세요. \'에일리언 활동 시작\'을 누르면 에일리언에게 사냥 화면이 나옵니다. 모든 에일리언이 다시 고개를 숙이면 \'활동 결과 반영\'을 눌러주세요.'; break;
+                                    case 'night_crew_action': helpText = '<b>[진행 가이드]</b> 고개를 들어 결과를 확인하게 하세요. \'탐사대 활동 시작\'을 누르면 특수 직업들의 능력이 오픈됩니다. 일반 승객은 미션을 해결하도록 안내하세요. 충분한 시간이 지나면 \'활동 종료 및 아침으로\' 버튼을 누르세요. '; break;
+                                    default: helpText = '<b>[진행 가이드]</b> 게임의 다음 단계를 진행할 준비가 되면 아래 버튼을 눌러주세요.';
+                                }
                             }
+                            helpBox.innerHTML = helpText;
+                            settingsColumn.appendChild(helpBox);
 
+                            if (roomData.pendingAction === 'crisis_roulette') {
+                                const crisis = roomData.crisis || {};
+                                const crisisBtn = document.createElement('button');
+                                crisisBtn.className = 'start-crisis-roulette-btn';
+                                crisisBtn.textContent = `[${crisis.type || '위기'}] 룰렛 시작`;
+                                crisisBtn.style.backgroundColor = '#6f42c1';
+                                const resultText = document.createElement('p');
+                                resultText.style.fontWeight = 'bold';
+                                resultText.innerHTML = `(예상 결과: <span style="color: #dc3545;">${crisis.result || '알 수 없음'}</span>)`;
+                                settingsColumn.appendChild(crisisBtn);
+                                settingsColumn.appendChild(resultText);
+                            } else if (roomData.phase === 'escape_sequence') {
+                                const escapeLogDiv = document.createElement('div');
+                                escapeLogDiv.style.cssText = 'background-color: #222; color: lime; padding: 10px; border-radius: 5px; font-family: monospace; height: 150px; overflow-y: auto;';
+                                escapeLogDiv.innerHTML = (roomData.escapeLog || []).join('<br>');
+                                settingsColumn.appendChild(escapeLogDiv);
+                                const resolveStepBtn = document.createElement('button');
+                                resolveStepBtn.className = 'resolve-escape-step-btn';
+                                resolveStepBtn.textContent = `관문 ${roomData.escapeStep + 1}단계 확인`;
+                                resolveStepBtn.style.cssText = 'background-color: #fd7e14; width: 100%; padding: 10px; margin-top: 15px; border:none; color:white; border-radius:5px; font-size:1em; cursor:pointer;';
+                                settingsColumn.appendChild(resolveStepBtn);
+                            } else if (roomData.pendingAction === 'engineer_choice') {
+                                const notice = document.createElement('p');
+                                notice.textContent = '엔지니어가 [계속 싸운다] 또는 [비상탈출]을 선택하기를 기다리는 중입니다...';
+                                notice.style.cssText = 'font-weight: bold; color: #007bff;';
+                                settingsColumn.appendChild(notice);
+                            } else if (roomData.pendingAction === 'escape_vote_pending') {
+                                settingsColumn.innerHTML += `<h4>역할 주장 완료</h4><p>모든 생존자가 역할 주장을 마쳤습니다. 아래 버튼을 눌러 최종 탑승자 투표를 시작하세요.</p>`;
+                                const startVoteBtn = document.createElement('button');
+                                startVoteBtn.className = 'start-escape-vote-btn';
+                                startVoteBtn.textContent = '최종 투표 시작';
+                                startVoteBtn.style.backgroundColor = '#28a745';
+                                settingsColumn.appendChild(startVoteBtn);
+                            } else if (roomData.pendingAction === 'escape_survivor_selection') {
+                                const livingPlayers = roomData.players.filter(p => p.status === 'alive').length;
+                                const votedPlayers = Object.keys(roomData.escapeVotes || {}).length;
+                                settingsColumn.innerHTML += `<h4>비상탈출 투표 진행 중 (${votedPlayers}/${livingPlayers})</h4><p>모든 인원이 투표를 마치거나, 시간 초과 시 자동으로 결과가 집계됩니다.</p>`;
+                                const timerBtn = document.createElement('button');
+                                timerBtn.className = 'escape-timer-btn';
+                                timerBtn.textContent = '3분 30초 타이머 시작';
+                                timerBtn.style.cssText = 'background-color: #ffc107; color: #212529;';
+                                settingsColumn.appendChild(timerBtn);
+                                const forceFailBtn = document.createElement('button');
+                                forceFailBtn.className = 'force-escape-fail-btn';
+                                forceFailBtn.textContent = '시간 초과로 투표 종료';
+                                forceFailBtn.style.backgroundColor = '#dc3545';
+                                settingsColumn.appendChild(forceFailBtn);
+                            } else if (roomData.pendingAction === 'escape_ready') {
+                                const survivorNames = (roomData.escapees || []).map(p => `${p.name} (${p.role})`).join('<br>');
+                                settingsColumn.innerHTML += `<h4>최종 탑승자 명단</h4><div style="padding: 10px; background-color: #e9e9e9; border-radius: 5px; text-align: left;">${survivorNames}</div>`;
+                                const startEscapeBtn = document.createElement('button');
+                                startEscapeBtn.className = 'start-escape-sequence-btn';
+                                startEscapeBtn.textContent = '비상탈출 시퀀스 시작';
+                                startEscapeBtn.style.backgroundColor = '#6f42c1';
+                                settingsColumn.appendChild(startEscapeBtn);
+                            } else if (roomData.pendingAction === 'queen_rampage') {
+                                if (!roomData.queenActionTaken) {
+                                    const rampageBtn = document.createElement('button');
+                                    rampageBtn.className = 'trigger-rampage-btn';
+                                    rampageBtn.textContent = '여왕의 만찬 시작';
+                                    settingsColumn.appendChild(rampageBtn);
+                                } else {
+                                    const resolveBtn = document.createElement('button');
+                                    resolveBtn.id = 'resolve-rampage-btn';
+                                    resolveBtn.textContent = '여왕의 만찬 결과 적용';
+                                    resolveBtn.className = 'resolve-night-btn';
+                                    settingsColumn.appendChild(resolveBtn);
+                                }
+                            } else if (roomData.phase === 'role_reveal') {
+                                const btn = document.createElement('button');
+                                btn.className = 'next-phase-btn';
+                                btn.dataset.phase = 'meeting';
+                                btn.dataset.day = 1;
+                                btn.textContent = '1일차 회의 시작';
+                                settingsColumn.appendChild(btn);
+                            } else if (roomData.phase === 'meeting') {
+                                const timerBtn = document.createElement('button');
+                                timerBtn.className = 'timer-btn toggle-meeting-timer-btn';
+                                const isPaused = roomData.meetingTimer && roomData.meetingTimer.isPaused;
+                                timerBtn.textContent = isPaused ? '타이머 다시 시작' : '타이머 작동';
+                                timerBtn.style.backgroundColor = isPaused ? '#28a745' : '#ffc107';
+                                settingsColumn.appendChild(timerBtn);
 
-
-                        } else if (roomData.phase === 'night_alien_action') {
-                            if (roomData.alienActionTriggered) {
-                                const resolveBtn = document.createElement('button');
-                                resolveBtn.className = 'resolve-night-btn';
-                                resolveBtn.textContent = '결과반영 및 탐사대 활동 시작';
-                                settingsColumn.appendChild(resolveBtn);
-                            } else {
-                                const triggerBtn = document.createElement('button');
-                                triggerBtn.className = 'trigger-alien-action-btn';
-                                triggerBtn.textContent = '에일리언 활동 시작';
-                                settingsColumn.appendChild(triggerBtn);
+                                if (roomData.settings.useEjectionMinigame) {
+                                    const alivePlayerGroups = new Set(roomData.players.filter(p => p.status === 'alive' && p.group).map(p => p.group));
+                                    const totalActiveGroups = alivePlayerGroups.size;
+                                    const startNominationBtn = document.createElement('button');
+                                    startNominationBtn.className = 'start-nomination-btn';
+                                    startNominationBtn.textContent = '1차 후보 지목 시작';
+                                    startNominationBtn.style.backgroundColor = '#fd7e14';
+                                    startNominationBtn.disabled = roomData.ejectionState !== 'pending_start';
+                                    settingsColumn.appendChild(startNominationBtn);
+                                    const startMinigameBtn = document.createElement('button');
+                                    startMinigameBtn.className = 'start-ejection-minigame-btn';
+                                    startMinigameBtn.textContent = '방출 미니게임 시작';
+                                    startMinigameBtn.style.backgroundColor = '#6f42c1';
+                                    settingsColumn.appendChild(startMinigameBtn);
+                                    const resolveBtn = document.createElement('button');
+                                    resolveBtn.className = 'resolve-ejection-minigame-btn';
+                                    resolveBtn.textContent = '결과 공개 및 방출 실행';
+                                    resolveBtn.style.backgroundColor = '#dc3545';
+                                    resolveBtn.disabled = roomData.ejectionState !== 'minigame_active' && roomData.ejectionState !== 'minigame_all_selected';
+                                    settingsColumn.appendChild(resolveBtn);
+                                } else {
+                                    const nextBtn = document.createElement('button');
+                                    nextBtn.className = 'next-phase-btn';
+                                    nextBtn.dataset.phase = 'night_alien_action';
+                                    nextBtn.dataset.day = roomData.day;
+                                    nextBtn.textContent = '밤으로 이동';
+                                    settingsColumn.appendChild(nextBtn);
+                                }
+                            } else if (roomData.phase === 'night_alien_action') {
+                                if (roomData.alienActionTriggered) {
+                                    const resolveBtn = document.createElement('button');
+                                    resolveBtn.className = 'resolve-night-btn';
+                                    resolveBtn.textContent = '결과반영 및 탐사대 활동 시작';
+                                    settingsColumn.appendChild(resolveBtn);
+                                } else {
+                                    const triggerBtn = document.createElement('button');
+                                    triggerBtn.className = 'trigger-alien-action-btn';
+                                    triggerBtn.textContent = '에일리언 활동 시작';
+                                    settingsColumn.appendChild(triggerBtn);
+                                }
+                            } else if (roomData.phase === 'night_crew_action') {
+                                const endBtn = document.createElement('button');
+                                endBtn.className = 'end-night-btn';
+                                endBtn.textContent = '활동 종료 및 아침으로';
+                                settingsColumn.appendChild(endBtn);
                             }
-                        } else if (roomData.phase === 'night_crew_action') {
-                            // ★★★ '탐사대 활동 시작' 버튼을 삭제하고 '활동 종료' 버튼만 남깁니다 ★★★
-                            const endBtn = document.createElement('button');
-                            endBtn.className = 'end-night-btn';
-                            endBtn.textContent = '활동 종료 및 아침으로';
-                            settingsColumn.appendChild(endBtn);
                         }
+                        // ================== ★★★ 누락되었던 버튼 생성 로직 끝 ★★★ ==================
+
+                        contentDiv.appendChild(playerColumn);
+                        contentDiv.appendChild(settingsColumn);
                     }
                 }
-                contentDiv.appendChild(playerColumn);
-                contentDiv.appendChild(settingsColumn);
                 roomDiv.appendChild(contentDiv);
                 roomsContainer.appendChild(roomDiv);
             }
