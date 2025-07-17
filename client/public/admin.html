@@ -286,7 +286,7 @@
                 socket.emit('resetServer');
             }
         });
-        const ALL_ROLES = ['에일리언 여왕', '에일리언', '에일리언 알', '함장', '엔지니어', '의사', '초능력자', '수다쟁이', '뚱이', '신의 사도', '군인', '일반 승객'];
+        const ALL_ROLES = ['에일리언 여왕', '에일리언', '에일리언 알', '에일리언 주술사', '함장', '엔지니어', '의사', '경호원', '초능력자', '수다쟁이', '뚱이', '신의 사도', '군인', '일반 승객'];
         let gameRoomsState = {};
         let presetsState = {};
         let missionPresetsState = [];
@@ -297,15 +297,17 @@
                 '에일리언 여왕': 1,
                 '에일리언': 1,
                 '에일리언 알': 1,
+                '에일리언 주술사': 1,
                 '함장': 1,
                 '엔지니어': 1,
                 '의사': 4,
+                '경호원': 1,
                 '군인': 1,
                 '초능력자': 1,
                 '수다쟁이': 1,
                 '뚱이': 1,
                 '신의 사도': 1,
-                '일반 승객': 8 // 나머지 인원을 일반 승객으로 채웁니다.
+                '일반 승객': 6 // 나머지 인원을 일반 승객으로 채웁니다.
             };
             return defaults;
         }
@@ -521,8 +523,21 @@
                         const groupText = player.group ? `${player.group}모둠` : '모둠 미정';
                         const groupLine = `<div class="player-info-group">${groupText}</div>`;
 
-                        // 3. 직업 (Role)
                         let roleText = player.role || '역할 미정';
+                        // 경호원의 보호 대상 표시
+                        if (player.role === '경호원' && roomData.bodyguardProtection === player.id) {
+                            const protectedPlayer = roomData.players.find(p => p.id === roomData.bodyguardProtection);
+                            if (protectedPlayer) {
+                                roleText += ` <span style="color: #28a745;">▶ ${protectedPlayer.name} 보호 중</span>`;
+                            }
+                        }
+                        // 주술사의 저주 대상 표시
+                        if (player.role === '에일리언 주술사' && roomData.selections && roomData.selections[player.id]) {
+                            const cursedPlayer = roomData.players.find(p => p.id === roomData.selections[player.id]);
+                            if (cursedPlayer) {
+                                roleText += ` <span style="color: #6f42c1;">▶ ${cursedPlayer.name} 저주 중</span>`;
+                            }
+                        }
                         if ((player.role === '함장' || player.role === '군인') && typeof player.bullets !== 'undefined') {
                             roleText += ` (총알: ${player.bullets})`;
                         }
@@ -778,7 +793,7 @@
                             if (roomData.alienActionTriggered) {
                                 const resolveBtn = document.createElement('button');
                                 resolveBtn.className = 'resolve-night-btn';
-                                resolveBtn.textContent = '에일리언 활동 결과 반영';
+                                resolveBtn.textContent = '결과반영 및 탐사대 활동 시작';
                                 settingsColumn.appendChild(resolveBtn);
                             } else {
                                 const triggerBtn = document.createElement('button');

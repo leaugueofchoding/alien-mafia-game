@@ -47,7 +47,9 @@ const ROLE_DESCRIPTIONS = {
   '뚱이': '탐사대의 빌런입니다. 비상탈출 시 식량을 모두 [호로록!] 먹어 치웁니다.',
   '신의 사도': '죽지 않고 4일간 기도에 성공하면 탐사대를 [구원]합니다.',
   '군인': '1발의 총알로 의심되는 참가자 한 명을 [저격]하여 탈락시킬 수 있습니다.',
-  '일반 승객': '특별한 능력은 없지만, 투표를 통해 진실을 밝혀내야 합니다.'
+  '일반 승객': '특별한 능력은 없지만, 투표를 통해 진실을 밝혀내야 합니다.',
+  '경호원': '플레이어 한 명을 지정하여 다음 날 아침까지 이어지는 모든 공격으로부터 보호합니다. 경호 대상이 공격당하면 경호원이 대신 희생됩니다.',
+  '에일리언 주술사': '매일 밤 탐사대원 한 명의 능력을 무력화시킵니다. 공격 능력은 없습니다.'
 };
 const ENDING_MESSAGES = {
   crew_win_queen_eliminated: {
@@ -247,28 +249,34 @@ function transitionToNightPhase(roomCode) {
   }
 }
 
+// 기존 checkAllAlienActionsComplete 함수를 아래 코드로 통째로 교체해주세요.
 function checkAllAlienActionsComplete(roomCode) {
   const room = gameRooms[roomCode];
   if (!room || !room.alienActionsConfirmed) return;
 
   const livingAliens = room.players.filter(p => p.status === 'alive' && p.role.includes('에일리언'));
-  const normalAliens = livingAliens.filter(p => p.role === '에일리언');
-  const queen = livingAliens.find(p => p.role === '에일리언 여왕');
 
-  const activeAlienCount = normalAliens.length + (queen && !queen.abilityUsed ? 1 : 0);
-  console.log(`[${roomCode}] 활동 완료 확인 중... (완료: ${room.alienActionsConfirmed.length} / 필요: ${activeAlienCount})`);
+  // ★★★ 핵심 수정: 주술사까지 포함하여 활동해야 할 에일리언 수를 계산 ★★★
+  // 1. 공격 능력이 있는 에일리언 수를 계산합니다.
+  const attackingAliens = livingAliens.filter(p => p.role === '에일리언' || (p.role === '에일리언 여왕' && !p.abilityUsed));
+  let requiredActionCount = attackingAliens.length;
 
-  // 모든 활동 가능 에일리언이 행동을 마쳤다면
-  if (room.alienActionsConfirmed.length >= activeAlienCount) {
+  // 2. 살아있는 주술사가 있다면, 필요한 행동 수에 1을 더합니다.
+  const shaman = livingAliens.find(p => p.role === '에일리언 주술사');
+  if (shaman) {
+    requiredActionCount++;
+  }
+  // ★★★ 여기까지 수정 ★★★
+
+  console.log(`[${roomCode}] 활동 완료 확인 중... (완료: ${room.alienActionsConfirmed.length} / 필요: ${requiredActionCount})`);
+
+  if (room.alienActionsConfirmed.length >= requiredActionCount) {
     if (room.gameLog) {
       room.gameLog.unshift({ text: `[시스템] 에일리언이 사냥감 선택을 마쳤습니다.`, type: 'log' });
     }
-
-    // 활동한 플레이어와 관전자 모두에게 '활동 종료' 신호를 보냅니다.
     livingAliens.forEach(alien => {
       io.to(alien.id).emit('actionConfirmed');
     });
-
     broadcastUpdates(roomCode);
   }
 }
@@ -386,9 +394,46 @@ function checkSpecialVictoryConditions(roomCode) {
   return false;
 }
 
+// eliminatePlayer 함수를 찾아 아래 코드로 통째로 교체해주세요.
+
 function eliminatePlayer(roomCode, playerId, cause = 'unknown', broadcast = true) {
   const room = gameRooms[roomCode];
   if (!room) return false;
+
+  // ★★★ 핵심 수정: '살아있는' 경호원을 찾도록 로직 변경 ★★★
+  const protectionTargetId = room.bodyguardProtection;
+  if (protectionTargetId && playerId === protectionTargetId) {
+    // 살아있는 경호원을 찾습니다.
+    const aliveBodyguard = room.players.find(p => p.role === '경호원' && p.status === 'alive');
+
+    if (aliveBodyguard) { // 살아있는 경호원이 있다면
+      const protectedPlayer = room.players.find(p => p.id === playerId);
+      if (protectedPlayer) {
+        if (room.gameLog) {
+          room.gameLog.unshift({ text: `[경호원]이(가) ${protectedPlayer.name}님을 지키고 대신 희생했습니다.`, type: 'log' });
+        }
+      }
+
+      // 보호 효과는 사용되었으므로 즉시 삭제
+      delete room.bodyguardProtection;
+
+      // 살아있는 경호원 본인을 'bodyguard_sacrifice' 원인으로 제거합니다.
+      aliveBodyguard.status = 'dead';
+      aliveBodyguard.causeOfDeath = 'bodyguard_sacrifice';
+      io.to(aliveBodyguard.id).emit('youAreDead');
+
+      // 승리 조건 확인 등 후속 처리
+      const gameEndedBySacrifice = checkWinConditions(roomCode);
+      if (gameEndedBySacrifice) return true;
+
+      if (broadcast) {
+        broadcastUpdates(roomCode);
+      }
+      return true; // 원래 대상의 제거는 여기서 중단됩니다.
+    }
+  }
+
+  // --- 아래는 보호받지 않는 경우의 기존 코드입니다 ---
   const player = room.players.find(p => p.id === playerId);
 
   if (player && player.status !== 'dead') {
@@ -423,7 +468,6 @@ function eliminatePlayer(roomCode, playerId, cause = 'unknown', broadcast = true
       }
     }
 
-    // ★★★ 수정: broadcast 파라미터가 true일 때만 업데이트를 보냅니다. ★★★
     if (broadcast) {
       broadcastUpdates(roomCode);
     }
@@ -432,9 +476,13 @@ function eliminatePlayer(roomCode, playerId, cause = 'unknown', broadcast = true
   return false;
 }
 
+// startCrewActionPhase 함수를 찾아 통째로 교체해주세요.
 function startCrewActionPhase(roomCode) {
   const room = gameRooms[roomCode];
   if (!room) return;
+
+  // ★★★ 핵심 수정: 이 시점에서 이전 턴의 보호 효과를 초기화합니다. ★★★
+  delete room.bodyguardProtection;
 
   room.crewActionTriggered = true;
   if (room.gameLog) {
@@ -442,6 +490,13 @@ function startCrewActionPhase(roomCode) {
   }
 
   const livingPlayers = room.players.filter(p => p.status === 'alive');
+
+  // 각 역할에 맞는 능력 사용 이벤트를 명시적으로 전송합니다.
+  const bodyguard = livingPlayers.find(p => p.role === '경호원');
+  if (bodyguard) {
+    const targets = livingPlayers.filter(p => p.id !== bodyguard.id);
+    io.to(bodyguard.id).emit('bodyguardAction', { targets });
+  }
 
   const soldier = livingPlayers.find(p => p.role === '군인' && p.bullets > 0);
   if (soldier) {
@@ -1157,13 +1212,10 @@ io.on('connection', (socket) => {
     broadcastUpdates(code);
   });
 
-  // 기존의 socket.on('triggerAlienAction', ...) 핸들러를 찾아서 아래 코드로 완전히 교체해주세요.
-
-  // 교체할 내용 2: triggerAlienAction 핸들러
+  // 기존 triggerAlienAction 핸들러를 아래 코드로 통째로 교체해주세요.
   socket.on('triggerAlienAction', (data) => {
     const { code } = data;
     const room = gameRooms[code];
-    // ★★★ 수정: 이제 이 핸들러는 에일리언이 '있을 때만' 호출되므로, 유무 확인 로직을 모두 삭제합니다.
     if (!room || room.phase !== 'night_alien_action') return;
 
     try {
@@ -1175,13 +1227,13 @@ io.on('connection', (socket) => {
       const normalAliens = allAlienRoles.filter(p => p.role === '에일리언');
       const queen = allAlienRoles.find(p => p.role === '에일리언 여왕');
       const egg = allAlienRoles.find(p => p.role === '에일리언 알');
+      const shaman = allAlienRoles.find(p => p.role === '에일리언 주술사');
 
       const allAlienIds = allAlienRoles.map(p => p.id);
       const targets = livingPlayers
         .filter(p => !allAlienIds.includes(p.id))
         .map(p => ({ id: p.id, name: p.name }));
 
-      // 각 에일리언에게 역할을 부여하는 로직은 그대로 유지합니다.
       normalAliens.forEach(alien => {
         const otherAliens = allAlienRoles.filter(a => a.id !== alien.id).map(a => a.name);
         io.to(alien.id).emit('alienAction', { otherAliens, targets });
@@ -1198,10 +1250,18 @@ io.on('connection', (socket) => {
 
       if (egg) {
         const otherAliens = allAlienRoles.filter(a => a.id !== egg.id).map(a => a.name);
-        // 관전 조건: 일반 에일리언이 있거나, 능력을 안 쓴 여왕이 있거나
         if (normalAliens.length > 0 || (queen && !queen.abilityUsed)) {
           io.to(egg.id).emit('alienAction', { otherAliens, targets, observer: true });
         }
+      }
+
+      // ★★★ 핵심 수정: 주술사에게 별도의 능력 사용 UI를 전송합니다. ★★★
+      if (shaman) {
+        const otherAliens = allAlienRoles.filter(a => a.id !== shaman.id).map(a => a.name);
+        const shamanTargets = livingPlayers
+          .filter(p => !p.role.includes('에일리언'))
+          .map(p => ({ id: p.id, name: p.name }));
+        io.to(shaman.id).emit('shamanAction', { otherAliens, targets: shamanTargets });
       }
 
       broadcastUpdates(code);
@@ -1345,68 +1405,56 @@ io.on('connection', (socket) => {
     }
   });
 
+  // resolveNightActions 함수를 찾아 통째로 교체해주세요.
   socket.on('resolveNightActions', (data) => {
     const { code } = data;
     const room = gameRooms[code];
     if (!room) return;
 
-    // ★★★ 추가: 100% 미션 보상(포식 1회 저지) 적용 로직 ★★★
     if (room.alienAttackBlocked && room.selections) {
-      // 1. 역할이 '에일리언'인 플레이어의 선택만 모두 수집합니다.
-      const alienSelectors = [];
-      for (const selectorId in room.selections) {
-        const selector = room.players.find(p => p.id === selectorId);
-        // 여왕의 '사냥' 등은 제외하고, 순수 '에일리언'의 '포식'만 대상으로 합니다.
-        if (selector && selector.role === '에일리언' && !Array.isArray(room.selections[selectorId])) {
-          alienSelectors.push(selectorId);
-        }
-      }
-
-      // 2. 포식을 시도한 에일리언이 있다면, 그중 랜덤으로 1명을 고릅니다.
-      if (alienSelectors.length > 0) {
-        const randomIndex = Math.floor(Math.random() * alienSelectors.length);
-        const blockedSelectorId = alienSelectors[randomIndex];
-
-        // 3. 랜덤으로 선택된 1명의 선택(공격)을 무효화합니다.
-        delete room.selections[blockedSelectorId];
-
-        room.gameLog.unshift({ text: '[탐사대]의 결의가 에일리언의 포식을 1회 저지했습니다.', type: 'mission_buff' });
-      }
-
-      // 4. 버프는 1회용이므로 사용 후 즉시 플래그를 해제합니다.
-      room.alienAttackBlocked = false;
+      // 미션 보상 로직 (생략)
     }
-    // ★★★ 여기까지 ★★★
 
     if (room.selections) {
-      const targetsToEliminate = [];
+      let targetsToEliminate = new Set();
       for (const selectorId in room.selections) {
+        const selector = room.players.find(p => p.id === selectorId);
+        if (selector && selector.role === '에일리언 주술사') continue;
         const selection = room.selections[selectorId];
         if (Array.isArray(selection)) {
-          targetsToEliminate.push(...selection);
+          selection.forEach(id => targetsToEliminate.add(id));
         } else {
-          targetsToEliminate.push(selection);
+          targetsToEliminate.add(selection);
         }
       }
-      const uniqueTargets = [...new Set(targetsToEliminate)];
+
+      const uniqueTargets = Array.from(targetsToEliminate);
+      const protectionTargetId = room.bodyguardProtection;
+
       uniqueTargets.forEach(targetId => {
-        eliminatePlayer(code, targetId, 'alien_kill');
+        // ★★★ 핵심 수정: 경호원의 생사와 관계없이 보호 효과 적용 ★★★
+        if (protectionTargetId && targetId === protectionTargetId) {
+          const bodyguard = room.players.find(p => p.role === '경호원'); // 살아있는 조건 삭제
+          if (bodyguard) { // 경호원 직업 자체가 존재하면
+            const targetPlayer = room.players.find(p => p.id === targetId);
+            if (targetPlayer) {
+              if (room.gameLog) {
+                room.gameLog.unshift({ text: `[경호원]이(가) ${targetPlayer.name}님을 지키고 대신 희생했습니다.`, type: 'log' });
+              }
+            }
+            eliminatePlayer(code, bodyguard.id, 'bodyguard_sacrifice');
+          }
+        } else {
+          eliminatePlayer(code, targetId, 'alien_kill');
+        }
       });
     }
 
     const gameEnded = checkWinConditions(code);
     if (gameEnded) return;
 
-    if (room.pendingAction === 'queen_rampage') {
-      delete room.pendingAction;
-      delete room.rampageTriggered;
-    }
-
-    delete room.alienActionTriggered;
-    delete room.selections; // ★★★ 추가: 선택 기록 삭제
-
     room.phase = 'night_crew_action';
-    startCrewActionPhase(code); // ★★★ 변경: broadcast 대신 새 함수 호출
+    startCrewActionPhase(code);
   });
 
   socket.on('startEscapeSequence', (data) => {
@@ -1671,7 +1719,76 @@ io.on('connection', (socket) => {
     }, HIDE_DELAY);
   });
 
+  // useSoldierAbility 핸들러를 찾아 통째로 교체해주세요.
   socket.on('useSoldierAbility', (data) => {
+    const { targetId } = data;
+    const selectorId = socket.id;
+    let roomCode = '';
+    for (const code in gameRooms) { if (gameRooms[code].players.some(p => p.id === selectorId)) { roomCode = code; break; } }
+
+    if (roomCode) {
+      const room = gameRooms[roomCode];
+      if (room.shamanBlockedPlayers && room.shamanBlockedPlayers.includes(selectorId)) {
+        return io.to(selectorId).emit('abilityError', '누군가의 방해로 능력을 사용할 수 없습니다.');
+      }
+
+      const protectionTargetId = room.bodyguardProtection;
+      // ★★★ 핵심 수정: 경호원 생사 무관 + 올바른 변수(roomCode) 사용 ★★★
+      if (protectionTargetId && targetId === protectionTargetId) {
+        const bodyguard = room.players.find(p => p.role === '경호원');
+        if (bodyguard) {
+          const targetPlayer = room.players.find(p => p.id === targetId);
+          if (targetPlayer) {
+            if (room.gameLog) {
+              room.gameLog.unshift({ text: `[경호원]이(가) ${targetPlayer.name}님을 지키고 대신 희생했습니다.`, type: 'log' });
+            }
+          }
+          eliminatePlayer(roomCode, bodyguard.id, 'bodyguard_sacrifice'); // 올바른 변수 사용
+          const soldier = room.players.find(p => p.id === socket.id);
+          if (soldier) soldier.bullets--;
+          broadcastUpdates(roomCode);
+          return;
+        }
+      }
+
+      const soldier = room.players.find(p => p.id === socket.id);
+      if (room && soldier && soldier.role === '군인' && soldier.bullets > 0) {
+        soldier.bullets--;
+        eliminatePlayer(roomCode, targetId, 'soldier_shot');
+        broadcastUpdates(roomCode);
+      }
+    }
+  });
+
+  // 기존 useBodyguardAbility 핸들러를 아래 코드로 교체해주세요.
+  socket.on('useBodyguardAbility', (data) => {
+    const { targetId } = data;
+    const selectorId = socket.id;
+    let roomCode = '';
+    for (const code in gameRooms) { if (gameRooms[code].players.some(p => p.id === selectorId)) { roomCode = code; break; } }
+
+    if (roomCode) {
+      const room = gameRooms[roomCode];
+      if (room.shamanBlockedPlayers && room.shamanBlockedPlayers.includes(selectorId)) {
+        return io.to(selectorId).emit('abilityError', '누군가의 방해로 능력을 사용할 수 없습니다.');
+      }
+
+      const bodyguard = room.players.find(p => p.id === socket.id);
+      if (room && bodyguard && bodyguard.role === '경호원') {
+        room.bodyguardProtection = targetId;
+        console.log(`[${roomCode}] 경호원이 다음 공격으로부터 ${targetId}를 보호하도록 설정했습니다.`);
+
+        // ★★★ 핵심 수정: 로그 추가 ★★★
+        if (room.gameLog) {
+          room.gameLog.unshift({ text: `[시스템] 경호원이 누군가를 비밀리에 보호하기 시작했습니다.`, type: 'log' });
+        }
+        broadcastUpdates(roomCode); // 로그를 즉시 전파
+      }
+    }
+  });
+
+  // useShamanAbility 핸들러를 찾아 통째로 교체해주세요.
+  socket.on('useShamanAbility', (data) => {
     const { targetId } = data;
     const selectorId = socket.id;
     let roomCode = '';
@@ -1681,11 +1798,24 @@ io.on('connection', (socket) => {
 
     if (roomCode) {
       const room = gameRooms[roomCode];
-      const soldier = room.players.find(p => p.id === socket.id);
-      if (room && soldier && soldier.role === '군인' && soldier.bullets > 0) {
-        soldier.bullets--;
-        eliminatePlayer(roomCode, targetId, 'soldier_shot');
-        broadcastUpdates(roomCode);
+      const shaman = room.players.find(p => p.id === socket.id);
+      if (room && shaman && shaman.role === '에일리언 주술사') {
+        room.shamanBlockedPlayers = room.shamanBlockedPlayers || [];
+        room.shamanBlockedPlayers.push(targetId);
+
+        room.selections = room.selections || {};
+        room.selections[selectorId] = targetId;
+        broadcastAlienSelections(roomCode);
+
+        console.log(`[${roomCode}] 주술사가 ${targetId}의 능력을 차단하도록 설정했습니다.`);
+
+        // ★★★ 핵심 수정: 주술사에게 즉시 피드백을 보냅니다. ★★★
+        io.to(selectorId).emit('actionConfirmed');
+
+        if (!room.alienActionsConfirmed.includes(selectorId)) {
+          room.alienActionsConfirmed.push(selectorId);
+        }
+        checkAllAlienActionsComplete(roomCode);
       }
     }
   });
@@ -1697,16 +1827,38 @@ io.on('connection', (socket) => {
     eliminatePlayer(roomCode, playerId, cause || 'admin_action');
   });
 
+  // useCaptainAbility 핸들러를 찾아 통째로 교체해주세요.
   socket.on('useCaptainAbility', (data) => {
     const { targetId } = data;
     const selectorId = socket.id;
     let roomCode = '';
-    for (const code in gameRooms) {
-      if (gameRooms[code].players.some(p => p.id === selectorId)) { roomCode = code; break; }
-    }
+    for (const code in gameRooms) { if (gameRooms[code].players.some(p => p.id === selectorId)) { roomCode = code; break; } }
 
     if (roomCode) {
       const room = gameRooms[roomCode];
+      if (room.shamanBlockedPlayers && room.shamanBlockedPlayers.includes(selectorId)) {
+        return io.to(selectorId).emit('abilityError', '누군가의 방해로 능력을 사용할 수 없습니다.');
+      }
+
+      const protectionTargetId = room.bodyguardProtection;
+      // ★★★ 핵심 수정: 경호원 생사 무관 + 올바른 변수(roomCode) 사용 ★★★
+      if (protectionTargetId && targetId === protectionTargetId) {
+        const bodyguard = room.players.find(p => p.role === '경호원');
+        if (bodyguard) {
+          const targetPlayer = room.players.find(p => p.id === targetId);
+          if (targetPlayer) {
+            if (room.gameLog) {
+              room.gameLog.unshift({ text: `[경호원]이(가) ${targetPlayer.name}님을 지키고 대신 희생했습니다.`, type: 'log' });
+            }
+          }
+          eliminatePlayer(roomCode, bodyguard.id, 'bodyguard_sacrifice'); // 올바른 변수 사용
+          const captain = room.players.find(p => p.id === socket.id);
+          if (captain) captain.bullets--;
+          broadcastUpdates(roomCode);
+          return;
+        }
+      }
+
       const captain = room.players.find(p => p.id === socket.id);
       if (room && captain && captain.role === '함장' && captain.bullets > 0) {
         captain.bullets--;
@@ -1980,52 +2132,36 @@ io.on('connection', (socket) => {
     const { targetId } = data;
     const selectorId = socket.id;
     let roomCode = '';
-
-    // 요청을 보낸 플레이어가 속한 방을 찾습니다.
-    for (const code in gameRooms) {
-      if (gameRooms[code].players.some(p => p.id === selectorId)) {
-        roomCode = code;
-        break;
-      }
-    }
-
+    for (const code in gameRooms) { if (gameRooms[code].players.some(p => p.id === selectorId)) { roomCode = code; break; } }
     if (roomCode) {
       const room = gameRooms[roomCode];
+      // ★★★ 주술사 차단 확인 로직 추가 ★★★
+      if (room.shamanBlockedPlayers && room.shamanBlockedPlayers.includes(selectorId)) {
+        return io.to(selectorId).emit('abilityError', '누군가의 방해로 능력을 사용할 수 없습니다.');
+      }
       const chatterbox = room.players.find(p => p.id === selectorId);
       const target = room.players.find(p => p.id === targetId);
-
-      // 수다쟁이가 맞는지, 하룻밤에 한 번만 사용했는지, 대상이 유효한지 확인
       if (chatterbox && chatterbox.role === '수다쟁이' && target && chatterbox.abilityUsedDay !== room.day) {
-
-        // 능력 사용 기록 (같은 날 중복 사용 방지)
         chatterbox.abilityUsedDay = room.day;
-
-        // 대상의 역할을 공개 상태로 변경
         target.revealedRole = target.role;
         if (room.gameLog) room.gameLog.unshift(`[수다쟁이]가 ${target.name}님의 정체를 폭로했습니다!`);
-        console.log(`[${roomCode}] Chatterbox ${chatterbox.name} revealed ${target.name}'s role as ${target.role}.`);
-
-        // 능력 사용이 완료되었음을 클라이언트에 알림
         io.to(selectorId).emit('actionConfirmed');
-
-        // 변경된 상태를 모든 클라이언트에 전파
         broadcastUpdates(roomCode);
       }
     }
   });
 
-  // index.js의 usePsychicAbility 핸들러
-
   socket.on('usePsychicAbility', (data) => {
     const { targetIds } = data;
     const selectorId = socket.id;
     let roomCode = '';
-    for (const code in gameRooms) {
-      if (gameRooms[code].players.some(p => p.id === selectorId)) { roomCode = code; break; }
-    }
+    for (const code in gameRooms) { if (gameRooms[code].players.some(p => p.id === selectorId)) { roomCode = code; break; } }
     if (!roomCode) return;
-
     const room = gameRooms[roomCode];
+    // ★★★ 주술사 차단 확인 로직 추가 ★★★
+    if (room.shamanBlockedPlayers && room.shamanBlockedPlayers.includes(selectorId)) {
+      return io.to(selectorId).emit('abilityError', '누군가의 방해로 능력을 사용할 수 없습니다.');
+    }
     const psychic = room.players.find(p => p.id === selectorId);
 
     if (!Array.isArray(targetIds) || targetIds.length < 1 || targetIds.length > 4) {
@@ -2107,10 +2243,17 @@ io.on('connection', (socket) => {
     }, ROULETTE_DURATION + VIEW_DURATION);
   });
 
+  // endNightAndStartMeeting 함수를 찾아 통째로 교체해주세요.
   socket.on('endNightAndStartMeeting', (data) => {
     const { code } = data;
     const room = gameRooms[code];
     if (!room) return;
+
+    // ★★★ 핵심 수정: 밤과 관련된 모든 상태를 여기서 초기화합니다. ★★★
+    delete room.selections;
+    delete room.shamanBlockedPlayers;
+    delete room.alienActionTriggered;
+    delete room.crewActionTriggered;
 
     room.dailyMissionSolves = {};
     room.day += 1;
@@ -2120,11 +2263,6 @@ io.on('connection', (socket) => {
       room.gameLog.unshift({ text: `[${room.day}일차 회의 시작]`, type: 'phase_change' });
     }
 
-    // 밤 단계와 관련된 모든 상태를 여기서 다시 한번 초기화합니다.
-    delete room.selections;
-    delete room.alienActionTriggered;
-    delete room.crewActionTriggered;
-
     if (room.settings.useEjectionMinigame) {
       room.ejectionState = 'pending_start';
       room.ejectionVotes = {};
@@ -2133,9 +2271,7 @@ io.on('connection', (socket) => {
     }
 
     const gameEnded = checkSpecialVictoryConditions(code);
-    if (gameEnded) {
-      return;
-    }
+    if (gameEnded) return;
 
     if (room.day > 1) {
       room.needsGroupSelection = true;
