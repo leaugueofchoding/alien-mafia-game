@@ -492,9 +492,20 @@
                 let hasAbility = false;
 
                 if (me.role === '경호원') {
-                    const targets = room.players.filter(p => p.status === 'alive' && p.id !== me.id);
-                    abilityContent = `<h4>경호할 대상을 선택하세요.</h4><p>(선택한 대상은 다음 날 아침까지 모든 공격에서 1회 보호됩니다.)</p><ul class="player-grid-list">${targets.map(t => `<li><button class="target-btn" data-ability="bodyguard" data-target-id="${t.id}">${t.name}</button></li>`).join('')}</ul>`;
+                    // ★★★ 시작: 아래 로직으로 교체해주세요. ★★★
+                    if (me.abilityUsedThisTurn) {
+                        // 능력을 이미 사용한 경우
+                        const protectedPlayer = room.players.find(p => p.id === room.bodyguardProtection);
+                        const protectedName = protectedPlayer ? protectedPlayer.name : '누군가';
+                        abilityContent = `<h4>보호 대상 선택 완료</h4><p>오늘 밤에는 <strong>${protectedName}</strong>님을 보호합니다.</p>`;
+                    } else {
+                        // 아직 능력을 사용하지 않은 경우
+                        const targets = room.players.filter(p => p.status === 'alive' && p.id !== me.id);
+                        abilityContent = `<h4>경호할 대상을 선택하세요.</h4><p>(선택한 대상은 다음 날 아침까지 모든 공격에서 1회 보호됩니다.)</p><ul class="player-grid-list">${targets.map(t => `<li><button class="target-btn" data-ability="bodyguard" data-target-id="${t.id}">${t.name}</button></li>`).join('')}</ul>`;
+                    }
                     hasAbility = true;
+                    // ★★★ 종료: 여기까지 교체해주세요. ★★★
+
                 } else if (me.role === '함장' && me.bullets > 0) {
                     const targets = room.players.filter(p => p.status === 'alive' && p.id !== me.id);
                     abilityContent = `<h4>즉결 처분할 대상을 선택하세요. <span style="font-weight:normal;">(남은 총알: ${me.bullets}발)</span></h4><ul class="player-grid-list">${targets.map(t => `<li><button class="target-btn" data-ability="captain" data-target-id="${t.id}">${t.name}</button></li>`).join('')}</ul>`;

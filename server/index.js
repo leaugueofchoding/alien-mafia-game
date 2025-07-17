@@ -1775,14 +1775,17 @@ io.on('connection', (socket) => {
 
       const bodyguard = room.players.find(p => p.id === socket.id);
       if (room && bodyguard && bodyguard.role === '경호원') {
+        // ★★★ 시작: 아래 로직을 추가해주세요. ★★★
+        bodyguard.abilityUsedThisTurn = true; // 능력 사용 플래그 설정
+        // ★★★ 종료: 여기까지 추가해주세요. ★★★
+
         room.bodyguardProtection = targetId;
         console.log(`[${roomCode}] 경호원이 다음 공격으로부터 ${targetId}를 보호하도록 설정했습니다.`);
 
-        // ★★★ 핵심 수정: 로그 추가 ★★★
         if (room.gameLog) {
           room.gameLog.unshift({ text: `[시스템] 경호원이 누군가를 비밀리에 보호하기 시작했습니다.`, type: 'log' });
         }
-        broadcastUpdates(roomCode); // 로그를 즉시 전파
+        broadcastUpdates(roomCode);
       }
     }
   });
@@ -2278,6 +2281,9 @@ io.on('connection', (socket) => {
       room.players.forEach(p => {
         if (p.status === 'alive') {
           delete p.group;
+          // ★★★ 시작: 아래 로직을 추가해주세요. ★★★
+          delete p.abilityUsedThisTurn; // 턴 능력 사용 기록 초기화
+          // ★★★ 종료: 여기까지 추가해주세요. ★★★
         }
       });
     }
