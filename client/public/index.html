@@ -1427,6 +1427,11 @@
                     return;
                 }
 
+                if (abilityType === 'alien') {
+                    socket.emit('nightAction', { targetId: target.classList.contains('pre-selected') ? null : targetId });
+                    return; // 팝업 창을 띄우지 않고 여기서 함수 종료
+                }
+
                 if (abilityType === 'queen_hunt') {
                     const confirmBtn = document.getElementById('confirm-hunt-btn');
                     const maxSelection = Math.min(2, document.querySelectorAll('.target-btn[data-ability="queen_hunt"]').length);
@@ -1483,9 +1488,9 @@
 
                 if (confirm(`${targetName}님을 대상으로 능력을 사용하시겠습니까?`)) {
                     switch (abilityType) {
-                        case 'alien':
-                            socket.emit('nightAction', { targetId: target.classList.contains('pre-selected') ? null : targetId });
-                            break;
+                        //case 'alien':
+                        //socket.emit('nightAction', { targetId: target.classList.contains('pre-selected') ? null : targetId });
+                        //break;
                         case 'bodyguard':
                             socket.emit('useBodyguardAbility', { targetId });
                             // ★★★ 핵심 수정: 모든 경호 대상 버튼을 비활성화하여 피드백 제공 ★★★

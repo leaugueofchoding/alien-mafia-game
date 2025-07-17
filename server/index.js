@@ -948,6 +948,7 @@ io.on('connection', (socket) => {
 
   // 기존 socket.on('selectEjectionCard', ...) 핸들러를 삭제하고 아래 코드로 교체
 
+  // 기존 socket.on('selectEjectionCard', ...) 핸들러를 삭제하고 아래 코드로 교체
   socket.on('selectEjectionCard', (data) => {
     const { roomCode, cardId } = data;
     const candidateId = socket.id;
@@ -975,8 +976,16 @@ io.on('connection', (socket) => {
       selections[candidateId] = cardId;
       console.log(`[STATE_UPDATE][${roomCode}] Player ${candidateId} selected card ${cardId}. Current Selections:`, JSON.stringify(selections));
 
+      // ★★★ 시작: 디버깅용 로그를 여기에 추가해주세요. ★★★
+      console.log(`[DEBUG] Checking completion state...`);
+      console.log(`[DEBUG] Candidates Array:`, JSON.stringify(candidates));
+      console.log(`[DEBUG] Selection Keys:`, JSON.stringify(Object.keys(selections)));
+      console.log(`[DEBUG] Candidates Count: ${candidates.length}`);
+      console.log(`[DEBUG] Selections Count: ${Object.keys(selections).length}`);
+      // ★★★ 종료: 여기까지 추가해주세요. ★★★
+
       // 모든 후보가 카드를 선택했는지 확인합니다.
-      const allCandidatesSelected = candidates.every(id => !!selections[id]);
+      const allCandidatesSelected = candidates.every(id => selections[id] !== undefined);
       if (allCandidatesSelected) {
         room.ejectionState = 'minigame_all_selected';
         if (room.gameLog) {
