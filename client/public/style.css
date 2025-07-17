@@ -623,3 +623,107 @@ li.dead {
     /* 폰트 크기 살짝 조정 */
     box-sizing: border-box;
 }
+
+/* style.css 파일 맨 아래에 추가 */
+
+/* --- 버전 및 패치노트 스타일 --- */
+#version-display {
+    position: fixed;
+    bottom: 15px;
+    right: 20px;
+    background-color: rgba(0, 0, 0, 0.5);
+    color: #a0a0a0;
+    padding: 5px 10px;
+    border-radius: 8px;
+    font-size: 0.8em;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    z-index: 100;
+}
+
+#version-display:hover {
+    background-color: rgba(0, 209, 255, 0.3);
+    color: white;
+}
+
+#patch-notes-modal .modal-content {
+    text-align: left;
+    max-height: 70vh;
+    overflow-y: auto;
+}
+
+#patch-notes-modal h3 {
+    color: #00d1ff;
+    border-bottom: 1px solid #4a4a6e;
+    padding-bottom: 10px;
+    margin-top: 20px;
+}
+
+#patch-notes-modal h3:first-child {
+    margin-top: 0;
+}
+
+#patch-notes-modal ul {
+    padding-left: 20px;
+    list-style: disc;
+}
+
+#patch-notes-modal li {
+    background-color: transparent;
+    font-size: 1.1em;
+    line-height: 1.6;
+    margin: 8px 0;
+    display: list-item;
+}
+
+/* style.css 파일 맨 아래에 추가 */
+
+/* --- 정보 버튼 컨테이너 스타일 --- */
+#info-buttons-container {
+    position: fixed;
+    bottom: 15px;
+    right: 20px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    /* 버튼 사이 간격 */
+    z-index: 100;
+}
+
+/* --- 버전 및 개발자 인삿말 버튼 공통 스타일 --- */
+#version-display,
+.info-btn {
+    background-color: rgba(0, 0, 0, 0.5);
+    color: #a0a0a0;
+    padding: 5px 10px;
+    border-radius: 8px;
+    font-size: 0.8em;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    /* 아이콘 중앙 정렬을 위해 추가 */
+    align-items: center;
+}
+
+#version-display:hover,
+.info-btn:hover {
+    background-color: rgba(0, 209, 255, 0.3);
+    color: white;
+}
+
+/* 아이콘 버튼을 위한 추가 스타일 */
+.info-btn {
+    padding: 6px;
+    /* 아이콘이 잘 보이도록 패딩 조정 */
+}
+
+.info-btn .material-icons {
+    font-size: 16px;
+    /* 아이콘 크기 조정 */
+}
+
+/* 기존 #version-display의 position:fixed는 삭제하고 아래 코드로 교체 */
+#version-display {
+    position: static;
+    /* 컨테이너 안에서 위치를 잡도록 변경 */
+}
