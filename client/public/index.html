@@ -391,8 +391,48 @@
     `;
         }
 
+        // 기존의 showSpectatorScreen 함수를 찾아서
+        // 아래 코드로 완전히 교체(덮어쓰기) 해주세요.
+
+        function renderMissionBoard(missionBoard) {
+            if (!missionBoard) return;
+
+            // 페이지에 존재하는 모든 미션 보드 관련 요소를 찾아서 업데이트
+            const missionContainers = document.querySelectorAll('#mission-content');
+            if (missionContainers.length === 0) return;
+
+            const progressPercent = Math.round(missionBoard.progress * 100);
+            const problemsHtml = missionBoard.problems.map((p, index) => {
+                let content = `<strong>${index + 1}</strong>`;
+                let solvedName = '';
+                if (p.status === 'solved') {
+                    solvedName = `<span class="mission-solver-name">${p.solvedBy} 해결!</span>`;
+                } else if (p.status === 'failed') {
+                    solvedName = `<span class="mission-solver-name">${p.failedBy} 실패</span>`;
+                }
+                return `<div class="mission-item ${p.status}" data-problem-index="${index}">${content}${solvedName}</div>`;
+            }).join('');
+
+            const missionHTML = `
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                    <h3>미션 보드 (팀을 위해 미션을 해결하세요!)</h3>
+                    <h3 style="color: #00d1ff;">진행률: ${progressPercent}%</h3>
+                </div>
+                <div class="mission-board-grid">${problemsHtml}</div>
+            `;
+
+            missionContainers.forEach(container => {
+                container.innerHTML = missionHTML;
+            });
+        }
+
+        // ★★★ 신규 추가: 미션 보드 업데이트 이벤트 리스너 ★★★
+        socket.on('missionBoardUpdate', (missionBoard) => {
+            renderMissionBoard(missionBoard);
+        });
+
         function showSpectatorScreen(room) {
-            clearContainer(); // 화면 초기화
+            clearContainer();
 
             const lobbyContentContainer = document.createElement('div');
             showLobby(room, lobbyContentContainer, { showGroup: false });
@@ -405,7 +445,6 @@
                 return `<tr><td>${role}</td><td>${alive} / ${total}</td></tr>`;
             }).join('');
 
-            // ★★★ 수정: gameLog를 객체로 처리하여 type에 맞는 클래스를 부여하도록 변경 ★★★
             const gameLogHtml = (room.gameLog || []).map(logEntry => {
                 const text = typeof logEntry === 'string' ? logEntry : logEntry.text;
                 const type = typeof logEntry === 'string' ? 'log' : (logEntry.type || 'log');
@@ -414,7 +453,7 @@
 
             const situationBoardContent = `
         <h2 style="color: #dc3545;">당신은 사망하였습니다.</h2>
-        <p>다른 플레이어들의 게임을 관전할 수 있습니다.</p>
+        <p>다른 플레이어들의 게임을 관전하거나, 미션을 풀어 팀을 도울 수 있습니다.</p>
         <div class="log-box" style="height: 150px;">${gameLogHtml}</div>
         <h4 style="margin-top: 20px;">직업별 생존 현황</h4>
         <table class="summary-table">
@@ -422,14 +461,43 @@
             <tbody>${roleSummary}</tbody>
         </table>`;
 
+            // ★★★ 추가: 사망자도 볼 수 있는 미션 보드 UI 생성 ★★★
+            let missionContent = '';
+            if (room.missionBoard) {
+                const progressPercent = Math.round(room.missionBoard.progress * 100);
+                const problemsHtml = room.missionBoard.problems.map((p, index) => {
+                    let content = `<strong>${index + 1}</strong>`;
+                    let solvedName = '';
+                    if (p.status === 'solved') {
+                        solvedName = `<span class="mission-solver-name">${p.solvedBy} 해결!</span>`;
+                    } else if (p.status === 'failed') {
+                        solvedName = `<span class="mission-solver-name">${p.failedBy} 실패</span>`;
+                    }
+                    return `<div class="mission-item ${p.status}" data-problem-index="${index}">${content}${solvedName}</div>`;
+                }).join('');
+
+                missionContent = `
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                <h3>미션 보드 (팀을 위해 미션을 해결하세요!)</h3>
+                <h3 style="color: #00d1ff;">진행률: ${progressPercent}%</h3>
+            </div>
+            <div class="mission-board-grid">${problemsHtml}</div>
+        `;
+            } else {
+                missionContent = '<h4>이번 게임에는 미션 보드가 활성화되지 않았습니다.</h4>';
+            }
+            // ★★★ 여기까지 ★★★
+
             playerContainer.innerHTML = `
         <div class="tab-container">
             <button class="tab-link active" data-tab="situation">상황판</button>
-            <button class="tab-link" data-tab="lobby">대기실</button>
+            <button class="tab-link" data-tab="lobby">참가자</button>
+            <button class="tab-link" data-tab="mission">내 미션</button> 
         </div>
         <div class="content-container">
             <div id="situation-content" class="tab-content active">${situationBoardContent}</div>
             <div id="lobby-content" class="tab-content">${lobbyContentHtml}</div>
+            <div id="mission-content" class="tab-content">${missionContent}</div>
         </div>
     `;
 

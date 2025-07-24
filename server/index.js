@@ -2303,6 +2303,9 @@ io.on('connection', (socket) => {
     alert(message);
   });
 
+  // 기존의 socket.on('submitMissionAnswer', ...) 핸들러를 찾아서
+  // 아래 코드로 완전히 교체(덮어쓰기) 해주세요.
+
   socket.on('submitMissionAnswer', (data) => {
     const { problemIndex, answer } = data;
     const playerId = socket.id;
@@ -2319,25 +2322,25 @@ io.on('connection', (socket) => {
 
       if (!player || !problem || problem.status !== 'unsolved') return;
 
-      // ★★★ 수정된 부분 1: 도전 기회 확인 및 즉시 차감 ★★★
       const attemptedCount = room.dailyMissionSolves[playerId] || 0;
-      if (attemptedCount >= 1) {
+      if (player.status === 'alive' && attemptedCount >= 1) {
         return socket.emit('missionError', '오늘은 이미 미션에 도전했습니다. 내일을 기다려주세요!');
       }
 
-      // 정답 확인 전에 도전 횟수를 먼저 기록하여 기회를 차감합니다.
-      room.dailyMissionSolves[playerId] = attemptedCount + 1;
-      // ★★★ 여기까지 ★★★
+      if (player.status === 'alive') {
+        room.dailyMissionSolves[playerId] = attemptedCount + 1;
+      }
 
       const isCorrect = answer.trim().toLowerCase() === problem.answer.trim().toLowerCase();
 
       if (isCorrect) {
         problem.status = 'solved';
         problem.solvedBy = player.name;
-        // 여기서 도전 횟수를 올리던 기존 코드는 삭제되었습니다.
       } else {
-        problem.status = 'failed';
-        problem.failedBy = player.name;
+        if (player.status === 'alive') {
+          problem.status = 'failed';
+          problem.failedBy = player.name;
+        }
       }
 
       const oldProgress = room.missionBoard.progress || 0;
@@ -2357,16 +2360,28 @@ io.on('connection', (socket) => {
       milestones.forEach(ms => {
         if (oldProgress < ms.progress && newProgress >= ms.progress) {
           room.gameLog.unshift({ text: ms.message, type: 'mission_buff' });
-          if (ms.progress === 1.0) {
+          if (ms.progress >= 0.9) {
             room.alienAttackBlocked = true;
           }
         }
       });
 
       console.log(`[${roomCode}] Mission Progress: ${totalSolved}/${totalProblems} (${(newProgress * 100).toFixed(0)}%)`);
-      broadcastUpdates(roomCode);
+
+      // ★★★ 핵심 수정: 전체 업데이트 대신 미션 보드만 업데이트하는 이벤트 전송 ★★★
+      io.to(roomCode).emit('missionBoardUpdate', room.missionBoard);
+
+      // 관리자 페이지는 전체 정보가 필요하므로 따로 업데이트
+      const missionPresetNames = Object.keys(MISSIONS);
+      io.to(ADMIN_ROOM).emit('updateAdmin', {
+        rooms: gameRooms,
+        presets: PRESETS,
+        missionPresets: missionPresetNames
+      });
     }
   });
+
+
   socket.on('voteForEscape', (data) => {
     const { roomCode, targetId } = data;
     const voterId = socket.id;
