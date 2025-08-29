@@ -247,6 +247,17 @@
             padding: 4px 8px;
             border-radius: 4px;
         }
+
+        /* ★★★ [추가] 중요 역할 강조 스타일 ★★★ */
+        .player-info-role.important-alien {
+            color: #dc3545;
+            font-weight: bold;
+        }
+
+        .player-info-role.important-crew {
+            color: #007bff;
+            font-weight: bold;
+        }
     </style>
 </head>
 
@@ -377,11 +388,21 @@
                 headerDiv.className = 'room-header';
                 const roomTitle = document.createElement('h2');
                 roomTitle.textContent = `방 코드: ${code}`;
+
+                // ★★★ [수정] 관리자용 타이머 표시 엘리먼트 추가 ★★★
+                const timerSpan = document.createElement('span');
+                timerSpan.id = `timer-display-${code}`;
+                timerSpan.className = 'timer';
+                timerSpan.style.fontSize = '1em'; // 크기 조정
+                timerSpan.style.marginLeft = '20px';
+
                 const playerCountSpan = document.createElement('span');
                 playerCountSpan.className = 'role-summary';
                 playerCountSpan.textContent = `총 인원: ${roomData.players.length}명`;
                 playerCountSpan.style.marginLeft = '20px';
+
                 headerDiv.appendChild(roomTitle);
+                headerDiv.appendChild(timerSpan); // 타이머 위치
                 headerDiv.appendChild(playerCountSpan);
                 roomDiv.appendChild(headerDiv);
 
@@ -534,18 +555,36 @@
                     const playerColumn = document.createElement('div');
                     const settingsColumn = document.createElement('div');
 
-                    // 참가자 현황 및 로그 (항상 왼쪽 열에 표시)
+                    // ★★★ [수정] 중요 역할 정렬 및 색상 표시 로직 ★★★
                     const livingPlayers = roomData.players.filter(p => p.status === 'alive').length;
                     playerColumn.innerHTML = `<h3>참가자 현황 (${livingPlayers}/${roomData.players.length})</h3>`;
                     const playerList = document.createElement('ul');
                     playerList.className = 'player-grid-list';
-                    roomData.players.forEach(player => {
+
+                    const IMPORTANT_ALIENS = ['에일리언 여왕', '에일리언 주술사'];
+                    const IMPORTANT_CREW = ['함장', '엔지니어', '의사'];
+
+                    const sortedPlayers = [...roomData.players].sort((a, b) => {
+                        const aIsImportant = IMPORTANT_ALIENS.includes(a.role) || IMPORTANT_CREW.includes(a.role);
+                        const bIsImportant = IMPORTANT_ALIENS.includes(b.role) || IMPORTANT_CREW.includes(b.role);
+                        if (aIsImportant && !bIsImportant) return -1;
+                        if (!aIsImportant && bIsImportant) return 1;
+                        return 0; // 그 외는 순서 유지
+                    });
+
+                    sortedPlayers.forEach(player => {
                         const playerItem = document.createElement('li');
                         const playerInfoContainer = document.createElement('div');
                         playerInfoContainer.className = 'player-info-container';
+
                         const nameLine = `<div class="player-info-name">${player.name}</div>`;
                         const groupText = player.group ? `${player.group}모둠` : '모둠 미정';
                         const groupLine = `<div class="player-info-group">${groupText}</div>`;
+
+                        let roleClass = 'player-info-role';
+                        if (IMPORTANT_ALIENS.includes(player.role)) roleClass += ' important-alien';
+                        if (IMPORTANT_CREW.includes(player.role)) roleClass += ' important-crew';
+
                         let roleText = player.role || '역할 미정';
                         if (player.role === '경호원' && roomData.bodyguardProtection === player.id) {
                             const protectedPlayer = roomData.players.find(p => p.id === roomData.bodyguardProtection);
@@ -558,9 +597,11 @@
                         if ((player.role === '함장' || player.role === '군인') && typeof player.bullets !== 'undefined') {
                             roleText += ` (총알: ${player.bullets})`;
                         }
-                        const roleLine = `<div class="player-info-role">${roleText}</div>`;
+
+                        const roleLine = `<div class="${roleClass}">${roleText}</div>`;
                         playerInfoContainer.innerHTML = nameLine + groupLine + roleLine;
                         playerItem.appendChild(playerInfoContainer);
+
                         if (player.status === 'dead') {
                             playerItem.classList.add('dead');
                             const reviveButton = document.createElement('button');
@@ -577,6 +618,7 @@
                         }
                         playerList.appendChild(playerItem);
                     });
+
                     playerColumn.appendChild(playerList);
                     const logContainer = document.createElement('div');
                     logContainer.className = 'admin-log-box';
@@ -626,7 +668,6 @@
                         playerColumn.style.flex = 6;
                         settingsColumn.style.flex = 2;
 
-                        // ================== ★★★ 누락되었던 버튼 생성 로직 시작 ★★★ ==================
                         if (roomData.status === 'playing') {
                             const helpBox = document.createElement('div');
                             helpBox.style.cssText = 'padding: 10px; margin-top: 15px; border: 1px solid #007bff; border-radius: 5px; background-color: #f8f9fa; text-align: left; color: #333;';
@@ -722,26 +763,27 @@
                                 settingsColumn.appendChild(btn);
                             } else if (roomData.phase === 'meeting') {
                                 const timerBtn = document.createElement('button');
-                                timerBtn.className = 'timer-btn toggle-meeting-timer-btn';
-                                const isPaused = roomData.meetingTimer && roomData.meetingTimer.isPaused;
-                                timerBtn.textContent = isPaused ? '타이머 다시 시작' : '타이머 작동';
-                                timerBtn.style.backgroundColor = isPaused ? '#28a745' : '#ffc107';
+                                timerBtn.className = 'timer-btn meeting-timer-btn';
+                                timerBtn.textContent = '타이머 작동';
                                 settingsColumn.appendChild(timerBtn);
 
                                 if (roomData.settings.useEjectionMinigame) {
-                                    const alivePlayerGroups = new Set(roomData.players.filter(p => p.status === 'alive' && p.group).map(p => p.group));
-                                    const totalActiveGroups = alivePlayerGroups.size;
                                     const startNominationBtn = document.createElement('button');
                                     startNominationBtn.className = 'start-nomination-btn';
                                     startNominationBtn.textContent = '1차 후보 지목 시작';
                                     startNominationBtn.style.backgroundColor = '#fd7e14';
+                                    // ★★★ [수정] 버튼 비활성화 로직 ★★★
                                     startNominationBtn.disabled = roomData.ejectionState !== 'pending_start';
                                     settingsColumn.appendChild(startNominationBtn);
+
                                     const startMinigameBtn = document.createElement('button');
                                     startMinigameBtn.className = 'start-ejection-minigame-btn';
                                     startMinigameBtn.textContent = '방출 미니게임 시작';
                                     startMinigameBtn.style.backgroundColor = '#6f42c1';
+                                    // ★★★ [수정] 버튼 비활성화 로직 ★★★
+                                    startMinigameBtn.disabled = roomData.ejectionState !== 'minigame_pending';
                                     settingsColumn.appendChild(startMinigameBtn);
+
                                     const resolveBtn = document.createElement('button');
                                     resolveBtn.className = 'resolve-ejection-minigame-btn';
                                     resolveBtn.textContent = '결과 공개 및 방출 실행';
@@ -765,17 +807,18 @@
                                 } else {
                                     const triggerBtn = document.createElement('button');
                                     triggerBtn.className = 'trigger-alien-action-btn';
-                                    triggerBtn.textContent = '에일리언 활동 시작';
+                                    // ★★★ [수정] 버튼 텍스트 변경 ★★★
+                                    triggerBtn.textContent = '(모두 엎드린 후 클릭) 에일리언 활동 시작';
                                     settingsColumn.appendChild(triggerBtn);
                                 }
                             } else if (roomData.phase === 'night_crew_action') {
                                 const endBtn = document.createElement('button');
                                 endBtn.className = 'end-night-btn';
-                                endBtn.textContent = '활동 종료 및 아침으로';
+                                // ★★★ [수정] 버튼 텍스트 변경 ★★★
+                                endBtn.textContent = '탐사대 활동 중 (다음날로 이동하려면 클릭)';
                                 settingsColumn.appendChild(endBtn);
                             }
                         }
-                        // ================== ★★★ 누락되었던 버튼 생성 로직 끝 ★★★ ==================
 
                         contentDiv.appendChild(playerColumn);
                         contentDiv.appendChild(settingsColumn);
@@ -786,28 +829,16 @@
             }
         }
 
+        // ★★★ [수정] 관리자용 타이머 업데이트 이벤트 리스너 ★★★
         socket.on('timerUpdate', (data) => {
             const { roomCode, timeLeft } = data;
             const timerDisplay = document.getElementById(`timer-display-${roomCode}`);
             if (timerDisplay) {
                 const minutes = Math.floor(timeLeft / 60);
                 const seconds = (timeLeft % 60).toString().padStart(2, '0');
-                timerDisplay.textContent = (timeLeft >= 0) ? `${minutes}:${seconds}` : "회의 종료!";
+                timerDisplay.textContent = (timeLeft >= 0) ? `${minutes}:${seconds}` : "시간 종료!";
             }
         });
-
-        // ★★★★★★★★★★★ 1단계 수정 내용 (버튼 이벤트 리스너 추가) ★★★★★★★★★★★
-        document.getElementById('create-room-btn').addEventListener('click', () => {
-            const codeInput = document.getElementById('new-room-code-input');
-            const newCode = codeInput.value.trim();
-
-            // ★★★ newCode가 있을 때만 방을 생성하도록 변경 (alert 제거) ★★★
-            if (newCode) {
-                socket.emit('createRoom', { code: newCode });
-                codeInput.value = '';
-            }
-        });
-        // ★★★★★★★★★★★ 여기까지가 추가된 부분입니다 ★★★★★★★★★★★
 
         roomsContainer.addEventListener('click', (event) => {
             const target = event.target;
@@ -816,9 +847,12 @@
 
             const roomCode = roomDiv.dataset.code;
             const classList = target.classList;
-            if (classList.contains('toggle-meeting-timer-btn')) {
-                socket.emit('toggleMeetingTimer', roomCode);
+
+            // ★★★ [수정] 타이머 버튼 클래스 구분 ★★★
+            if (classList.contains('meeting-timer-btn')) {
+                socket.emit('startMeetingTimer', roomCode);
             }
+
             if (classList.contains('start-game-btn')) {
                 const players = gameRoomsState[roomCode].players;
                 if (players.length < 4) { return alert(`최소 인원(4명)이 모이지 않아 시작할 수 없습니다.`); }
@@ -847,7 +881,7 @@
                     settings: roleSettings,
                     groupCount: parseInt(groupCountInput.value, 10) || 4,
                     selectedPreset: presetSelect.value,
-                    useEjectionMinigame: useEjectionMinigame // ★★★ 추가: 서버로 전송
+                    useEjectionMinigame: useEjectionMinigame
                 });
             }
             else if (classList.contains('start-nomination-btn')) {
@@ -869,14 +903,11 @@
                 const unvotedPlayerNames = [];
                 const alivePlayers = roomData.players.filter(p => p.status === 'alive' && p.group);
 
-                // 그룹별로 순회하며 투표가 필요한 그룹인지 확인
                 const alivePlayerGroups = new Set(alivePlayers.map(p => p.group));
                 alivePlayerGroups.forEach(groupNum => {
                     const groupMembers = alivePlayers.filter(p => p.group === groupNum);
-                    // 모둠원이 2명 이상이라 투표가 필요한 경우에만 체크
                     if (groupMembers.length > 1) {
                         groupMembers.forEach(member => {
-                            // 해당 멤버가 투표 기록에 없으면 미투표자 목록에 추가
                             if (!roomData.ejectionVotes?.[groupNum]?.[member.id]) {
                                 unvotedPlayerNames.push(member.name);
                             }
@@ -893,7 +924,6 @@
                     socket.emit('startEjectionMinigame', { code: roomCode });
                 }
             }
-            // ★★★ resolve-ejection-minigame-btn 핸들러를 아래의 간소화된 코드로 교체 ★★★
             else if (classList.contains('resolve-ejection-minigame-btn')) {
                 if (confirm('결과를 공개하고 방출자를 확정하시겠습니까?\n(선택하지 않은 후보가 있으면 강제 방출 여부를 다시 묻습니다.)')) {
                     socket.emit('resolveEjectionMinigame', { code: roomCode });
@@ -915,8 +945,6 @@
                 }
             } else if (classList.contains('next-phase-btn')) {
                 socket.emit('nextPhase', { code: roomCode, phase: target.dataset.phase, day: target.dataset.day });
-            } else if (classList.contains('timer-btn')) {
-                socket.emit('startMeetingTimer', roomCode);
             } else if (classList.contains('trigger-alien-action-btn')) {
                 socket.emit('triggerAlienAction', { code: roomCode });
             } else if (classList.contains('resolve-night-btn')) {
