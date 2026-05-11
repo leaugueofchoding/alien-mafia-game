@@ -287,10 +287,16 @@ function checkAllAlienActionsComplete(roomCode) {
     livingAliens.forEach(alien => {
       io.to(alien.id).emit('actionConfirmed');
     });
-    // ★ Q5: 에일리언 전원 완료 시 자동으로 결과 반영 (관리자 클릭 불필요)
+    // ★ Q5: 에일리언 전원 완료 시 자동으로 결과 반영
     room.alienActionTriggered = true;
+    // BUG1+2 FIX: 에일리언 타이머 즉시 중단 (resolve 후 중복 호출 방지)
+    const aTimerKey = roomCode + '_alien';
+    if (timerIntervals[aTimerKey]) {
+      clearInterval(timerIntervals[aTimerKey]);
+      delete timerIntervals[aTimerKey];
+    }
     broadcastUpdates(roomCode);
-    // 짧은 딜레이 후 자동 resolveNight (플레이어가 결과를 볼 수 있도록)
+    // 짧은 딜레이 후 자동 resolveNight
     setTimeout(() => {
       const r2 = gameRooms[roomCode];
       if (!r2 || r2.phase !== 'night_alien_action') return;
@@ -460,7 +466,7 @@ function eliminatePlayer(roomCode, playerId, cause = 'unknown', broadcast = true
     // Q6: 폭주/오염으로 인한 notable play
     if ((cause === 'psychic_fail' || cause === 'egg_contamination') && room.notablePlays) {
       const causeName = cause === 'psychic_fail' ? '초능력자 폭주' : '에일리언 알 오염';
-      if (['함장','엔지니어','경호원'].includes(player.role)) {
+      if (['함장', '엔지니어', '경호원'].includes(player.role)) {
         room.notablePlays.push({ type: 'worst', text: player.name + '(' + player.role + ')님이 ' + causeName + '으로 사망했습니다.' });
       } else if (player.role && player.role.includes('에일리언')) {
         room.notablePlays.push({ type: 'best', text: player.name + '(' + player.role + ')님이 ' + causeName + '으로 사망했습니다.' });
@@ -507,6 +513,9 @@ function eliminatePlayer(roomCode, playerId, cause = 'unknown', broadcast = true
 function resolveNightActionsInternal(roomCode) {
   const room = gameRooms[roomCode];
   if (!room || room.phase !== 'night_alien_action') return;
+  // BUG1 FIX: 혹시 남아있는 에일리언 타이머 정리 (중복 호출 방지)
+  const _aKey = roomCode + '_alien';
+  if (timerIntervals[_aKey]) { clearInterval(timerIntervals[_aKey]); delete timerIntervals[_aKey]; }
 
   if (room.selections) {
     let targetsToEliminate = new Set();
@@ -1297,6 +1306,12 @@ io.on('connection', (socket) => {
     if (timerIntervals[code]) {
       clearInterval(timerIntervals[code]);
       delete timerIntervals[code];
+    }
+    // BUG2 FIX: 에일리언 타이머도 함께 정리
+    const alienTimerKey = code + '_alien';
+    if (timerIntervals[alienTimerKey]) {
+      clearInterval(timerIntervals[alienTimerKey]);
+      delete timerIntervals[alienTimerKey];
     }
 
     // ★★★ 핵심 수정 ★★★
@@ -2458,6 +2473,11 @@ io.on('connection', (socket) => {
     delete room.shamanBlockedPlayers;
     delete room.alienActionTriggered;
     delete room.crewActionTriggered;
+    // BUG1 FIX: 남아있는 에일리언/미팅 타이머 모두 정리
+    const _nightTimerKey = code + '_alien';
+    if (timerIntervals[_nightTimerKey]) { clearInterval(timerIntervals[_nightTimerKey]); delete timerIntervals[_nightTimerKey]; }
+    const _meetTimerKey = code + '_meeting';
+    if (timerIntervals[_meetTimerKey]) { clearInterval(timerIntervals[_meetTimerKey]); delete timerIntervals[_meetTimerKey]; }
 
     room.dailyMissionSolves = {};
     room.day += 1;
