@@ -481,8 +481,8 @@
 
             // 사망자 미션: 미션 클릭 → 정답 입력
             if (showGhostMission) {
-                document.querySelectorAll('#ghost-mission-content .mission-item').forEach(function(item) {
-                    item.addEventListener('click', function() {
+                document.querySelectorAll('#ghost-mission-content .mission-item').forEach(function (item) {
+                    item.addEventListener('click', function () {
                         const idx = parseInt(this.dataset.problemIndex, 10);
                         const problem = room.missionBoard.problems[idx];
                         if (!problem || problem.status !== 'unsolved') return;
@@ -506,22 +506,22 @@
 
         function showGameOverScreen(data) {
             clearContainer();
-            const ALIEN_ROLES = ['에일리언 여왕','에일리언','에일리언 알','에일리언 주술사'];
+            const ALIEN_ROLES = ['에일리언 여왕', '에일리언', '에일리언 알', '에일리언 주술사'];
 
             // 역할 공개
             const CAUSE_MAP = {
-                'alien_kill':          { icon: '🦷', label: '포식당함' },
-                'ejected_minigame':    { icon: '🚀', label: '방출됨' },
-                'captain_shot':        { icon: '🔫', label: '처형됨' },
-                'soldier_shot':        { icon: '🎯', label: '저격됨' },
+                'alien_kill': { icon: '🦷', label: '포식당함' },
+                'ejected_minigame': { icon: '🚀', label: '방출됨' },
+                'captain_shot': { icon: '🔫', label: '처형됨' },
+                'soldier_shot': { icon: '🎯', label: '저격됨' },
                 'bodyguard_sacrifice': { icon: '🛡️', label: '희생함' },
-                'psychic_fail':        { icon: '💥', label: '폭주 희생' },
-                'egg_contamination':   { icon: '☣️', label: '오염됨' },
-                'queen_rampage':       { icon: '👑', label: '여왕의 만찬' },
-                'admin_kick':          { icon: '⚡', label: '강제퇴장' },
-                'admin_action':        { icon: '⚙️', label: '관리자처리' }
+                'psychic_fail': { icon: '💥', label: '폭주 희생' },
+                'egg_contamination': { icon: '☣️', label: '오염됨' },
+                'queen_rampage': { icon: '👑', label: '여왕의 만찬' },
+                'admin_kick': { icon: '⚡', label: '강제퇴장' },
+                'admin_action': { icon: '⚙️', label: '관리자처리' }
             };
-            const rolesHtml = (data.roles || []).map(function(p) {
+            const rolesHtml = (data.roles || []).map(function (p) {
                 const isAlien = ALIEN_ROLES.includes(p.role);
                 const isDead = p.status === 'dead';
                 const roleColor = isAlien ? '#dc3545' : '#28a745';
@@ -529,7 +529,7 @@
                 const causeInfo = isDead && p.causeOfDeath ? (CAUSE_MAP[p.causeOfDeath] || { icon: '💀', label: '사망' }) : null;
                 const causeHtml = causeInfo
                     ? '<span style="font-size:0.75em;background:rgba(0,0,0,0.3);padding:1px 5px;border-radius:3px;margin-top:2px;">'
-                      + causeInfo.icon + ' ' + causeInfo.label + '</span>'
+                    + causeInfo.icon + ' ' + causeInfo.label + '</span>'
                     : '';
                 return '<div style="display:inline-flex;flex-direction:column;align-items:center;gap:3px;' + deadStyle
                     + 'padding:8px 12px;background:rgba(255,255,255,0.08);border-radius:8px;min-width:80px;">'
@@ -541,20 +541,20 @@
 
             // 주효 플레이
             const plays = data.notablePlays || [];
-            const bestPlays = plays.filter(function(p) { return p.type === 'best'; });
-            const worstPlays = plays.filter(function(p) { return p.type === 'worst'; });
+            const bestPlays = plays.filter(function (p) { return p.type === 'best'; });
+            const worstPlays = plays.filter(function (p) { return p.type === 'worst'; });
             let playsHtml = '';
             if (plays.length > 0) {
                 playsHtml = '<div style="margin-top:20px;text-align:left;max-width:600px;margin-left:auto;margin-right:auto;">';
                 if (bestPlays.length > 0) {
                     playsHtml += '<h3 style="color:#ffc107;margin-bottom:8px;">🏆 주효한 플레이</h3>';
-                    playsHtml += bestPlays.map(function(p) {
+                    playsHtml += bestPlays.map(function (p) {
                         return '<p style="background:rgba(255,193,7,0.12);border-left:3px solid #ffc107;padding:6px 12px;margin:4px 0;border-radius:0 4px 4px 0;">' + p.text + '</p>';
                     }).join('');
                 }
                 if (worstPlays.length > 0) {
                     playsHtml += '<h3 style="color:#ff6b6b;margin-top:14px;margin-bottom:8px;">💥 아쉬운 플레이</h3>';
-                    playsHtml += worstPlays.map(function(p) {
+                    playsHtml += worstPlays.map(function (p) {
                         return '<p style="background:rgba(220,53,69,0.12);border-left:3px solid #dc3545;padding:6px 12px;margin:4px 0;border-radius:0 4px 4px 0;">' + p.text + '</p>';
                     }).join('');
                 }
@@ -570,14 +570,22 @@
                 + '<div style="display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-top:16px;max-height:260px;overflow-y:auto;padding:4px;">' + rolesHtml + '</div>'
                 + (plays.length > 0
                     ? '<div style="margin-top:16px;text-align:left;max-width:640px;margin-left:auto;margin-right:auto;max-height:320px;overflow-y:auto;padding-right:4px;">'
-                      + playsHtml + '</div>'
+                    + playsHtml + '</div>'
                     : '');
         }
 
+        // BUG2 FIX: 서버에서 확정된 카드 즉시 잠금
+        socket.on('cardSelectionConfirmed', function (data) {
+            document.querySelectorAll('.ejection-card-btn').forEach(function (btn) {
+                btn.disabled = true;
+                btn.style.pointerEvents = 'none';
+            });
+        });
+
         // BUG2: 다른 사람이 이미 선택한 카드일 때 재활성화
-        socket.on('cardTaken', function(data) {
+        socket.on('cardTaken', function (data) {
             alert(data.message || '이미 선택된 카드입니다. 다른 카드를 선택하세요.');
-            document.querySelectorAll('.ejection-card-btn').forEach(function(btn) {
+            document.querySelectorAll('.ejection-card-btn').forEach(function (btn) {
                 // 본인이 아직 선택 안 했으면 다시 활성화
                 if (!btn.classList.contains('taken-by-other')) {
                     btn.disabled = false;
@@ -591,7 +599,7 @@
         socket.on('doctorAction', (data) => {
             if (amIAlive) {
                 clearContainer();
-                const btnList = data.targets.map(function(t) {
+                const btnList = data.targets.map(function (t) {
                     return '<li><button class="target-btn" data-ability="doctor" data-target-id="' + t.id + '">' + t.name + '</button></li>';
                 }).join('');
                 const html = '<h4>🏥 의사 능력: 보호할 대상을 선택하세요.</h4>'
@@ -670,6 +678,37 @@
                     hasAbility = true;
                 } else if (me.role === '에일리언 알' && room.day === 2 && !me.abilityUsed) {
                     abilityContent = `<h4>알에서 깨어날 시간입니다...</h4><p>(룰렛 결과에 따라 '부화'하여 동료가 되거나, 주변을 '오염'시켜 적을 제거합니다.)</p><button id="start-hatch-btn" class="target-btn" style="width: 100%; background-color:#6f42c1;">부화 시작</button>`;
+                    hasAbility = true;
+                } else if (me.role === '의사') {
+                    const aliveDoctors = room.players.filter(p => p.status === 'alive' && p.role === '의사');
+                    const dp = room.doctorProtections || {};
+                    const alreadyPicked = Object.values(dp).some(function (arr) { return Array.isArray(arr) && arr.includes(socket.id); });
+                    // Q5: 정체가 탄로난 대상(revealedRole 있는 대상)은 제외
+                    const validTargets = room.players.filter(function (p) {
+                        return p.status === 'alive' && !p.revealedRole;
+                    });
+                    const flavorText = '<div style="background:rgba(0,0,0,.3);border:1px solid #333;border-radius:8px;padding:12px;margin-bottom:14px;font-size:.82em;color:#94a3b8;line-height:1.6;">'
+                        + '<b style="color:#7dd3fc;">탐사대 의료진 행동 원칙</b><br><br>'
+                        + '우리는 에일리언의 눈을 피해 어둠 속에서만 움직입니다. '
+                        + '정체가 만천하에 공개된 자는 이미 에일리언의 감시망에 완벽하게 노출되었으므로, '
+                        + '그에게 접근하는 것 자체가 의료진 전원의 몰살을 초래할 수 있습니다.<br><br>'
+                        + '<b style="color:#fbbf24;">\u300c어둠 속에 숨어있는 자\u300d들만 은밀히 치료합니다.</b>'
+                        + '</div>';
+                    if (alreadyPicked) {
+                        abilityContent = '<h4>🏥 의사 능력</h4>' + flavorText + '<p>✅ 보호 대상을 선택했습니다. 다른 의사들의 선택을 기다리는 중...</p>';
+                    } else if (aliveDoctors.length >= 2 && validTargets.length > 0) {
+                        abilityContent = '<h4>🏥 의사 능력</h4>' + flavorText
+                            + '<p style="font-size:.88em;color:#86efac;margin-bottom:10px;">👇 보호할 대상을 선택하세요. (정체 탄로 대상 제외됨)</p>'
+                            + '<ul class="player-grid-list">' + validTargets.map(function (t) {
+                                return '<li><button class="target-btn" data-ability="doctor" data-target-id="' + t.id + '">' + t.name + '</button></li>';
+                            }).join('') + '</ul>';
+                    } else if (aliveDoctors.length < 2) {
+                        abilityContent = '<h4>🏥 의사 능력</h4>' + flavorText
+                            + '<p style="color:#fca5a5;">⚠️ 생존한 의사가 1명뿐입니다.<br>의사 2명 이상이 같은 대상을 선택해야 보호 효과가 발동됩니다.</p>';
+                    } else {
+                        abilityContent = '<h4>🏥 의사 능력</h4>' + flavorText
+                            + '<p style="color:#fca5a5;">⚠️ 현재 보호 가능한 대상이 없습니다. (모든 생존자의 정체가 탄로났습니다.)</p>';
+                    }
                     hasAbility = true;
                 }
 
@@ -1483,7 +1522,7 @@
             if (target.classList.contains('ejection-card-btn')) {
                 const cardId = parseInt(target.dataset.cardId, 10);
                 // BUG2 FIX: 즉시 모든 카드 비활성화 → 재선택 방지
-                document.querySelectorAll('.ejection-card-btn').forEach(function(btn) {
+                document.querySelectorAll('.ejection-card-btn').forEach(function (btn) {
                     btn.disabled = true;
                     btn.style.cursor = 'not-allowed';
                 });
@@ -1709,7 +1748,7 @@
                             break;
                         case 'doctor':
                             socket.emit('useDoctorAbility', { targetId });
-                            document.querySelectorAll('.target-btn[data-ability="doctor"]').forEach(function(btn) {
+                            document.querySelectorAll('.target-btn[data-ability="doctor"]').forEach(function (btn) {
                                 btn.disabled = true;
                                 if (btn.dataset.targetId === targetId) btn.classList.add('pre-selected');
                             });

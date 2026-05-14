@@ -263,8 +263,8 @@ function checkAllAlienActionsComplete(roomCode) {
 
   // ★★★ 핵심 수정: 주술사까지 포함하여 활동해야 할 에일리언 수를 계산 ★★★
   // 1. 공격 능력이 있는 에일리언 수를 계산합니다.
-  // 여왕의 만찬이 발동 중이면 여왕은 이미 행동 완료로 처리 (확인 필요 없음)
-  const queenRampageActive = room.pendingAction === 'queen_rampage' || room.rampageTriggered;
+  // 여왕의 만찬 진행 중이면 여왕은 행동 완료로 간주
+  const queenRampageActive = room.pendingAction === 'queen_rampage' || room.queenRampageStarted;
   const attackingAliens = livingAliens.filter(p => {
     if (p.role === '에일리언 여왕') return !p.abilityUsed && !queenRampageActive;
     return p.role === '에일리언';
@@ -463,15 +463,59 @@ function eliminatePlayer(roomCode, playerId, cause = 'unknown', broadcast = true
   if (player && player.status !== 'dead') {
     player.status = 'dead';
     player.causeOfDeath = cause;
-    // Q6: 폭주/오염으로 인한 notable play
-    if ((cause === 'psychic_fail' || cause === 'egg_contamination') && room.notablePlays) {
-      const causeName = cause === 'psychic_fail' ? '초능력자 폭주' : '에일리언 알 오염';
-      if (['함장', '엔지니어', '경호원'].includes(player.role)) {
-        room.notablePlays.push({ type: 'worst', text: player.name + '(' + player.role + ')님이 ' + causeName + '으로 사망했습니다.' });
-      } else if (player.role && player.role.includes('에일리언')) {
-        room.notablePlays.push({ type: 'best', text: player.name + '(' + player.role + ')님이 ' + causeName + '으로 사망했습니다.' });
+    // ── notable play: 개인 관점 ──────────────────────────────────────
+    // 기준: 자기 팀 승리에 기여 → best(주효) / 자기 팀에 손해 → worst(아쉬움)
+    if (room.notablePlays) {
+      const isAlienTeam = player.role && player.role.includes('에일리언');
+      const isCoreTarget = ['함장', '엔지니어'].includes(player.role);
+      const isAlienQueen = player.role === '에일리언 여왕';
+
+      // ── 에일리언 포식(alien_kill) ──────────────────────────────────
+      if (cause === 'alien_kill') {
+        if (isCoreTarget) {
+          // 에일리언: 함장/엔지니어 포식 성공 → best
+          room.notablePlays.push({
+            type: 'best',
+            text: '에일리언이 ' + player.name + '(' + player.role + ')님을 포식했습니다.'
+          });
+        }
+        // 일반 탐사대원 포식은 기록하지 않음 (평범한 포식)
+      }
+
+      // ── 여왕의 만찬(queen_rampage) ─────────────────────────────────
+      if (cause === 'queen_rampage') {
+        if (isCoreTarget || player.role === '경호원') {
+          // 에일리언 여왕: 핵심 인물/경호원 제거 → best
+          room.notablePlays.push({
+            type: 'best',
+            text: '에일리언 여왕이 만찬으로 ' + player.name + '(' + player.role + ')님을 제거했습니다.'
+          });
+        }
+      }
+
+      // 방출 미니게임: notable 미기재 (요청에 따라)
+
+      // ── 폭주/오염(psychic_fail / egg_contamination) ───────────────
+      if (cause === 'psychic_fail' || cause === 'egg_contamination') {
+        const causeName = cause === 'psychic_fail' ? '초능력자 폭주' : '에일리언 알 오염';
+        if (isAlienQueen || isAlienTeam) {
+          // 탐사대: 에일리언 폭주/오염 사망 → best
+          room.notablePlays.push({
+            type: 'best',
+            text: player.name + '(' + player.role + ')님이 ' + causeName + '으로 사망했습니다.'
+          });
+        } else if (isCoreTarget) {
+          // 탐사대: 핵심 아군 사망 → worst / 초능력자·알 입장: 아군 피해 → worst
+          room.notablePlays.push({
+            type: 'worst',
+            text: causeName + '으로 ' + player.name + '(' + player.role + ')님이 사망했습니다.'
+          });
+        }
       }
     }
+    // ── 경호원 희생 → resolveNightActionsInternal에서 처리
+    // ── 함장/군인 처형 → useCaptainAbility/useSoldierAbility에서 처리
+    // ── 수다쟁이/초능력자 능력 → 각 핸들러에서 처리
     io.to(playerId).emit('youAreDead');
 
     const targetPlayer = room.players.find(p => p.id === playerId);
@@ -529,11 +573,10 @@ function resolveNightActionsInternal(roomCode) {
         targetsToEliminate.add(selection);
       }
     }
-    // Q3: 의사 보호 대상 제거
+    // Q3: 의사 보호 대상 제거 (로그 미표시 - 전략 노출 방지)
     if (room.medicalProtectionTarget && targetsToEliminate.has(room.medicalProtectionTarget)) {
-      const protectedPlayer = room.players.find(p => p.id === room.medicalProtectionTarget);
-      if (room.gameLog) room.gameLog.unshift({ text: '[의사팀] ' + (protectedPlayer ? protectedPlayer.name : '???') + '님이 의학적 보호로 에일리언 공격을 막아냈습니다!', type: 'log' });
       targetsToEliminate.delete(room.medicalProtectionTarget);
+      // 백신 주입 성공 로그는 백신 사용 시에만 표시 (useDoctorAbility에서 처리)
     }
     delete room.medicalProtectionTarget;
     const uniqueTargets = Array.from(targetsToEliminate);
@@ -548,7 +591,10 @@ function resolveNightActionsInternal(roomCode) {
           const targetPlayer = room.players.find(p => p.id === targetId);
           if (targetPlayer) {
             if (room.gameLog) room.gameLog.unshift({ text: '[경호원]이(가) ' + targetPlayer.name + '님을 지키고 대신 희생했습니다.', type: 'log' });
-            if (room.notablePlays) room.notablePlays.push({ type: 'best', text: bodyguard.name + '(' + bodyguard.role + ')님이 ' + targetPlayer.name + '님을 대신하여 희생했습니다.' });
+            // 경호원: 함장/엔지니어 보호 시에만 주효 기재 (이름+역할 모두 표시)
+            if (room.notablePlays && ['함장', '엔지니어'].includes(targetPlayer.role)) {
+              room.notablePlays.push({ type: 'best', text: bodyguard.name + '(경호원)님이 ' + targetPlayer.name + '(' + targetPlayer.role + ')님을 대신해 희생했습니다.' });
+            }
           }
           eliminatedByBodyguard.add(bodyguard.id);
           eliminatePlayer(roomCode, bodyguard.id, 'bodyguard_sacrifice');
@@ -1141,32 +1187,32 @@ io.on('connection', (socket) => {
     const isCardTaken = Object.values(selections).includes(cardId);
 
     if (isCandidate && !hasAlreadySelected) {
-      // isCardTaken 조건 제거: 두 후보가 동시에 선택할 때 레이스컨디션 방지
-      // 이미 타인이 선택한 카드도 선택 가능 (각자 다른 카드 추천은 UX에서 처리)
       if (isCardTaken) {
-        // 다른 사람이 선택한 카드 → 다른 카드 선택 유도
         socket.emit('cardTaken', { message: '이미 다른 참가자가 선택한 카드입니다. 다른 카드를 선택하세요.' });
         return;
       }
       selections[candidateId] = cardId;
-      console.log(`[STATE_UPDATE][${roomCode}] Player ${candidateId} selected card ${cardId}. Current Selections:`, JSON.stringify(selections));
+      socket.emit('cardSelectionConfirmed', { cardId });
 
-      // ★★★ 시작: 디버깅용 로그를 여기에 추가해주세요. ★★★
-      console.log(`[DEBUG] Checking completion state...`);
-      console.log(`[DEBUG] Candidates Array:`, JSON.stringify(candidates));
-      console.log(`[DEBUG] Selection Keys:`, JSON.stringify(Object.keys(selections)));
-      console.log(`[DEBUG] Candidates Count: ${candidates.length}`);
-      console.log(`[DEBUG] Selections Count: ${Object.keys(selections).length}`);
-      // ★★★ 종료: 여기까지 추가해주세요. ★★★
+      // Q2: 선택 후 미선택자가 1명이고 남은 카드가 1개면 자동 배정
+      const unselectedCandidates = candidates.filter(id => selections[id] === undefined);
+      if (unselectedCandidates.length === 1) {
+        const selectedCardIds = Object.values(selections).map(c => typeof c === 'object' ? c : c);
+        const allCardIds = room.ejectionMinigame.cards.map(c => c.id);
+        const remainingCardIds = allCardIds.filter(id => !Object.values(selections).includes(id));
+        if (remainingCardIds.length === 1) {
+          const lastCandidateId = unselectedCandidates[0];
+          selections[lastCandidateId] = remainingCardIds[0];
+          io.to(lastCandidateId).emit('cardSelectionConfirmed', { cardId: remainingCardIds[0] });
+          console.log('[' + roomCode + '] Q2: auto-assigned last card to ' + lastCandidateId);
+        }
+      }
 
-      // 모든 후보가 카드를 선택했는지 확인합니다.
+      // 모든 후보 선택 완료 확인
       const allCandidatesSelected = candidates.every(id => selections[id] !== undefined);
       if (allCandidatesSelected) {
         room.ejectionState = 'minigame_all_selected';
-        if (room.gameLog) {
-          room.gameLog.unshift({ text: '[방출 미니게임] 모든 후보가 선택을 마쳤습니다. 관리자는 결과를 공개해주세요.', type: 'log' });
-        }
-        console.log(`[${roomCode}] All candidates have selected. State is now 'minigame_all_selected'.`);
+        if (room.gameLog) room.gameLog.unshift({ text: '[방출 미니게임] 모든 후보가 선택을 마쳤습니다.', type: 'log' });
       }
       broadcastUpdates(roomCode);
     } else {
@@ -1520,10 +1566,19 @@ io.on('connection', (socket) => {
     delete room.alienActionTriggered;
     delete room.crewActionTriggered;
 
-    // BUG5 FIX: 여왕 만찬 이후 다른 에일리언(주술사 등)의 활동 완료 여부 확인
-    // 여왕의 만찬이 에일리언 액션 중 하나이므로, 완료 후 바로 탐사대 활동 시작
-    room.phase = 'night_crew_action';
-    startCrewActionPhase(code);
+    // BUG3 FIX: 만찬 완료 후 일반 에일리언 행동 완료 여부 확인
+    // 여왕은 만찬으로 행동 완료. 나머지 에일리언이 모두 선택했으면 바로 탐사대 활동 진행
+    const remainingAliens = room.players.filter(p => p.status === 'alive' && p.role === '에일리언');
+    const confirmed = room.alienActionsConfirmed || [];
+    const allAliensReady = remainingAliens.length === 0 || remainingAliens.every(p => confirmed.includes(p.id));
+    if (allAliensReady) {
+      room.phase = 'night_crew_action';
+      startCrewActionPhase(code);
+    } else {
+      // 아직 일반 에일리언 행동 대기 중 - 그들이 완료하면 checkAllAlienActionsComplete가 처리
+      room.phase = 'night_alien_action';
+      broadcastUpdates(code);
+    }
   });
 
   // ★★★ 기존 코드를 아래 코드로 완전히 교체해주세요. ★★★
@@ -1908,11 +1963,19 @@ io.on('connection', (socket) => {
         soldier.bullets--;
         const soldierTarget = room.players.find(p => p.id === targetId);
         if (soldierTarget && room.notablePlays) {
-          const isAlien = soldierTarget.role && soldierTarget.role.includes('에일리언');
-          if (isAlien) {
-            room.notablePlays.push({ type: 'best', text: soldier.name + '(군인)님이 ' + soldierTarget.name + '(' + soldierTarget.role + ')을 저격했습니다.' });
+          const isAlienS = soldierTarget.role && soldierTarget.role.includes('에일리언');
+          if (isAlienS) {
+            // 군인: 에일리언 저격 성공 → best만 기재
+            room.notablePlays.push({
+              type: 'best',
+              text: soldier.name + '(군인)님이 ' + soldierTarget.name + '(' + soldierTarget.role + ')을 저격했습니다.'
+            });
           } else {
-            room.notablePlays.push({ type: 'worst', text: soldier.name + '(군인)님이 ' + soldierTarget.name + '(' + soldierTarget.role + ')을 저격했습니다.' });
+            // 군인: 탐사대원 오사 → worst
+            room.notablePlays.push({
+              type: 'worst',
+              text: soldier.name + '(군인)님이 아군 ' + soldierTarget.name + '(' + soldierTarget.role + ')을 오사했습니다.'
+            });
           }
         }
         eliminatePlayer(roomCode, targetId, 'soldier_shot');
@@ -1963,7 +2026,10 @@ io.on('connection', (socket) => {
     const room = gameRooms[roomCode];
     const doctor = room.players.find(p => p.id === selectorId);
     if (!doctor || doctor.role !== '의사' || doctor.status !== 'alive') return;
+    // Q4: 이미 이번 밤 백신을 사용한 의사는 재사용 불가
     if (!room.doctorProtections) room.doctorProtections = {};
+    const alreadyUsed = Object.values(room.doctorProtections).some(arr => Array.isArray(arr) && arr.includes(selectorId));
+    if (alreadyUsed) { io.to(selectorId).emit('actionConfirmed'); return; }
     if (!room.doctorProtections[targetId]) room.doctorProtections[targetId] = [];
     if (!room.doctorProtections[targetId].includes(selectorId)) {
       room.doctorProtections[targetId].push(selectorId);
@@ -1974,7 +2040,7 @@ io.on('connection', (socket) => {
     if (aliveDoctorCount >= 2 && room.doctorProtections[targetId].length >= 2) {
       room.medicalProtectionTarget = targetId;
       const pp = room.players.find(p => p.id === targetId);
-      if (room.gameLog) room.gameLog.unshift({ text: '[의사팀] ' + (pp ? pp.name : '???') + '님이 오늘 밤 의학적 보호를 받습니다!', type: 'log' });
+      // Q4: 보호 확정 로그 미표시 (에일리언 전략 노출 방지)
       if (room.notablePlays) room.notablePlays.push({ type: 'best', text: '의사팀이 ' + (pp ? pp.name : '???') + '님을 의학적으로 보호했습니다.' });
     }
     broadcastUpdates(roomCode);
@@ -2057,11 +2123,19 @@ io.on('connection', (socket) => {
         captain.bullets--;
         const captainTarget = room.players.find(p => p.id === targetId);
         if (captainTarget && room.notablePlays) {
-          const isAlien = captainTarget.role && captainTarget.role.includes('에일리언');
-          if (isAlien) {
-            room.notablePlays.push({ type: 'best', text: captain.name + '(함장)님이 ' + captainTarget.name + '(' + captainTarget.role + ')을 즉결 처분했습니다.' });
+          const isAlienC = captainTarget.role && captainTarget.role.includes('에일리언');
+          if (isAlienC) {
+            // 함장: 에일리언 즉결처분 성공 → best만 기재
+            room.notablePlays.push({
+              type: 'best',
+              text: captain.name + '(함장)님이 ' + captainTarget.name + '(' + captainTarget.role + ')을 즉결 처분했습니다.'
+            });
           } else {
-            room.notablePlays.push({ type: 'worst', text: captain.name + '(함장)님이 ' + captainTarget.name + '(' + captainTarget.role + ')을 즉결 처분했습니다.' });
+            // 함장: 탐사대원 오사 → worst
+            room.notablePlays.push({
+              type: 'worst',
+              text: captain.name + '(함장)님이 아군 ' + captainTarget.name + '(' + captainTarget.role + ')을 즉결 처분했습니다.'
+            });
           }
         }
         eliminatePlayer(roomCode, targetId, 'captain_shot');
@@ -2348,11 +2422,21 @@ io.on('connection', (socket) => {
         target.revealedRole = target.role;
         if (room.gameLog) room.gameLog.unshift('[수다쟁이]가 ' + target.name + '님의 정체를 폭로했습니다!');
         if (room.notablePlays) {
-          const isAlien = target.role && target.role.includes('에일리언');
-          if (isAlien) {
-            room.notablePlays.push({ type: 'best', text: chatterbox.name + '(수다쟁이)님이 ' + target.name + '(' + target.role + ')의 정체를 폭로했습니다.' });
+          const isAlienCh = target.role && target.role.includes('에일리언');
+          if (isAlienCh) {
+            // 수다쟁이: 에일리언 폭로 성공 → best만 기재
+            room.notablePlays.push({
+              type: 'best',
+              text: chatterbox.name + '(수다쟁이)님이 ' + target.name + '(' + target.role + ')의 정체를 폭로했습니다.'
+            });
           } else {
-            room.notablePlays.push({ type: 'worst', text: chatterbox.name + '(수다쟁이)님이 ' + target.name + '(' + target.role + ')의 정체를 폭로했습니다.' });
+            // 수다쟁이: 탐사대 핵심 인물 정보 누설 → worst만 기재
+            if (['함장', '엔지니어'].includes(target.role)) {
+              room.notablePlays.push({
+                type: 'worst',
+                text: chatterbox.name + '(수다쟁이)님이 아군 ' + target.name + '(' + target.role + ')의 정보를 누설했습니다.'
+              });
+            }
           }
         }
         io.to(selectorId).emit('actionConfirmed');
@@ -2428,6 +2512,7 @@ io.on('connection', (socket) => {
           const foundAliens = targetIds.filter(tid => { const tp = room.players.find(p => p.id === tid); return tp && tp.role && tp.role.includes('에일리언'); });
           if (foundAliens.length > 0) {
             const alienNames = foundAliens.map(tid => { const tp = room.players.find(p => p.id === tid); return tp ? tp.name + '(' + tp.role + ')' : '???'; }).join(', ');
+            // 초능력자: 에일리언 정체 밝힘 → best만 기재
             room.notablePlays.push({ type: 'best', text: psychicPlayer.name + '(초능력자)님이 ' + alienNames + '의 정체를 밝혔습니다.' });
           }
         } targetIds.forEach(targetId => {

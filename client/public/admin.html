@@ -1,1200 +1,1516 @@
 <!DOCTYPE html>
 <html lang="ko">
+
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>게임 관리자</title>
-<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
-<link rel="stylesheet" href="style.css">
-<style>
-body { flex-direction:column; justify-content:flex-start; padding-top:40px; background-color:#f4f4f9; height:auto; }
-h1 { color:#333; }
-.container { background-color:#fff; color:#333; min-width:600px; box-shadow:0 2px 4px rgba(0,0,0,.1); }
-.room-header { border-bottom:1px solid #eee; padding-bottom:10px; margin-bottom:10px; display:flex; justify-content:space-between; align-items:center; }
-.admin-timer-display { font-size:1.8em; font-weight:bold; color:#dc3545; border:2px solid #dc3545; padding:5px 10px; border-radius:8px; min-width:80px; text-align:center; background-color:#fff8f8; }
-.room h2,.room h3 { color:#333; }
-.room h3 { margin-top:0; border-bottom:1px solid #eee; padding-bottom:5px; }
-.room li { background-color:#e9e9e9; color:#333; display:flex; justify-content:space-between; align-items:center; padding:8px 12px; border-radius:4px; margin-bottom:5px; }
-.room li.dead { color:#999; background-color:#ddd; text-decoration:line-through; }
-.eliminate-btn,.revive-btn { padding:5px 10px; border:none; border-radius:4px; cursor:pointer; font-size:.9em; color:white; }
-.eliminate-btn { background-color:#dc3545; }
-.revive-btn { background-color:#28a745; }
-.start-game-btn,.next-phase-btn,.timer-btn,.trigger-alien-action-btn,.trigger-rampage-btn,.resolve-night-btn,.trigger-crew-action-btn,.end-night-btn,.start-nomination-btn,.start-ejection-minigame-btn,.resolve-ejection-minigame-btn,.meeting-timer-btn,.escape-timer-btn { width:100%; padding:10px; color:white; border:none; border-radius:5px; cursor:pointer; font-size:1em; margin-top:15px; }
-.start-game-btn:disabled,.next-phase-btn:disabled,.timer-btn:disabled,.trigger-alien-action-btn:disabled,.resolve-night-btn:disabled,.start-nomination-btn:disabled,.start-ejection-minigame-btn:disabled,.resolve-ejection-minigame-btn:disabled,.meeting-timer-btn:disabled,.escape-timer-btn:disabled { background-color:#aaa; cursor:not-allowed; }
-.start-game-btn { background-color:#28a745; }
-.next-phase-btn { background-color:#007bff; }
-.timer-btn,.meeting-timer-btn,.escape-timer-btn { background-color:#ffc107; color:#212529; }
-.trigger-alien-action-btn,.trigger-rampage-btn { background-color:#6f42c1; }
-.resolve-night-btn { background-color:#fd7e14; }
-.trigger-crew-action-btn { background-color:#20c997; }
-.end-night-btn { background-color:#6c757d; }
-.role-settings,.preset-settings { margin-top:15px; border-top:1px solid #eee; padding-top:15px; }
-.role-item { font-size:.9em; display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; }
-.role-item span { font-weight:bold; }
-.role-controls input { width:35px; padding:5px; }
-.preset-select { width:100%; padding:8px; font-size:.9em; margin-top:5px; }
-.role-summary,.phase-info { font-weight:bold; margin-top:10px; }
-#reset-server-btn { width:auto; padding:8px 16px; font-size:.9em; margin-top:10px; background-color:#6c757d; }
-.admin-log-box { border:1px solid #ccc; background-color:#f8f9fa; padding:10px; margin-top:15px; height:150px; overflow-y:auto; font-size:.9em; text-align:left; display:flex; flex-direction:column-reverse; }
-.admin-log-box p { margin:2px 0; line-height:1.4; color:#333; }
-.room li { align-items:flex-start; padding:12px; }
-.player-info-container { line-height:1.5; }
-.player-info-name { font-weight:bold; font-size:1.05em; color:#333; }
-.player-info-group,.player-info-role { font-size:.9em; color:#555; }
-.admin-log-box p.log-mission_buff,.admin-log-box p.log-phase_change { color:#b08000; font-weight:bold; background-color:#fffbe6; padding:4px 8px; border-radius:4px; }
-.player-info-role.role-alien { color:#dc3545; font-weight:bold; }
-.player-info-role.role-core-crew { color:#007bff; font-weight:bold; }
-.player-info-role.role-special-crew { color:#28a745; font-weight:bold; }
-.vote-status-grid { display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; list-style:none; padding:0; margin-top:10px; }
-.vote-status-item { font-size:.9em; background-color:#f4f4f4; border:1px solid #ddd; padding:8px; border-radius:4px; }
-.vote-status-item.voted { background-color:#e6ffed; border-color:#b8e6c3; }
-.vote-status-item b { color:#0056b3; }
-/* 현재 상태 뱃지 */
-.phase-badge { display:inline-block; padding:6px 14px; border-radius:20px; font-weight:bold; font-size:.95em; margin-bottom:10px; }
-.phase-badge.day    { background:#fff9c4; color:#5d4037; border:2px solid #f9a825; }
-.phase-badge.night-alien { background:#1a0533; color:#ff6b6b; border:2px solid #7c3aed; font-size:.9em; }
-.phase-badge.night-crew  { background:#1a0533; color:#fbbf24; border:2px solid #7c3aed; font-size:.9em; }
-.phase-badge.escape { background:#002f1f; color:#34d399; border:2px solid #059669; }
-.phase-badge.gameover { background:#3b0000; color:#fca5a5; border:2px solid #dc2626; }
-/* 대기실 참가자 그리드 */
-.waiting-player-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(90px,1fr)); gap:6px; list-style:none; padding:0; margin:0; }
-.waiting-player-grid li { background:#e9e9e9; border-radius:6px; padding:8px 6px; display:flex; flex-direction:column; align-items:center; gap:4px; font-size:.9em; text-align:center; }
-.waiting-player-grid .kick-btn { font-size:.75em; padding:2px 6px; }
-/* 3단 컬럼 */
-.col-players { flex:4; min-width:0; border-right:1px solid #eee; padding-right:14px; overflow:hidden; }
-.col-game    { flex:3; min-width:0; border-right:1px solid #eee; padding-right:14px; padding-left:14px; overflow:hidden; }
-.col-monitor { flex:3; min-width:0; padding-left:14px; overflow:hidden; }
-.col-header  { font-size:1em; font-weight:bold; color:#444; border-bottom:2px solid #eee; padding-bottom:6px; margin-bottom:10px; }
-/* 페이즈 상태 표시 */
-.phase-badge { display:inline-block; padding:6px 14px; border-radius:20px; font-size:1em; font-weight:bold; letter-spacing:.5px; margin-bottom:8px; }
-.phase-badge.day    { background:#fff9c4; color:#5c4400; border:2px solid #f9c000; }
-.phase-badge.night-alien { background:#1a0030; color:#ff6b6b; border:2px solid #9b59b6; font-size:1.05em; }
-.phase-badge.night-crew  { background:#1a0030; color:#ffd700; border:2px solid #9b59b6; }
-.phase-badge.special{ background:#e3f2fd; color:#1565c0; border:2px solid #42a5f5; }
-/* 진행 가이드 (하단 배치) */
-.help-box { padding:10px 14px; border:1px solid #007bff; border-radius:6px; background:#f0f8ff; color:#333; margin-top:auto; font-size:.88em; }
-/* 현재 상태 상황별 색상 박스 */
-.phase-badge { display:inline-block; padding:6px 14px; border-radius:6px; font-weight:bold; font-size:1em; margin-bottom:8px; }
-.phase-badge.day    { background:#fff3cd; color:#7a5c00; border:2px solid #ffc107; }
-.phase-badge.night-alien { background:#1a0a2e; color:#ff4d6d; border:2px solid #9d174d; }
-.phase-badge.night-crew  { background:#1a0a2e; color:#ffd60a; border:2px solid #6d28d9; }
-.phase-badge.game-over   { background:#212529; color:#adb5bd; border:2px solid #495057; }
-/* 탈출 역할 주장 현황 */
-.claim-row { display:flex; align-items:center; justify-content:space-between; padding:5px 8px; border-radius:4px; margin-bottom:3px; font-size:.88em; background:#f4f4f4; border:1px solid #ddd; }
-.claim-row.claimed { background:#e6ffed; border-color:#b8e6c3; }
-.claim-role-badge { font-size:.8em; padding:2px 7px; border-radius:3px; background:#007bff; color:#fff; }
-/* 아이콘 버튼 */
-.status-icon-btn { font-size:1.3em; background:none; border:2px solid; border-radius:50%; padding:3px 8px; cursor:pointer; }
-.status-icon-btn.alive { border-color:#28a745; }
-/* 자동 진행 패널 */
-.auto-panel { border:2px solid #20c997; border-radius:8px; padding:10px; margin-top:12px; background:#f0fff8; }
-.auto-panel h5 { margin:0 0 8px; color:#20c997; }
-.auto-row { display:flex; align-items:center; gap:8px; margin-bottom:8px; }
-.auto-row input[type=checkbox] { width:18px; height:18px; }
-.auto-times { display:flex; gap:10px; flex-wrap:wrap; margin-bottom:8px; }
-.auto-time-item { display:flex; flex-direction:column; font-size:.82em; }
-.auto-time-item input { width:65px; padding:3px; margin-top:2px; }
-.apply-auto-btn { background:#20c997; color:#fff; border:none; border-radius:4px; padding:5px 12px; cursor:pointer; font-size:.85em; width:100%; }
-/* 모니터링 패널 */
-.mg-row { display:flex; align-items:center; gap:8px; padding:6px; background:#ede7f6; border-radius:4px; margin-bottom:4px; font-size:.9em; }
-.mg-card { font-weight:bold; padding:2px 8px; border-radius:3px; font-size:.82em; }
-.mg-card.ejection { background:#dc3545; color:#fff; }
-.mg-card.survival { background:#28a745; color:#fff; }
-.mg-card.pending { background:#aaa; color:#fff; }
-/* 자동 역할 배정 */
-.auto-assign-panel { border:2px dashed #007bff; border-radius:8px; padding:10px; margin-bottom:10px; background:#f0f8ff; }
-.auto-assign-panel h5 { margin:0 0 8px; color:#007bff; }
-.auto-assign-row { display:flex; align-items:center; gap:8px; }
-.auto-assign-row input { width:60px; padding:4px; }
-.auto-assign-btn { background:#007bff; color:#fff; border:none; border-radius:4px; padding:5px 12px; cursor:pointer; font-size:.85em; }
-.kick-btn { padding:4px 8px; border:none; border-radius:4px; cursor:pointer; font-size:.8em; color:#fff; background:#dc3545; }
-</style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>에일리언 마피아 — 관리자</title>
+  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+  <link rel="stylesheet" href="style.css">
+  <style>
+    /* ═══════════════════════════════════════════════
+   디자인 토큰
+═══════════════════════════════════════════════ */
+    :root {
+      --bg: #0f111a;
+      --surface: #1a1d2e;
+      --surface2: #232640;
+      --border: #2e3250;
+      --accent: #5b8dee;
+      --accent2: #7c5cbf;
+      --green: #22c55e;
+      --red: #ef4444;
+      --yellow: #f59e0b;
+      --cyan: #06b6d4;
+      --purple: #a855f7;
+      --text: #e2e8f0;
+      --text2: #94a3b8;
+      --text3: #64748b;
+      --alien-red: #dc2626;
+      --crew-blue: #3b82f6;
+      --night-bg: #0d0720;
+      --night-border: #4c1d95;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: block;
+    }
+
+    #game-rooms-container {
+      padding: 0 16px 16px;
+    }
+
+    /* ─── 최상단 헤더 ─────────────────────────────── */
+    /* header inline으로 처리 */
+
+    /* ─── 방 생성 / 초기화 ────────────────────────── */
+    .create-room-bar {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      padding: 16px 24px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .create-room-bar input {
+      flex: 1;
+      max-width: 220px;
+      padding: 8px 12px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--bg);
+      color: var(--text);
+      font-size: .9rem;
+    }
+
+    .create-room-bar input:focus {
+      outline: none;
+      border-color: var(--accent);
+    }
+
+    /* ─── 공통 버튼 ───────────────────────────────── */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      padding: 8px 16px;
+      border: none;
+      border-radius: 6px;
+      font-size: .88rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity .15s, transform .1s;
+      white-space: nowrap;
+    }
+
+    .btn:hover {
+      opacity: .85;
+    }
+
+    .btn:active {
+      transform: scale(.97);
+    }
+
+    .btn:disabled {
+      opacity: .4;
+      cursor: not-allowed;
+    }
+
+    .btn-primary {
+      background: var(--accent);
+      color: #fff;
+    }
+
+    .btn-success {
+      background: var(--green);
+      color: #fff;
+    }
+
+    .btn-danger {
+      background: var(--red);
+      color: #fff;
+    }
+
+    .btn-warning {
+      background: var(--yellow);
+      color: #000;
+    }
+
+    .btn-purple {
+      background: var(--accent2);
+      color: #fff;
+    }
+
+    .btn-ghost {
+      background: var(--surface2);
+      color: var(--text2);
+      border: 1px solid var(--border);
+    }
+
+    .btn-sm {
+      padding: 5px 11px;
+      font-size: .8rem;
+    }
+
+    .btn-full {
+      width: 100%;
+    }
+
+    .btn-night {
+      background: #2d1b69;
+      color: #c084fc;
+      border: 1px solid #4c1d95;
+    }
+
+    .btn-night:hover {
+      background: #3b2380;
+    }
+
+    .btn-night-red {
+      background: #450a0a;
+      color: #fca5a5;
+      border: 1px solid #7f1d1d;
+    }
+
+    /* ─── 방 카드 ─────────────────────────────────── */
+    .room-card {
+      margin: 0 0 12px 0;
+      width: 100%;
+      box-sizing: border-box;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+    }
+
+    /* 방 헤더 */
+    .room-card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 16px;
+      background: var(--surface2);
+      border-bottom: 1px solid var(--border);
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .room-code-label {
+      font-size: 1.4rem;
+      font-weight: 800;
+      color: var(--accent);
+      letter-spacing: .05em;
+    }
+
+    .room-meta {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+
+    .player-count-badge {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 3px 12px;
+      font-size: .85rem;
+      color: var(--text2);
+    }
+
+    /* 타이머 디스플레이 */
+    .timer-display {
+      font-size: 1.6rem;
+      font-weight: 800;
+      font-variant-numeric: tabular-nums;
+      min-width: 72px;
+      text-align: center;
+      color: var(--red);
+      background: rgba(239, 68, 68, .1);
+      border: 2px solid rgba(239, 68, 68, .3);
+      border-radius: 8px;
+      padding: 4px 12px;
+      line-height: 1;
+    }
+
+    /* ─── 자동진행 뱃지 (우측 상단) ──────────────── */
+    .auto-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 4px 10px;
+      border-radius: 20px;
+      font-size: .78rem;
+      font-weight: 700;
+    }
+
+    .auto-badge.on {
+      background: rgba(34, 197, 94, .15);
+      color: var(--green);
+      border: 1px solid rgba(34, 197, 94, .3);
+    }
+
+    .auto-badge.off {
+      background: rgba(100, 116, 139, .12);
+      color: var(--text3);
+      border: 1px solid var(--border);
+    }
+
+    /* ─── 페이즈 뱃지 ─────────────────────────────── */
+    .phase-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 7px 16px;
+      border-radius: 8px;
+      font-size: .95rem;
+      font-weight: 700;
+      margin-bottom: 10px;
+    }
+
+    .phase-badge.day {
+      background: rgba(245, 158, 11, .12);
+      color: #fbbf24;
+      border: 1px solid rgba(245, 158, 11, .3);
+    }
+
+    .phase-badge.night-alien {
+      background: rgba(220, 38, 38, .12);
+      color: #fca5a5;
+      border: 1px solid rgba(220, 38, 38, .3);
+    }
+
+    .phase-badge.night-crew {
+      background: rgba(167, 139, 250, .12);
+      color: #c084fc;
+      border: 1px solid rgba(167, 139, 250, .3);
+    }
+
+    .phase-badge.special {
+      background: rgba(6, 182, 212, .12);
+      color: #67e8f9;
+      border: 1px solid rgba(6, 182, 212, .3);
+    }
+
+    /* ─── 3열 레이아웃 ────────────────────────────── */
+    .room-body {
+      display: flex;
+      gap: 0;
+      min-height: 300px;
+    }
+
+    .col {
+      padding: 12px 14px;
+      overflow: hidden;
+    }
+
+    .col+.col {
+      border-left: 1px solid var(--border);
+    }
+
+    .col-players {
+      flex: 5;
+      min-width: 0;
+    }
+
+    .col-game {
+      flex: 4;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .col-monitor {
+      flex: 4;
+      min-width: 0;
+    }
+
+    .col-header {
+      font-size: .75rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .1em;
+      color: var(--text3);
+      margin-bottom: 12px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    /* ─── 참가자 그리드 ───────────────────────────── */
+    .player-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(78px, 1fr));
+      gap: 6px;
+      list-style: none;
+      margin: 0 0 12px 0;
+      padding: 0;
+    }
+
+    .player-card {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px 6px 6px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 3px;
+      text-align: center;
+      position: relative;
+    }
+
+    .player-card.dead {
+      opacity: .45;
+      filter: grayscale(.6);
+    }
+
+    .player-card.alien-team {
+      border-color: rgba(239, 68, 68, .4);
+    }
+
+    .player-card.core-crew {
+      border-color: rgba(59, 130, 246, .4);
+    }
+
+    .player-card.special-crew {
+      border-color: rgba(34, 197, 94, .25);
+    }
+
+    .player-name {
+      font-size: .82rem;
+      font-weight: 700;
+      color: var(--text);
+      word-break: break-all;
+    }
+
+    .player-group {
+      font-size: .7rem;
+      color: var(--text3);
+    }
+
+    .player-role {
+      font-size: .72rem;
+      font-weight: 600;
+      padding: 1px 6px;
+      border-radius: 4px;
+    }
+
+    .role-alien {
+      background: rgba(239, 68, 68, .2);
+      color: #fca5a5;
+    }
+
+    .role-crew-core {
+      background: rgba(59, 130, 246, .2);
+      color: #93c5fd;
+    }
+
+    .role-crew-spec {
+      background: rgba(34, 197, 94, .2);
+      color: #86efac;
+    }
+
+    .role-default {
+      background: var(--surface);
+      color: var(--text3);
+    }
+
+    .elim-btn {
+      margin-top: 2px;
+      background: none;
+      border: none;
+      font-size: 1.1rem;
+      cursor: pointer;
+      padding: 0;
+      line-height: 1;
+      opacity: .7;
+    }
+
+    .elim-btn:hover {
+      opacity: 1;
+    }
+
+    /* ─── 게임 로그 ───────────────────────────────── */
+    .game-log {
+      flex: 1;
+      overflow-y: auto;
+      max-height: 160px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 8px 10px;
+      font-size: .78rem;
+      line-height: 1.6;
+    }
+
+    .game-log p {
+      margin: 0;
+      color: var(--text2);
+    }
+
+    .game-log .log-phase_change {
+      color: var(--yellow);
+      font-weight: 700;
+    }
+
+    .game-log .log-mission_buff {
+      color: var(--cyan);
+    }
+
+    /* ─── 게임 진행 버튼들 ────────────────────────── */
+    .action-stack {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    /* ─── 진행 가이드 ─────────────────────────────── */
+    .guide-box {
+      margin-top: auto;
+      padding-top: 12px;
+      padding: 10px 12px;
+      background: rgba(91, 141, 238, .07);
+      border: 1px solid rgba(91, 141, 238, .2);
+      border-radius: 6px;
+      font-size: .8rem;
+      color: var(--text2);
+      line-height: 1.5;
+      margin-top: 12px;
+    }
+
+    .guide-box b {
+      color: var(--accent);
+    }
+
+    /* ─── 모니터링 행 ─────────────────────────────── */
+    .monitor-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 7px 10px;
+      border-radius: 6px;
+      margin-bottom: 4px;
+      font-size: .83rem;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+    }
+
+    .monitor-row.voted {
+      background: rgba(34, 197, 94, .08);
+      border-color: rgba(34, 197, 94, .2);
+    }
+
+    .mg-badge {
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: .75rem;
+      font-weight: 700;
+    }
+
+    .mg-badge.ejection {
+      background: rgba(239, 68, 68, .25);
+      color: #fca5a5;
+    }
+
+    .mg-badge.survival {
+      background: rgba(34, 197, 94, .25);
+      color: #86efac;
+    }
+
+    .mg-badge.pending {
+      background: var(--surface);
+      color: var(--text3);
+    }
+
+    /* ─── 탈출 역할 주장 ──────────────────────────── */
+    .claim-badge {
+      font-size: .75rem;
+      padding: 2px 8px;
+      border-radius: 4px;
+      background: rgba(91, 141, 238, .2);
+      color: #93c5fd;
+    }
+
+    /* ─── 대기실 설정 ─────────────────────────────── */
+    .settings-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+
+    .setting-item label {
+      display: block;
+      font-size: .73rem;
+      color: var(--text3);
+      margin-bottom: 3px;
+      font-weight: 600;
+    }
+
+    .setting-item input,
+    .setting-item select {
+      width: 100%;
+      padding: 6px 10px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--bg);
+      color: var(--text);
+      font-size: .85rem;
+    }
+
+    .setting-item input:focus,
+    .setting-item select:focus {
+      outline: none;
+      border-color: var(--accent);
+    }
+
+    .setting-item.full {
+      grid-column: 1 / -1;
+    }
+
+    /* 자동진행 설정 패널 */
+    .auto-settings {
+      background: rgba(34, 197, 94, .06);
+      border: 1px solid rgba(34, 197, 94, .2);
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 10px;
+    }
+
+    .auto-settings-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 10px;
+    }
+
+    .auto-settings-header label {
+      font-size: .85rem;
+      font-weight: 700;
+      color: var(--green);
+      cursor: pointer;
+    }
+
+    .toggle-switch {
+      position: relative;
+      width: 38px;
+      height: 20px;
+    }
+
+    .toggle-switch input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+
+    .toggle-slider {
+      position: absolute;
+      inset: 0;
+      background: var(--border);
+      border-radius: 20px;
+      transition: .2s;
+      cursor: pointer;
+    }
+
+    .toggle-slider:before {
+      content: '';
+      position: absolute;
+      width: 14px;
+      height: 14px;
+      left: 3px;
+      top: 3px;
+      background: white;
+      border-radius: 50%;
+      transition: .2s;
+    }
+
+    .toggle-switch input:checked+.toggle-slider {
+      background: var(--green);
+    }
+
+    .toggle-switch input:checked+.toggle-slider:before {
+      transform: translateX(18px);
+    }
+
+    .auto-time-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    /* 역할 배정 */
+    .role-assign-panel {
+      background: rgba(91, 141, 238, .06);
+      border: 1px solid rgba(91, 141, 238, .2);
+      border-radius: 8px;
+      padding: 10px;
+      margin-bottom: 10px;
+    }
+
+    .role-assign-panel h5 {
+      margin: 0 0 8px;
+      font-size: .8rem;
+      color: var(--accent);
+      font-weight: 700;
+    }
+
+    .quick-assign-row {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+      margin-bottom: 6px;
+    }
+
+    .quick-assign-row input {
+      width: 70px;
+      padding: 5px 8px;
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      background: var(--bg);
+      color: var(--text);
+      font-size: .85rem;
+    }
+
+    .role-list {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 4px;
+    }
+
+    .role-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: .8rem;
+      padding: 3px 6px;
+      border-radius: 4px;
+      background: var(--bg);
+    }
+
+    .role-row span {
+      color: var(--text2);
+    }
+
+    .role-row input {
+      width: 44px;
+      padding: 2px 6px;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      background: var(--surface2);
+      color: var(--text);
+      font-size: .82rem;
+      text-align: center;
+    }
+
+    .total-count {
+      text-align: right;
+      font-size: .78rem;
+      color: var(--text3);
+      margin-top: 4px;
+    }
+
+    /* 대기실 참가자 */
+    .waiting-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
+      gap: 5px;
+      list-style: none;
+      margin: 0 0 10px 0;
+      padding: 0;
+    }
+
+    .waiting-grid li {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 6px 4px;
+      text-align: center;
+      font-size: .8rem;
+    }
+
+    .waiting-grid li .name {
+      font-weight: 700;
+      color: var(--text);
+      margin-bottom: 3px;
+    }
+
+    .kick-btn {
+      background: rgba(239, 68, 68, .15);
+      color: var(--red);
+      border: 1px solid rgba(239, 68, 68, .25);
+      border-radius: 4px;
+      font-size: .7rem;
+      padding: 1px 6px;
+      cursor: pointer;
+    }
+
+    .kick-btn:hover {
+      background: rgba(239, 68, 68, .3);
+    }
+
+    /* 서버 초기화 */
+    .reset-bar {
+      margin: 16px 24px;
+      background: rgba(239, 68, 68, .08);
+      border: 1px solid rgba(239, 68, 68, .2);
+      border-radius: 8px;
+      padding: 12px 18px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .reset-bar p {
+      margin: 0;
+      font-size: .8rem;
+      color: var(--text3);
+    }
+
+    /* 탈출 로그 */
+    .escape-log {
+      background: #0a0a0a;
+      color: #4ade80;
+      font-family: monospace;
+      font-size: .8rem;
+      border-radius: 6px;
+      padding: 8px 10px;
+      height: 110px;
+      overflow-y: auto;
+      margin-bottom: 8px;
+    }
+
+    /* 투표 현황 그리드 */
+    .vote-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 4px;
+    }
+
+    /* 스크롤바 */
+    ::-webkit-scrollbar {
+      width: 5px;
+      height: 5px;
+    }
+
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: var(--border);
+      border-radius: 3px;
+    }
+  </style>
 </head>
+
 <body>
-<h1>에일리언 마피아 - 관리자 대시보드</h1>
-<div id="create-room-container" class="container" style="min-width:600px;margin-bottom:20px;">
-  <h3>새로운 게임방 생성</h3>
-  <input type="text" id="new-room-code-input" placeholder="사용할 초대 코드를 입력하세요" style="width:60%;font-size:1em;padding:10px;">
-  <button id="create-room-btn" style="width:auto;padding:10px 20px;font-size:1em;margin-left:10px;">방 생성</button>
-</div>
-<div id="game-rooms-container"></div>
-<div id="server-reset-container" class="container" style="min-width:600px;margin-top:30px;background-color:#5e2f35;">
-  <h3 style="color:#ffc107;">서버 전체 초기화</h3>
-  <p style="font-size:.9em;color:#eee;">주의: 이 버튼을 누르면 현재 진행 중이거나 대기 중인 모든 게임방의 정보가 영구적으로 삭제됩니다.</p>
-  <button id="reset-server-btn" style="background-color:#dc3545;color:white;">모든 게임 기록 삭제</button>
-</div>
-<script>
-const socket = io();
-const roomsContainer = document.getElementById('game-rooms-container');
 
-document.getElementById('create-room-btn').addEventListener('click', function() {
-  const inp = document.getElementById('new-room-code-input');
-  const code = inp.value.trim();
-  if (code) { socket.emit('createRoom', { code: code }); inp.value = ''; }
-});
-document.getElementById('reset-server-btn').addEventListener('click', function() {
-  if (confirm('정말로 서버의 모든 게임 기록을 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.')) {
-    socket.emit('resetServer');
-  }
-});
+  <!-- 최상단 헤더 -->
+  <div
+    style="background:var(--surface);border-bottom:1px solid var(--border);padding:10px 16px;display:flex;align-items:center;justify-content:space-between;width:100%;box-sizing:border-box;">
+    <h1 style="margin:0;font-size:1rem;font-weight:700;color:var(--accent);">🛸 에일리언 마피아 — 관리자</h1>
+    <div style="display:flex;gap:8px;align-items:center;">
+      <input type="text" id="new-room-code-input" placeholder="게임방 코드"
+        style="width:140px;padding:6px 10px;border:1px solid var(--border);border-radius:6px;background:var(--surface2);color:var(--text);font-size:.88rem;">
+      <button id="create-room-btn" class="btn btn-primary btn-sm">🚀 방 생성</button>
+      <div style="width:1px;height:20px;background:var(--border);margin:0 4px;"></div>
+      <button id="reset-server-btn" class="btn btn-danger btn-sm">🗑 초기화</button>
+    </div>
+  </div>
 
-const ALL_ROLES = ['에일리언 여왕','에일리언','에일리언 알','에일리언 주술사','함장','엔지니어','의사','경호원','초능력자','수다쟁이','뚱이','신의 사도','군인','일반 승객'];
-const ALIENS = ['에일리언 여왕','에일리언','에일리언 알','에일리언 주술사'];
-const CORE_CREW = ['함장','엔지니어'];
-const SPECIAL_CREW = ['의사','경호원','초능력자','수다쟁이','군인','신의 사도'];
+  <!-- 방 목록 -->
+  <div id="game-rooms-container"></div>
 
-let gameRoomsState = {};
-let presetsState = {};
-let missionPresetsState = [];
-// 탭 상태 저장
+  <!-- 서버 초기화는 헤더로 이동 -->
+  <script>
+    const socket = io();
+    const roomsContainer = document.getElementById('game-rooms-container');
 
-// 총원 기반 자동 역할 배정
-function autoAssignRoles(total) {
-  if (total < 4) return null;
-  const counts = {};
-  ALL_ROLES.forEach(function(r) { counts[r] = 0; });
-
-  // ── 우선순위 배정 순서 ─────────────────────────────────
-  // 1단계: 필수 4인 (항상 포함)
-  const fixed = ['에일리언 여왕','함장','엔지니어','일반 승객'];
-  fixed.forEach(function(r) { counts[r] = 1; });
-  let remaining = total - 4;
-
-  // 2단계: 우선순위 순서대로 1명씩 추가 (인원 허용 범위 내)
-  const priority = [
-    { role: '에일리언', max: total >= 25 ? 2 : 1 },
-    { role: '수다쟁이', max: 1 },
-    { role: '에일리언 알', max: 1 },
-    { role: '초능력자', max: 1 },
-    { role: '뚱이', max: 1 },
-    { role: '신의 사도', max: 1 },
-    { role: '에일리언 주술사', max: 1 },
-    { role: '군인', max: 1 },
-    { role: '의사', max: 4 },
-    { role: '경호원', max: 1 }
-  ];
-
-  // 각 역할을 max까지 채우되 remaining 소진 시 중단
-  priority.forEach(function(item) {
-    if (remaining <= 0) return;
-    // 에일리언은 max까지 한 번에
-    if (item.max > 1) {
-      const add = Math.min(item.max, remaining);
-      counts[item.role] = add;
-      remaining -= add;
-    } else {
-      counts[item.role] = 1;
-      remaining--;
-    }
-  });
-
-  // 3단계: 모든 특수 역할 채운 후 → 일반승객/의사 번갈아, 의사 상한 4명
-  let doctorCount = counts['의사'] || 0;
-  let toggle = true; // true=일반승객, false=의사
-  while (remaining > 0) {
-    if (!toggle && doctorCount < 4) {
-      counts['의사'] = (counts['의사'] || 0) + 1;
-      doctorCount++;
-    } else {
-      counts['일반 승객'] = (counts['일반 승객'] || 0) + 1;
-    }
-    toggle = !toggle;
-    remaining--;
-  }
-
-  return counts;
-}
-
-function getDefaultRoleCounts() {
-  const counts = {};
-  ALL_ROLES.forEach(function(r) { counts[r] = 0; });
-  return counts;
-}
-
-socket.on('connect', function() { socket.emit('adminConnect'); });
-socket.on('updateAdmin', function(data) {
-  gameRoomsState = data.rooms;
-  presetsState = data.presets || {};
-  missionPresetsState = data.missionPresets || [];
-  renderAdminView();
-});
-
-socket.on('confirmForceEject', function(data) {
-  const { playerIds, playerNames } = data;
-  const roomDiv = document.querySelector('.room');
-  if (!roomDiv) return;
-  const roomCode = roomDiv.dataset.code;
-  if (confirm('[' + playerNames + '] 님이 카드를 선택하지 않았습니다. 이들을 즉시 방출시키겠습니까?')) {
-    socket.emit('forceEjectPlayers', { roomCode: roomCode, playerIds: playerIds });
-  }
-});
-socket.on('adminError', function(msg) { alert(msg); });
-socket.on('crisisRouletteResult', function(data) {
-  const roomDiv = document.querySelector('.room[data-code="' + data.roomCode + '"]');
-  if (!roomDiv) return;
-  const disp = roomDiv.querySelector('.crisis-display');
-  if (disp) {
-    disp.innerHTML = '<div class="crisis-roulette-result-text">' + data.result + '</div>';
-    disp.style.display = 'block';
-    setTimeout(function() {
-      disp.style.display = 'none';
-      const rb = roomDiv.querySelector('.resolve-escape-step-btn');
-      if (rb) rb.disabled = false;
-    }, 2500);
-  }
-});
-
-// ── timerUpdate ────────────────────────────────────────────────────────
-socket.on('timerUpdate', function(data) {
-  const { roomCode, timeLeft } = data;
-  const td = document.getElementById('timer-display-' + roomCode);
-  if (td) {
-    if (timeLeft >= 0) {
-      const m = Math.floor(timeLeft / 60);
-      const s = (timeLeft % 60).toString().padStart(2, '0');
-      td.textContent = m + ':' + s;
-    } else {
-      td.textContent = '종료!';
-    }
-  }
-  // 에일리언 타이머 표시 업데이트
-  const alienTD = document.getElementById('alien-timer-display-' + roomCode);
-  if (alienTD && timeLeft >= 0) {
-    const m2 = Math.floor(timeLeft / 60);
-    const s2 = (timeLeft % 60).toString().padStart(2, '0');
-    alienTD.textContent = '⏱️ 에일리언 활동 남은 시간: ' + m2 + ':' + s2;
-  }
-  // 타이머 버튼 비활성화
-  const roomDiv = document.querySelector('.room[data-code="' + roomCode + '"]');
-  if (roomDiv) {
-    const tb = roomDiv.querySelector('.meeting-timer-btn');
-    if (tb) { tb.textContent = timeLeft > 0 ? '타이머 작동 중...' : '타이머 작동'; tb.disabled = timeLeft > 0; }
-    const etb = roomDiv.querySelector('.escape-timer-btn');
-    if (etb) { etb.textContent = timeLeft > 0 ? '타이머 작동 중...' : '3분 30초 타이머 시작'; etb.disabled = timeLeft > 0; }
-  }
-});
-
-// ── renderAdminView ────────────────────────────────────────────────────
-function renderAdminView() {
-  const crc = document.getElementById('create-room-container');
-  roomsContainer.innerHTML = '';
-  if (Object.keys(gameRoomsState).length === 0) {
-    if (crc) crc.style.display = 'block';
-    roomsContainer.innerHTML = '<p>아직 활성화된 게임방이 없습니다.</p>';
-    return;
-  }
-  if (crc) crc.style.display = 'none';
-
-  for (const code in gameRoomsState) {
-    const rd = gameRoomsState[code];
-    const roomDiv = document.createElement('div');
-    roomDiv.className = 'room container';
-    roomDiv.dataset.code = code;
-
-    // 헤더
-    const header = document.createElement('div');
-    header.className = 'room-header';
-    const titleWrap = document.createElement('div');
-    titleWrap.style.cssText = 'display:flex;align-items:center;';
-    const h2 = document.createElement('h2');
-    h2.textContent = '방 코드: ' + code;
-    const countSpan = document.createElement('span');
-    countSpan.className = 'role-summary';
-    countSpan.textContent = '총 인원: ' + rd.players.length + '명';
-    countSpan.style.marginLeft = '20px';
-    titleWrap.appendChild(h2);
-    titleWrap.appendChild(countSpan);
-    const timerSpan = document.createElement('span');
-    timerSpan.id = 'timer-display-' + code;
-    timerSpan.className = 'admin-timer-display';
-    header.appendChild(titleWrap);
-    header.appendChild(timerSpan);
-    roomDiv.appendChild(header);
-
-    const contentDiv = document.createElement('div');
-    contentDiv.style.cssText = 'display:flex;gap:20px;';
-
-    if (rd.status === 'waiting') {
-      renderWaitingLayout(contentDiv, code, rd);
-    } else {
-      renderPlayingLayout(contentDiv, code, rd);
-    }
-
-    roomDiv.appendChild(contentDiv);
-    roomsContainer.appendChild(roomDiv);
-  }
-}
-
-// ── 대기실 레이아웃 ────────────────────────────────────────────────────
-function renderWaitingLayout(contentDiv, code, rd) {
-  // 1열: 참가자
-  const col1 = document.createElement('div');
-  col1.style.flex = '5';
-  col1.innerHTML = '<h3>참가자 목록</h3>';
-  const ul = document.createElement('ul');
-  ul.className = 'waiting-player-grid';
-  rd.players.forEach(function(p) {
-    const li = document.createElement('li');
-    const nameSpan = document.createElement('div');
-    nameSpan.textContent = p.name;
-    nameSpan.style.fontWeight = 'bold';
-    const kickBtn = document.createElement('button');
-    kickBtn.textContent = '퇴장';
-    kickBtn.className = 'kick-btn';
-    kickBtn.dataset.playerId = p.id;
-    kickBtn.dataset.playerName = p.name;
-    li.appendChild(nameSpan);
-    li.appendChild(kickBtn);
-    ul.appendChild(li);
-  });
-  col1.appendChild(ul);
-
-  // 2열: 게임 설정
-  const col2 = document.createElement('div');
-  col2.style.flex = '3';
-  col2.innerHTML = '<h3>게임 설정</h3>';
-
-  // 도움말
-  const help = document.createElement('div');
-  help.style.cssText = 'padding:10px;margin-top:15px;border:1px solid #28a745;border-radius:5px;background:#f8f9fa;color:#333;';
-  help.innerHTML = '<b>[진행 가이드]</b> 역할 인원을 맞추고 <b>\'게임 시작\'</b> 버튼을 누르세요.';
-  col2.appendChild(help);
-
-  // 미션 프리셋
-  const mpDiv = document.createElement('div');
-  mpDiv.style.marginTop = '15px';
-  mpDiv.innerHTML = '<h4>미션 프리셋 설정</h4>';
-  if (missionPresetsState.length > 0) {
-    const sel = document.createElement('select');
-    sel.className = 'preset-select';
-    sel.id = 'mission-preset-select-' + code;
-    missionPresetsState.forEach(function(name) {
-      const opt = document.createElement('option');
-      opt.value = name; opt.textContent = name;
-      sel.appendChild(opt);
+    document.getElementById('create-room-btn').addEventListener('click', function () {
+      const inp = document.getElementById('new-room-code-input');
+      const code = inp.value.trim();
+      if (code) { socket.emit('createRoom', { code }); inp.value = ''; }
     });
-    sel.selectedIndex = Math.floor(Math.random() * missionPresetsState.length);
-    mpDiv.appendChild(sel);
-  } else {
-    mpDiv.innerHTML += '<p>사용 가능한 미션 프리셋이 없습니다.</p>';
-  }
-  col2.appendChild(mpDiv);
-
-  // 방출 미니게임 토글
-  const mgDiv = document.createElement('div');
-  mgDiv.style.marginTop = '15px';
-  mgDiv.innerHTML = '<h4>온라인 방출 미니게임</h4>';
-  const mgLabel = document.createElement('label');
-  mgLabel.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:5px;background:#e9e9e9;border-radius:4px;';
-  const mgText = document.createElement('span');
-  mgText.textContent = '미니게임 기능 사용 (ON/OFF)';
-  const mgChk = document.createElement('input');
-  mgChk.type = 'checkbox';
-  mgChk.className = 'ejection-minigame-toggle';
-  mgChk.id = 'ejection-minigame-toggle-' + code;
-  mgChk.checked = true;
-  mgLabel.appendChild(mgText);
-  mgLabel.appendChild(mgChk);
-  mgDiv.appendChild(mgLabel);
-  col2.appendChild(mgDiv);
-
-  // 모둠 수 설정
-  const grpDiv = document.createElement('div');
-  grpDiv.style.marginTop = '15px';
-  grpDiv.innerHTML = '<h4>모둠 수 설정</h4>';
-  const grpInp = document.createElement('input');
-  grpInp.type = 'number';
-  grpInp.id = 'group-count-' + code;
-  grpInp.value = rd.groupCount || 6;
-  grpInp.min = 2;
-  grpInp.style.cssText = 'width:60px;padding:5px;';
-  grpDiv.appendChild(grpInp);
-  col2.appendChild(grpDiv);
-
-  // ★ 자동 진행 모드 패널 (게임 시작 전에만 설정 가능)
-  const autoPanel = document.createElement('div');
-  autoPanel.className = 'auto-panel';
-  const autoH = document.createElement('h5');
-  autoH.textContent = '⚡ 자동 진행 모드 (게임 시작 전 설정)';
-  autoPanel.appendChild(autoH);
-  const autoRow = document.createElement('div');
-  autoRow.className = 'auto-row';
-  const autoChk = document.createElement('input');
-  autoChk.type = 'checkbox';
-  autoChk.id = 'auto-chk-' + code;
-  autoChk.checked = rd.autoMode !== false; // 기본값 true
-  const autoLbl = document.createElement('label');
-  autoLbl.htmlFor = 'auto-chk-' + code;
-  autoLbl.textContent = '자동 진행 활성화';
-  autoRow.appendChild(autoChk);
-  autoRow.appendChild(autoLbl);
-  autoPanel.appendChild(autoRow);
-  const autoTimes = document.createElement('div');
-  autoTimes.className = 'auto-times';
-  // 회의 시간
-  const mtItem = document.createElement('div');
-  mtItem.className = 'auto-time-item';
-  const mtLbl = document.createElement('label');
-  mtLbl.textContent = '회의 시간(초) ※최소60';
-  const mtInp = document.createElement('input');
-  mtInp.type = 'number';
-  mtInp.id = 'auto-mt-' + code;
-  mtInp.value = rd.autoMeetingTime || 90;
-  mtInp.min = 60; mtInp.max = 600;
-  mtItem.appendChild(mtLbl); mtItem.appendChild(mtInp);
-  // 에일리언 활동 시간
-  const atItem = document.createElement('div');
-  atItem.className = 'auto-time-item';
-  const atLbl = document.createElement('label');
-  atLbl.textContent = '에일리언 활동(초)';
-  const atInp = document.createElement('input');
-  atInp.type = 'number';
-  atInp.id = 'auto-at-' + code;
-  atInp.value = rd.autoAlienTime || 60;
-  atInp.min = 20; atInp.max = 180;
-  atItem.appendChild(atLbl); atItem.appendChild(atInp);
-  autoTimes.appendChild(mtItem);
-  autoTimes.appendChild(atItem);
-  autoPanel.appendChild(autoTimes);
-  const applyBtn = document.createElement('button');
-  applyBtn.className = 'apply-auto-btn';
-  applyBtn.textContent = '자동진행 설정 저장';
-  applyBtn.dataset.roomCode = code;
-  autoPanel.appendChild(applyBtn);
-  const autoNote = document.createElement('p');
-  autoNote.style.cssText = 'font-size:.78em;color:#777;margin-top:6px;margin-bottom:0;';
-  autoNote.textContent = '※ 자동진행 활성화 시: 회의시작 버튼 → 즉시 타이머 시작, 30초 전 지목 자동 개시, 타임아웃 시 미투표자 페널티 후보 자동 등록';
-  autoPanel.appendChild(autoNote);
-  col2.appendChild(autoPanel);
-
-  // 게임 시작 버튼
-  const startBtn = document.createElement('button');
-  startBtn.className = 'start-game-btn';
-  startBtn.textContent = '게임 시작';
-  col2.appendChild(startBtn);
-
-  // 3열: 역할 인원 설정
-  const col3 = document.createElement('div');
-  col3.style.flex = '2';
-  col3.innerHTML = '<h3>역할 인원 설정</h3>';
-
-  // ★ 자동 역할 배정 패널
-  const aaPanel = document.createElement('div');
-  aaPanel.className = 'auto-assign-panel';
-  const aaH = document.createElement('h5');
-  aaH.textContent = '🎲 총원 입력 → 자동 배정';
-  aaPanel.appendChild(aaH);
-  const aaRow = document.createElement('div');
-  aaRow.className = 'auto-assign-row';
-  const aaInp = document.createElement('input');
-  aaInp.type = 'number';
-  aaInp.id = 'auto-assign-inp-' + code;
-  aaInp.value = rd.players.length || 4;
-  aaInp.min = 4;
-  aaInp.max = 40;
-  aaInp.placeholder = '총원';
-  const aaBtn = document.createElement('button');
-  aaBtn.className = 'auto-assign-btn';
-  aaBtn.textContent = '자동 배정';
-  aaBtn.dataset.roomCode = code;
-  aaRow.appendChild(aaInp);
-  aaRow.appendChild(aaBtn);
-  aaPanel.appendChild(aaRow);
-  const aaNotes = document.createElement('p');
-  aaNotes.style.cssText = 'font-size:.75em;color:#555;margin:4px 0 0;';
-  aaNotes.textContent = '필수: 여왕·함장·엔지니어 각 1명. 나머지 자동 분배.';
-  aaPanel.appendChild(aaNotes);
-  col3.appendChild(aaPanel);
-
-  // 총원 표시
-  const roleHeader = document.createElement('div');
-  roleHeader.style.cssText = 'display:flex;justify-content:flex-end;align-items:center;margin-bottom:8px;';
-  const totalSpan = document.createElement('span');
-  totalSpan.id = 'total-roles-' + code;
-  totalSpan.style.fontWeight = 'bold';
-  roleHeader.appendChild(totalSpan);
-  col3.appendChild(roleHeader);
-
-  // 역할 목록
-  const roleDiv = document.createElement('div');
-  roleDiv.className = 'role-settings';
-  roleDiv.style.borderTop = 'none';
-  const currentCounts = (rd.settings && Object.keys(rd.settings).length > 1) ? rd.settings : getDefaultRoleCounts();
-  let initTotal = 0;
-  ALL_ROLES.forEach(function(roleName) {
-    const item = document.createElement('div');
-    item.className = 'role-item';
-    const nameSpan = document.createElement('span');
-    nameSpan.textContent = roleName;
-    const ctrl = document.createElement('div');
-    ctrl.className = 'role-controls';
-    const inp = document.createElement('input');
-    inp.type = 'number';
-    inp.min = 0;
-    inp.dataset.role = roleName;
-    const cnt = currentCounts[roleName] || 0;
-    inp.value = cnt;
-    initTotal += cnt;
-    inp.addEventListener('input', function() {
-      let t = 0;
-      const allInp = col3.querySelectorAll('.role-controls input');
-      allInp.forEach(function(i) { t += parseInt(i.value, 10) || 0; });
-      totalSpan.textContent = '총원: ' + t;
+    document.getElementById('reset-server-btn').addEventListener('click', function () {
+      if (confirm('정말로 서버의 모든 게임 기록을 삭제하시겠습니까?')) socket.emit('resetServer');
     });
-    ctrl.appendChild(inp);
-    item.appendChild(nameSpan);
-    item.appendChild(ctrl);
-    roleDiv.appendChild(item);
-  });
-  totalSpan.textContent = '총원: ' + initTotal;
-  col3.appendChild(roleDiv);
 
-  contentDiv.appendChild(col1);
-  contentDiv.appendChild(col2);
-  contentDiv.appendChild(col3);
-}
+    /* ── 상수 ── */
+    const ALL_ROLES = ['에일리언 여왕', '에일리언', '에일리언 알', '에일리언 주술사', '함장', '엔지니어', '의사', '경호원', '초능력자', '수다쟁이', '뚱이', '신의 사도', '군인', '일반 승객'];
+    const ALIENS = ['에일리언 여왕', '에일리언', '에일리언 알', '에일리언 주술사'];
+    const CORE_CREW = ['함장', '엔지니어'];
+    const SPECIAL_CREW = ['의사', '경호원', '초능력자', '수다쟁이', '군인', '신의 사도'];
 
-// ── 게임 중 레이아웃 (3단 가로 배치) ────────────────────────────────
-function renderPlayingLayout(contentDiv, code, rd) {
-  contentDiv.style.flexDirection = 'row';
-  contentDiv.style.alignItems = 'flex-start';
+    let gameRoomsState = {};
+    let missionPresetsState = [];
 
-  const colPlayers = document.createElement('div');
-  colPlayers.className = 'col-players';
-  const colGame = document.createElement('div');
-  colGame.className = 'col-game';
-  const colMonitor = document.createElement('div');
-  colMonitor.className = 'col-monitor';
-
-  renderTabPlayers(colPlayers, code, rd);
-  renderTabGame(colGame, code, rd);
-  renderTabMonitor(colMonitor, code, rd);
-
-  contentDiv.appendChild(colPlayers);
-  contentDiv.appendChild(colGame);
-  contentDiv.appendChild(colMonitor);
-}
-
-// ── TAB 1: 참가자 현황 ────────────────────────────────────────────────
-function renderTabPlayers(panel, code, rd) {
-  const living = rd.players.filter(function(p) { return p.status === 'alive'; }).length;
-  const hdr = document.createElement('div');
-  hdr.className = 'col-header';
-  hdr.textContent = '👥 참가자 현황 (' + living + '/' + rd.players.length + ')';
-  panel.appendChild(hdr);
-
-  const sorted = [...rd.players].sort(function(a, b) {
-    function score(r) {
-      if (ALIENS.includes(r)) return 3;
-      if (CORE_CREW.includes(r)) return 2;
-      if (SPECIAL_CREW.includes(r)) return 1;
-      return 0;
-    }
-    return score(b.role) - score(a.role);
-  });
-  const ul = document.createElement('ul');
-  ul.className = 'player-grid-list';
-  sorted.forEach(function(player) {
-    const li = document.createElement('li');
-    const info = document.createElement('div');
-    info.className = 'player-info-container';
-    let roleClass = 'player-info-role';
-    if (ALIENS.includes(player.role)) roleClass += ' role-alien';
-    else if (CORE_CREW.includes(player.role)) roleClass += ' role-core-crew';
-    else if (SPECIAL_CREW.includes(player.role)) roleClass += ' role-special-crew';
-    let roleText = player.role || '역할 미정';
-    if (player.role === '경호원' && rd.bodyguardProtection === player.id) {
-      const pp = rd.players.find(function(p) { return p.id === rd.bodyguardProtection; });
-      if (pp) roleText += ' ▶ ' + pp.name + ' 보호 중';
-    }
-    if ((player.role === '함장' || player.role === '군인') && typeof player.bullets !== 'undefined') {
-      roleText += ' (총알: ' + player.bullets + ')';
-    }
-    const groupText = player.group ? player.group + '모둠' : '모둠 미정';
-    info.innerHTML = '<div class="player-info-name">' + player.name + '</div>' +
-      '<div class="player-info-group">' + groupText + '</div>' +
-      '<div class="' + roleClass + '">' + roleText + '</div>';
-    li.appendChild(info);
-
-    // ★ Q4: 💚 아이콘만 (퇴장 버튼 제거, 사망 시 💀 표시만)
-    const btnWrap = document.createElement('div');
-    btnWrap.style.cssText = 'display:flex;flex-direction:column;align-items:center;min-width:44px;';
-    if (player.status === 'dead') {
-      li.classList.add('dead');
-      const deadIco = document.createElement('span');
-      deadIco.textContent = '💀';
-      deadIco.style.cssText = 'font-size:1.4em;opacity:.6;';
-      btnWrap.appendChild(deadIco);
-    } else {
-      const elimBtn = document.createElement('button');
-      elimBtn.textContent = '💚';
-      elimBtn.title = '클릭 → 사망 처리';
-      elimBtn.className = 'status-icon-btn alive eliminate-btn';
-      elimBtn.dataset.playerId = player.id;
-      btnWrap.appendChild(elimBtn);
-    }
-    li.appendChild(btnWrap);
-    ul.appendChild(li);
-  });
-  panel.appendChild(ul);
-
-  // 게임 로그
-  const logBox = document.createElement('div');
-  logBox.className = 'admin-log-box';
-  logBox.innerHTML = (rd.gameLog || []).map(function(e) {
-    const text = typeof e === 'string' ? e : e.text;
-    const type = typeof e === 'string' ? 'log' : (e.type || 'log');
-    return '<p class="log-' + type + '">' + text + '</p>';
-  }).join('');
-  panel.appendChild(logBox);
-}
-
-// ── TAB 2: 게임 진행 ──────────────────────────────────────────────────
-function phaseBadge(rd) {
-  const el = document.createElement('div');
-  let cls = 'phase-badge', text = '';
-  if (rd.status === 'game_over') {
-    cls += ' special'; text = '🏁 게임 종료 — ' + rd.winner + ' 승리';
-  } else if (rd.phase === 'role_reveal') {
-    cls += ' day'; text = '☀️ ' + rd.day + '일차 — 역할 확인';
-  } else if (rd.phase === 'meeting') {
-    cls += ' day';
-    const sub = { pending_start:'자기소개 단계', nominating:'후보 지목 중', minigame_pending:'미니게임 준비',
-                  minigame_active:'미니게임 진행 중', minigame_all_selected:'결과 공개 대기' };
-    text = '☀️ ' + rd.day + '일차 회의 — ' + (sub[rd.ejectionState] || rd.ejectionState || '');
-  } else if (rd.phase === 'night_alien_action') {
-    cls += ' night-alien'; text = '🌙 ' + rd.day + '일차 밤 — 🔴 에일리언 활동';
-    if (rd.pendingAction === 'queen_rampage') text += ' / 👑 여왕의 만찬';
-  } else if (rd.phase === 'night_crew_action') {
-    cls += ' night-crew'; text = '🌙 ' + rd.day + '일차 밤 — 🟡 탐사대 활동 중';
-  } else if (rd.phase === 'escape_sequence') {
-    cls += ' special'; text = '🚀 비상탈출 시퀀스 — 관문 ' + ((rd.escapeStep || 0) + 1);
-  } else {
-    cls += ' day'; text = rd.day + '일차 ' + rd.phase;
-  }
-  el.className = cls;
-  el.textContent = text;
-  return el;
-}
-
-function renderTabGame(panel, code, rd) {
-  panel.style.cssText = 'display:flex;flex-direction:column;';
-  const hdr = document.createElement('div');
-  hdr.className = 'col-header';
-  hdr.textContent = '🎮 게임 진행';
-  panel.appendChild(hdr);
-
-  // Q2: 페이즈 뱃지
-  panel.appendChild(phaseBadge(rd));
-
-  // 자동진행 상태
-  const autoInfo = document.createElement('div');
-  autoInfo.style.cssText = 'margin-top:8px;padding:6px 12px;border-radius:6px;font-size:.82em;border-left:4px solid;margin-bottom:4px;';
-  if (rd.autoMode) {
-    autoInfo.style.cssText += 'background:#d4edda;border-color:#20c997;';
-    autoInfo.innerHTML = '<b>⚡ 자동 진행 ON</b> — 회의: ' + (rd.autoMeetingTime || 90) + '초 / 에일리언: ' + (rd.autoAlienTime || 60) + '초';
-  } else {
-    autoInfo.style.cssText += 'background:#f8f9fa;border-color:#aaa;';
-    autoInfo.textContent = '자동 진행 OFF (수동)';
-  }
-  panel.appendChild(autoInfo);
-
-  if (rd.status !== 'playing') return;
-
-  // 위기 룰렛
-  if (rd.pendingAction === 'crisis_roulette') {
-    const crisis = rd.crisis || {};
-    const cb = document.createElement('button');
-    cb.className = 'start-crisis-roulette-btn';
-    cb.textContent = '[' + (crisis.type || '위기') + '] 룰렛 시작';
-    cb.style.backgroundColor = '#6f42c1';
-    panel.appendChild(cb);
-    const rp = document.createElement('p');
-    rp.style.fontWeight = 'bold';
-    rp.innerHTML = '예상 결과: <span style="color:#dc3545;">' + (crisis.result || '?') + '</span>';
-    panel.appendChild(rp);
-  }
-  // 비상탈출 시퀀스
-  else if (rd.phase === 'escape_sequence') {
-    const el = document.createElement('div');
-    el.style.cssText = 'background:#222;color:lime;padding:10px;border-radius:5px;font-family:monospace;height:120px;overflow-y:auto;margin-top:8px;';
-    el.innerHTML = (rd.escapeLog || []).join('<br>');
-    panel.appendChild(el);
-    const rb = document.createElement('button');
-    rb.className = 'resolve-escape-step-btn';
-    rb.textContent = '관문 ' + ((rd.escapeStep || 0) + 1) + '단계 확인';
-    rb.style.cssText = 'background:#fd7e14;width:100%;padding:10px;margin-top:8px;border:none;color:white;border-radius:5px;cursor:pointer;';
-    panel.appendChild(rb);
-  }
-  // 엔지니어
-  else if (rd.pendingAction === 'engineer_choice') {
-    const ep = document.createElement('p');
-    ep.textContent = '엔지니어가 선택하기를 기다리는 중...';
-    ep.style.cssText = 'font-weight:bold;color:#007bff;margin-top:10px;';
-    panel.appendChild(ep);
-  }
-  // 탈출 투표 시작
-  else if (rd.pendingAction === 'escape_vote_pending') {
-    const sv = document.createElement('button');
-    sv.className = 'start-escape-vote-btn';
-    sv.textContent = '최종 투표 시작';
-    sv.style.backgroundColor = '#28a745';
-    panel.appendChild(sv);
-  }
-  else if (rd.pendingAction === 'escape_survivor_selection') {
-    const lpc = rd.players.filter(function(p) { return p.status === 'alive'; }).length;
-    const vpc = Object.keys(rd.escapeVotes || {}).length;
-    const vt = document.createElement('h4');
-    vt.textContent = '비상탈출 투표 (' + vpc + '/' + lpc + ')';
-    vt.style.marginTop = '8px';
-    panel.appendChild(vt);
-    const et = document.createElement('button');
-    et.className = 'escape-timer-btn';
-    et.textContent = (rd.timeLeft || 0) > 0 ? '타이머 작동 중...' : '3분 30초 타이머 시작';
-    if ((rd.timeLeft || 0) > 0) et.disabled = true;
-    panel.appendChild(et);
-    const ff = document.createElement('button');
-    ff.className = 'force-escape-fail-btn';
-    ff.textContent = '시간 초과로 투표 종료';
-    ff.style.backgroundColor = '#dc3545';
-    panel.appendChild(ff);
-  }
-  else if (rd.pendingAction === 'escape_ready') {
-    const ns = (rd.escapees || []).map(function(p) { return p.name + ' (' + p.role + ')'; }).join('<br>');
-    const et2 = document.createElement('h4');
-    et2.textContent = '최종 탑승자 명단';
-    et2.style.marginTop = '8px';
-    panel.appendChild(et2);
-    const nb = document.createElement('div');
-    nb.style.cssText = 'padding:8px;background:#e9e9e9;border-radius:5px;margin-bottom:8px;font-size:.9em;';
-    nb.innerHTML = ns;
-    panel.appendChild(nb);
-    const se = document.createElement('button');
-    se.className = 'start-escape-sequence-btn';
-    se.textContent = '비상탈출 시퀀스 시작';
-    se.style.backgroundColor = '#28a745';
-    panel.appendChild(se);
-  }
-  // 역할 공개
-  else if (rd.phase === 'role_reveal') {
-    const b = document.createElement('button');
-    b.className = 'next-phase-btn';
-    b.dataset.phase = 'meeting';
-    b.dataset.day = 1;
-    b.textContent = '1일차 회의 시작';
-    panel.appendChild(b);
-  }
-  // 낮: 회의
-  else if (rd.phase === 'meeting') {
-    // Q5: 항상 타이머 버튼 표시 (자동모드면 비상용으로)
-    const tb = document.createElement('button');
-    tb.className = 'timer-btn meeting-timer-btn';
-    if ((rd.timeLeft || 0) > 0) {
-      tb.textContent = '⏱️ 타이머 작동 중...';
-      tb.disabled = true;
-      tb.style.opacity = '0.6';
-    } else if (rd.autoMode) {
-      tb.textContent = '⚙️ 타이머 강제 시작 (비상용)';
-      tb.style.cssText = 'background:#6c757d;font-size:.85em;';
-    } else {
-      tb.textContent = '타이머 작동';
-    }
-    panel.appendChild(tb);
-    {
-    }
-    if (rd.settings.useEjectionMinigame) {
-      if (rd.ejectionState === 'pending_start') {
-        if (!rd.autoMode) {
-          const sn = document.createElement('button');
-          sn.className = 'start-nomination-btn';
-          sn.textContent = '1차 후보 지목 시작';
-          sn.style.backgroundColor = '#fd7e14';
-          panel.appendChild(sn);
-        } else {
-          const an = document.createElement('p');
-          an.style.cssText = 'margin-top:6px;color:#20c997;font-size:.85em;';
-          an.textContent = '⚡ 30초 남으면 지목 자동 시작';
-          panel.appendChild(an);
-          // (수동 타이머 버튼은 위에서 공통으로 표시)
-        }
-      } else if (rd.ejectionState === 'nominating') {
-        const ip = document.createElement('p');
-        ip.textContent = '🗳️ 지목 투표 진행 중...';
-        ip.style.cssText = 'color:#fd7e14;font-weight:bold;margin-top:8px;';
-        panel.appendChild(ip);
-      } else if (rd.ejectionState === 'minigame_pending') {
-        const mg = document.createElement('button');
-        mg.className = 'start-ejection-minigame-btn';
-        mg.textContent = '방출 미니게임 시작';
-        mg.style.backgroundColor = '#6f42c1';
-        panel.appendChild(mg);
-      } else if (['minigame_active','minigame_all_selected'].includes(rd.ejectionState)) {
-        const rb2 = document.createElement('button');
-        rb2.className = 'resolve-ejection-minigame-btn';
-        rb2.style.backgroundColor = '#dc3545';
-        rb2.textContent = rd.ejectionState === 'minigame_all_selected' ? '결과 공개 및 방출 실행' : '후보들 선택 중...';
-        rb2.disabled = rd.ejectionState !== 'minigame_all_selected';
-        panel.appendChild(rb2);
-      }
-    } else {
-      const nxt = document.createElement('button');
-      nxt.className = 'next-phase-btn';
-      nxt.dataset.phase = 'night_alien_action';
-      nxt.dataset.day = rd.day;
-      nxt.textContent = '밤으로 이동';
-      panel.appendChild(nxt);
-    }
-  }
-  // 밤: 에일리언 활동
-  else if (rd.phase === 'night_alien_action') {
-    if (rd.alienActionTriggered) {
-      const atd = document.createElement('div');
-      atd.style.cssText = 'margin-top:8px;padding:8px;background:#2c1f3e;border-radius:6px;color:#c084fc;font-size:.95em;font-weight:bold;text-align:center;';
-      atd.id = 'alien-timer-display-' + code;
-      atd.textContent = '⏱️ 에일리언 활동 중... (자동 종료 대기)';
-      panel.appendChild(atd);
-      const rnb = document.createElement('button');
-      rnb.className = 'resolve-night-btn';
-      rnb.style.cssText = 'background:#6c757d;margin-top:6px;font-size:.85em;';
-      rnb.textContent = '⚙️ 수동: 결과반영 및 탐사대 활동 시작';
-      panel.appendChild(rnb);
-    } else {
-      const tab = document.createElement('button');
-      tab.className = 'trigger-alien-action-btn';
-      tab.textContent = '(모두 엎드린 후 클릭) 에일리언 활동 시작';
-      panel.appendChild(tab);
-    }
-    if (rd.pendingAction === 'queen_rampage') {
-      const qb = document.createElement('button');
-      qb.className = 'trigger-rampage-btn';
-      qb.textContent = '여왕의 만찬 시작';
-      qb.style.cssText = 'background:#dc3545;margin-top:8px;';
-      panel.appendChild(qb);
-      const qr = document.createElement('button');
-      qr.id = 'resolve-rampage-btn';
-      qr.textContent = '만찬 종료 → 탐사대 활동';
-      panel.appendChild(qr);
-    }
-  }
-  // 밤: 탐사대 활동 – Q1 버튼 텍스트 변경
-  else if (rd.phase === 'night_crew_action') {
-    const eb = document.createElement('button');
-    eb.className = 'end-night-btn';
-    eb.textContent = (rd.day + 1) + '일차 아침으로 진행';
-    panel.appendChild(eb);
-  }
-
-  // Q4: 진행 가이드 맨 아래
-  const help = document.createElement('div');
-  help.className = 'help-box';
-  help.style.marginTop = '12px';
-  let ht = '';
-  if (rd.pendingAction === 'crisis_roulette') ht = '⚠️ 위기 룰렛! <b>룰렛 시작</b> 버튼 클릭.';
-  else {
-    switch (rd.phase) {
-      case 'role_reveal': ht = '역할 확인 후 <b>1일차 회의 시작</b> 클릭.'; break;
-      case 'meeting':
-        if (rd.ejectionState === 'pending_start') ht = rd.autoMode ? '⚡ 타이머 자동 시작됨. 30초 전 지목 화면 자동 표시.' : '자기소개 → 타이머 → 후보 지목 시작.';
-        else if (rd.ejectionState === 'nominating') ht = '모둠별 투표를 <b>모니터링 열</b>에서 확인.';
-        else if (rd.ejectionState === 'minigame_pending') ht = '후보 지목 완료 → <b>방출 미니게임 시작</b>.';
-        else ht = '모니터링 열 확인 → 전원 선택 시 <b>결과 공개</b>.';
-        break;
-      case 'night_alien_action': ht = rd.alienActionTriggered ? '에일리언 선택 대기 중. 완료 시 자동 탐사대 활동으로 이동.' : '모두 엎드린 후 <b>에일리언 활동 시작</b> 클릭.'; break;
-      case 'night_crew_action': ht = '탐사대 활동 확인 후 <b>' + rd.day + '일차 아침으로 진행</b> 클릭.'; break;
-      case 'escape_sequence': ht = '각 관문 확인 후 <b>관문 확인</b> 클릭.'; break;
-      default: ht = '다음 단계 버튼을 클릭하세요.';
-    }
-  }
-  help.innerHTML = '💡 ' + ht;
-  panel.appendChild(help);
-}
-// ── TAB 3: 모니터링 ───────────────────────────────────────────────────
-function renderTabMonitor(panel, code, rd) {
-  const hdr = document.createElement('div');
-  hdr.className = 'col-header';
-  hdr.textContent = '📊 모니터링';
-  panel.appendChild(hdr);
-
-  let hasContent = false;
-
-  // ── 탈출: 역할 주장 현황 ──────────────────────────────────
-  if (rd.pendingAction === 'escape_role_claim') {
-    hasContent = true;
-    const rc = rd.claimedRoles || {};
-    const living = rd.players.filter(function(p) { return p.status === 'alive'; });
-    const claimed = living.filter(function(p) { return rc[p.id]; }).length;
-    const rtTitle = document.createElement('h4');
-    rtTitle.textContent = '🚀 역할 주장 현황 (' + claimed + '/' + living.length + ')';
-    panel.appendChild(rtTitle);
-    living.forEach(function(p) {
-      const row = document.createElement('div');
-      const hasClaimed = !!rc[p.id];
-      row.className = 'claim-row' + (hasClaimed ? ' claimed' : '');
-      const nameSpan = document.createElement('span');
-      nameSpan.textContent = p.name;
-      row.appendChild(nameSpan);
-      if (hasClaimed) {
-        const badge = document.createElement('span');
-        badge.className = 'claim-role-badge';
-        badge.textContent = rc[p.id];
-        row.appendChild(badge);
-      } else {
-        const wait = document.createElement('span');
-        wait.style.cssText = 'color:#aaa;font-size:.85em;';
-        wait.textContent = '주장 중...';
-        row.appendChild(wait);
-      }
-      panel.appendChild(row);
-    });
-  }
-
-  // ── 탈출: 투표 현황 ──────────────────────────────────────
-  if (rd.pendingAction === 'escape_survivor_selection') {
-    hasContent = true;
-    const ev = rd.escapeVotes || {};
-    const living = rd.players.filter(function(p) { return p.status === 'alive'; });
-    const votedCount = Object.keys(ev).length;
-    const evTitle = document.createElement('h4');
-    evTitle.textContent = '🗳️ 탈출 캡슐 투표 (' + votedCount + '/' + living.length + ')';
-    panel.appendChild(evTitle);
-    living.forEach(function(p) {
-      const row = document.createElement('div');
-      const votedFor = ev[p.id];
-      const hasVoted = !!votedFor;
-      row.className = 'claim-row' + (hasVoted ? ' claimed' : '');
-      const nameSpan = document.createElement('span');
-      nameSpan.textContent = p.name;
-      row.appendChild(nameSpan);
-      if (hasVoted) {
-        const tp = rd.players.find(function(q) { return q.id === votedFor; });
-        const badge = document.createElement('span');
-        badge.className = 'claim-role-badge';
-        badge.textContent = '▶ ' + (tp ? tp.name : '???');
-        row.appendChild(badge);
-      } else {
-        const wait = document.createElement('span');
-        wait.style.cssText = 'color:#aaa;font-size:.85em;';
-        wait.textContent = '투표 중...';
-        row.appendChild(wait);
-      }
-      panel.appendChild(row);
-    });
-  }
-
-  // ── 탈출: 최종 탑승자 확정 ───────────────────────────────
-  if (rd.pendingAction === 'escape_ready' && rd.escapees && rd.escapees.length > 0) {
-    hasContent = true;
-    const erTitle = document.createElement('h4');
-    erTitle.textContent = '🛸 최종 탑승자 명단';
-    panel.appendChild(erTitle);
-    rd.escapees.forEach(function(p) {
-      const row = document.createElement('div');
-      row.className = 'claim-row claimed';
-      row.innerHTML = '<span>' + p.name + '</span><span class="claim-role-badge">' + p.role + '</span>';
-      panel.appendChild(row);
-    });
-  }
-
-  // 지목 투표 현황
-  if (rd.phase === 'meeting' && rd.ejectionState === 'nominating') {
-    hasContent = true;
-    const alive = rd.players.filter(function(p) { return p.status === 'alive' && p.group; });
-    const gCounts = {};
-    alive.forEach(function(p) { gCounts[p.group] = (gCounts[p.group] || 0) + 1; });
-    const voters = alive.filter(function(p) { return gCounts[p.group] > 1; });
-    let voted = 0;
-    if (rd.ejectionVotes) {
-      Object.values(rd.ejectionVotes).forEach(function(gv) { voted += Object.keys(gv).length; });
-    }
-    const vTitle = document.createElement('h4');
-    vTitle.textContent = '🗳️ 1차 후보 지목 현황 (' + voted + '/' + voters.length + ')';
-    panel.appendChild(vTitle);
-    const grid = document.createElement('ul');
-    grid.className = 'vote-status-grid';
-    voters.forEach(function(voter) {
-      const tid = rd.ejectionVotes?.[voter.group]?.[voter.id];
-      const li = document.createElement('li');
-      li.className = 'vote-status-item' + (tid ? ' voted' : '');
-      if (tid) {
-        const tp = rd.players.find(function(p) { return p.id === tid; });
-        li.innerHTML = '<b>' + voter.name + '</b> ▶ ' + (tp ? tp.name : '???');
-      } else {
-        li.innerHTML = '<b>' + voter.name + '</b>: (투표 중...)';
-      }
-      grid.appendChild(li);
-    });
-    panel.appendChild(grid);
-  }
-
-  // 방출 미니게임 현황
-  if (rd.phase === 'meeting' && ['minigame_active','minigame_all_selected'].includes(rd.ejectionState)) {
-    const mg = rd.ejectionMinigame;
-    if (mg && mg.candidates) {
-      hasContent = true;
-      const mgTitle = document.createElement('h4');
-      mgTitle.textContent = '🎮 방출 미니게임 현황 (관리자 전용)';
-      panel.appendChild(mgTitle);
-      mg.candidates.forEach(function(cId) {
-        const cp = rd.players.find(function(p) { return p.id === cId; });
-        const selId = mg.selections ? mg.selections[cId] : undefined;
-        const row = document.createElement('div');
-        row.className = 'mg-row';
-        const ns = document.createElement('strong');
-        ns.textContent = cp ? cp.name : '???';
-        row.appendChild(ns);
-        const cs = document.createElement('span');
-        if (selId !== undefined) {
-          const card = mg.cards ? mg.cards.find(function(c) { return c.id === selId; }) : null;
-          if (card && card.content === '방출') { cs.className = 'mg-card ejection'; cs.textContent = '💀 방출'; }
-          else if (card) { cs.className = 'mg-card survival'; cs.textContent = '💚 생존'; }
-          else { cs.className = 'mg-card pending'; cs.textContent = '선택됨'; }
-        } else { cs.className = 'mg-card pending'; cs.textContent = '선택 중...'; }
-        row.appendChild(cs);
-        panel.appendChild(row);
+    /* ── 자동 역할 배정 ── */
+    function autoAssignRoles(total) {
+      if (total < 4) return null;
+      const c = {}; ALL_ROLES.forEach(r => c[r] = 0);
+      ['에일리언 여왕', '함장', '엔지니어', '일반 승객'].forEach(r => c[r] = 1);
+      let rem = total - 4;
+      const priority = [
+        { role: '에일리언', max: total >= 25 ? 2 : 1 },
+        { role: '수다쟁이', max: 1 }, { role: '에일리언 알', max: 1 }, { role: '초능력자', max: 1 },
+        { role: '뚱이', max: 1 }, { role: '신의 사도', max: 1 }, { role: '에일리언 주술사', max: 1 },
+        { role: '군인', max: 1 }, { role: '의사', max: 4 }, { role: '경호원', max: 1 }
+      ];
+      priority.forEach(item => {
+        if (rem <= 0) return;
+        const add = Math.min(item.max, rem);
+        c[item.role] = add; rem -= add;
       });
+      let docCount = c['의사'];
+      let tog = true;
+      while (rem > 0) {
+        if (!tog && docCount < 4) { c['의사']++; docCount++; }
+        else c['일반 승객']++;
+        tog = !tog; rem--;
+      }
+      return c;
     }
-  }
 
-  if (!hasContent) {
-    const noData = document.createElement('p');
-    noData.style.color = '#aaa';
-    noData.textContent = '현재 모니터링할 내용이 없습니다.';
-    panel.appendChild(noData);
-  }
-}
+    /* ── 소켓 ── */
+    socket.on('connect', () => socket.emit('adminConnect'));
+    socket.on('updateAdmin', data => {
+      gameRoomsState = data.rooms;
+      missionPresetsState = data.missionPresets || [];
+      renderAll();
+    });
+    socket.on('confirmForceEject', data => {
+      const roomDiv = document.querySelector('.room-card');
+      if (!roomDiv) return;
+      if (confirm('[' + data.playerNames + '] 님이 카드를 선택하지 않았습니다. 방출시키겠습니까?'))
+        socket.emit('forceEjectPlayers', { roomCode: roomDiv.dataset.code, playerIds: data.playerIds });
+    });
+    socket.on('adminError', msg => alert(msg));
+    socket.on('crisisRouletteResult', data => {
+      const disp = document.querySelector('.room-card[data-code="' + data.roomCode + '"] .crisis-display');
+      if (disp) {
+        disp.textContent = data.result; disp.style.display = 'block';
+        setTimeout(() => { disp.style.display = 'none'; }, 2500);
+      }
+    });
+    socket.on('timerUpdate', data => {
+      const { roomCode, timeLeft } = data;
+      const td = document.getElementById('timer-' + roomCode);
+      if (td) {
+        if (timeLeft >= 0) {
+          const m = Math.floor(timeLeft / 60), s = String(timeLeft % 60).padStart(2, '0');
+          td.textContent = m + ':' + s;
+        } else td.textContent = '종료!';
+      }
+      const atd = document.getElementById('alien-timer-' + roomCode);
+      if (atd && timeLeft >= 0) {
+        const m = Math.floor(timeLeft / 60), s = String(timeLeft % 60).padStart(2, '0');
+        atd.textContent = '⏱ ' + m + ':' + s;
+        atd.style.color = timeLeft <= 10 ? '#fca5a5' : '#c084fc';
+      }
+      const rd = document.querySelector('.room-card[data-code="' + roomCode + '"]');
+      if (rd) {
+        const tb = rd.querySelector('.meeting-timer-btn');
+        if (tb) { tb.textContent = timeLeft > 0 ? '⏱ 타이머 작동 중...' : '⚙ 타이머 강제 시작'; tb.disabled = timeLeft > 0; }
+      }
+    });
 
-// ── 클릭 핸들러 ───────────────────────────────────────────────────────
-roomsContainer.addEventListener('click', function(event) {
-  const target = event.target;
-  const roomDiv = target.closest('.room');
-  if (!roomDiv) return;
-  const roomCode = roomDiv.dataset.code;
-  const cl = target.classList;
+    /* ══════════════════════════════════════════════
+       메인 렌더
+    ══════════════════════════════════════════════ */
+    function renderAll() {
+      roomsContainer.innerHTML = '';
+      if (!Object.keys(gameRoomsState).length) {
+        roomsContainer.innerHTML = '<p style="padding:24px;color:var(--text3);">아직 활성화된 게임방이 없습니다. 방 코드를 입력하고 방 생성 버튼을 누르세요.</p>';
+        return;
+      }
+      for (const code in gameRoomsState) {
+        const rd = gameRoomsState[code];
+        const card = document.createElement('div');
+        card.className = 'room-card';
+        card.dataset.code = code;
 
-  if (cl.contains('meeting-timer-btn')) {
-    socket.emit('startMeetingTimer', roomCode);
-  } else if (cl.contains('start-game-btn')) {
-    const players = gameRoomsState[roomCode].players;
-    if (players.length < 4) { alert('최소 인원(4명)이 모이지 않아 시작할 수 없습니다.'); return; }
-    const roleSettings = {};
-    let totalRoles = 0;
-    roomDiv.querySelectorAll('.role-controls input').forEach(function(inp) {
-      const cnt = parseInt(inp.value, 10);
-      if (cnt > 0) roleSettings[inp.dataset.role] = cnt;
-      totalRoles += cnt || 0;
-    });
-    if (totalRoles > 0 && totalRoles !== players.length) {
-      alert('설정된 역할의 합계가 총 플레이어 수와 일치하지 않습니다.');
-      return;
-    }
-    const gc = document.getElementById('group-count-' + roomCode);
-    const ps = document.getElementById('mission-preset-select-' + roomCode);
-    const ej = document.getElementById('ejection-minigame-toggle-' + roomCode);
-    socket.emit('startGame', {
-      code: roomCode,
-      settings: roleSettings,
-      groupCount: parseInt(gc.value, 10) || 4,
-      selectedPreset: ps ? ps.value : '',
-      useEjectionMinigame: ej ? ej.checked : true
-    });
-  } else if (cl.contains('auto-assign-btn')) {
-    // ★ 자동 역할 배정
-    const rc = target.dataset.roomCode;
-    const aaInp = document.getElementById('auto-assign-inp-' + rc);
-    const total = parseInt(aaInp.value, 10);
-    if (isNaN(total) || total < 4) { alert('최소 4명 이상 입력하세요.'); return; }
-    const assigned = autoAssignRoles(total);
-    if (!assigned) { alert('배정 실패'); return; }
-    const roleInputs = roomDiv.querySelectorAll('.role-controls input');
-    let newTotal = 0;
-    roleInputs.forEach(function(inp) {
-      const v = assigned[inp.dataset.role] || 0;
-      inp.value = v;
-      newTotal += v;
-    });
-    const ts = document.getElementById('total-roles-' + rc);
-    if (ts) ts.textContent = '총원: ' + newTotal;
-  } else if (cl.contains('apply-auto-btn')) {
-    const rc = target.dataset.roomCode;
-    const chk = document.getElementById('auto-chk-' + rc);
-    const mt = document.getElementById('auto-mt-' + rc);
-    const at = document.getElementById('auto-at-' + rc);
-    socket.emit('setAutoMode', {
-      roomCode: rc,
-      autoMode: chk ? chk.checked : false,
-      meetingTime: mt ? parseInt(mt.value) : 90,
-      alienTime: at ? parseInt(at.value) : 60
-    });
-    alert('자동 진행 모드 설정이 저장되었습니다.');
-  } else if (cl.contains('start-nomination-btn')) {
-    const rd2 = gameRoomsState[roomCode];
-    const unsel = rd2.players.filter(function(p) { return p.status === 'alive' && !p.group; });
-    if (unsel.length > 0) {
-      alert('아직 모둠을 선택하지 않은 참가자가 있습니다: ' + unsel.map(function(p) { return p.name; }).join(', '));
-    } else {
-      if (confirm('모든 참가자에게 후보 지목 화면을 띄웁니다. 진행할까요?')) {
-        socket.emit('startEjectionNomination', { code: roomCode });
+        /* 헤더 */
+        const aliveN = rd.players.filter(p => p.status === 'alive').length;
+        const autoBadge = rd.autoMode
+          ? '<span class="auto-badge on">⚡ 자동진행 ON</span>'
+          : '<span class="auto-badge off">수동 진행</span>';
+        card.innerHTML = '<div class="room-card-header">'
+          + '<div style="display:flex;align-items:center;gap:14px;">'
+          + '<span class="room-code-label">방 코드: ' + code + '</span>'
+          + '<span class="player-count-badge">👥 ' + aliveN + ' / ' + rd.players.length + '명</span>'
+          + autoBadge
+          + '</div>'
+          + '<div style="display:flex;align-items:center;gap:10px;">'
+          + '<span class="timer-display" id="timer-' + code + '">—</span>'
+          + '</div>'
+          + '</div>';
+
+        /* 바디 */
+        const body = document.createElement('div');
+        body.className = 'room-body';
+        if (rd.status === 'waiting') {
+          renderWaiting(body, code, rd);
+        } else {
+          renderPlaying(body, code, rd);
+        }
+        card.appendChild(body);
+        roomsContainer.appendChild(card);
       }
     }
-  } else if (cl.contains('start-ejection-minigame-btn')) {
-    // 미투표자 팝업 제거: 자동진행에서 미투표자는 이미 페널티 후보로 등록됨
-    if (confirm('방출 미니게임을 시작합니다. 진행할까요?')) {
-      socket.emit('startEjectionMinigame', { code: roomCode });
+
+    /* ══════════════════════════════════════════════
+       대기실 레이아웃
+    ══════════════════════════════════════════════ */
+    function renderWaiting(body, code, rd) {
+      /* ── 참가자 열 ── */
+      const colP = mk('div', 'col col-players');
+      colP.innerHTML = '<div class="col-header">참가자 목록</div>';
+      const ul = mk('ul', 'waiting-grid');
+      rd.players.forEach(p => {
+        const li = mk('li', '');
+        li.innerHTML = '<div class="name">' + esc(p.name) + '</div>';
+        const kb = mk('button', 'kick-btn'); kb.textContent = '퇴장';
+        kb.dataset.playerId = p.id; kb.dataset.playerName = p.name;
+        li.appendChild(kb); ul.appendChild(li);
+      });
+      colP.appendChild(ul);
+
+      /* ── 게임설정 열 ── */
+      const colG = mk('div', 'col col-game');
+      colG.innerHTML = '<div class="col-header">게임 설정</div>';
+
+      /* 자동진행 패널 */
+      const autoDiv = mk('div', 'auto-settings');
+      autoDiv.innerHTML = '<div class="auto-settings-header">'
+        + '<label for="auto-chk-' + code + '">⚡ 자동 진행 모드</label>'
+        + '<label class="toggle-switch"><input type="checkbox" id="auto-chk-' + code + '"' + (rd.autoMode !== false ? ' checked' : '') + '><span class="toggle-slider"></span></label>'
+        + '</div>'
+        + '<div class="auto-time-row">'
+        + '<div><label style="font-size:.73rem;color:var(--text3);display:block;margin-bottom:3px;">회의 시간 (초)</label>'
+        + '<input type="number" id="auto-mt-' + code + '" value="' + (rd.autoMeetingTime || 90) + '" min="60" max="600" style="width:100%;padding:5px 8px;border:1px solid var(--border);border-radius:5px;background:var(--bg);color:var(--text);font-size:.85rem;"></div>'
+        + '<div><label style="font-size:.73rem;color:var(--text3);display:block;margin-bottom:3px;">에일리언 활동 (초)</label>'
+        + '<input type="number" id="auto-at-' + code + '" value="' + (rd.autoAlienTime || 60) + '" min="20" max="180" style="width:100%;padding:5px 8px;border:1px solid var(--border);border-radius:5px;background:var(--bg);color:var(--text);font-size:.85rem;"></div>'
+        + '</div>'
+        + '<p style="font-size:.72rem;color:var(--text3);margin:6px 0 0;">※ 게임 시작 시 자동 적용. 별도 저장 불필요.</p>';
+      colG.appendChild(autoDiv);
+
+      /* 기타 설정 */
+      const settGrid = mk('div', 'settings-grid');
+      /* 미션 프리셋 */
+      let psHtml = '';
+      if (missionPresetsState.length > 0) {
+        psHtml = '<select id="mission-preset-select-' + code + '" style="width:100%;padding:6px;border:1px solid var(--border);border-radius:5px;background:var(--bg);color:var(--text);font-size:.83rem;">'
+          + missionPresetsState.map(n => '<option>' + esc(n) + '</option>').join('') + '</select>';
+      } else { psHtml = '<span style="color:var(--text3);font-size:.8rem;">없음</span>'; }
+      settGrid.innerHTML = '<div class="setting-item"><label>미션 프리셋</label>' + psHtml + '</div>'
+        + '<div class="setting-item"><label>모둠 수</label><input type="number" id="group-count-' + code + '" value="' + (rd.groupCount || 6) + '" min="2" style="width:70px;"></div>'
+        + '<div class="setting-item full"><label style="display:flex;align-items:center;justify-content:space-between;">방출 미니게임 사용'
+        + '<label class="toggle-switch" style="width:38px;"><input type="checkbox" class="ejection-minigame-toggle" id="ejection-minigame-toggle-' + code + '" checked><span class="toggle-slider"></span></label>'
+        + '</label></div>';
+      colG.appendChild(settGrid);
+
+      const startBtn = mk('button', 'btn btn-success btn-full start-game-btn');
+      startBtn.textContent = '🚀 게임 시작';
+      startBtn.style.marginTop = '8px';
+      colG.appendChild(startBtn);
+
+      /* ── 역할 배정 열 ── */
+      const colR = mk('div', 'col col-monitor');
+      colR.innerHTML = '<div class="col-header">역할 인원 설정</div>';
+
+      /* 자동 배정 */
+      const aaPanel = mk('div', 'role-assign-panel');
+      const aaTotalSpan = mk('span', ''); aaTotalSpan.id = 'total-roles-' + code;
+      const currentCounts = (rd.settings && Object.keys(rd.settings).length > 1) ? rd.settings : {};
+      let initTotal = ALL_ROLES.reduce((s, r) => s + (currentCounts[r] || 0), 0);
+      aaTotalSpan.textContent = '총원: ' + initTotal;
+      aaPanel.innerHTML = '<h5>🎲 총원 → 자동 배정</h5>';
+      const aaRow = mk('div', 'quick-assign-row');
+      const aaInp = mk('input', ''); aaInp.type = 'number'; aaInp.id = 'auto-assign-inp-' + code;
+      aaInp.value = rd.players.length || 4; aaInp.min = 4; aaInp.max = 40; aaInp.placeholder = '총원';
+      const aaBtn = mk('button', 'btn btn-primary btn-sm auto-assign-btn'); aaBtn.textContent = '자동 배정'; aaBtn.dataset.roomCode = code;
+      aaRow.appendChild(aaInp); aaRow.appendChild(aaBtn);
+      aaPanel.appendChild(aaRow);
+      const totalRow = mk('div', 'total-count'); totalRow.appendChild(aaTotalSpan);
+      aaPanel.appendChild(totalRow);
+      colR.appendChild(aaPanel);
+
+      const roleList = mk('div', 'role-list');
+      ALL_ROLES.forEach(rn => {
+        const row = mk('div', 'role-row');
+        const lbl = mk('span', ''); lbl.textContent = rn;
+        const inp = mk('input', ''); inp.type = 'number'; inp.min = 0; inp.dataset.role = rn;
+        inp.value = currentCounts[rn] || 0;
+        inp.addEventListener('input', () => {
+          let t = 0;
+          colR.querySelectorAll('.role-row input').forEach(i => t += parseInt(i.value) || 0);
+          aaTotalSpan.textContent = '총원: ' + t;
+        });
+        row.appendChild(lbl); row.appendChild(inp);
+        roleList.appendChild(row);
+      });
+      colR.appendChild(roleList);
+
+      body.appendChild(colP);
+      body.appendChild(colG);
+      body.appendChild(colR);
     }
-  } else if (cl.contains('resolve-ejection-minigame-btn')) {
-    if (confirm('결과를 공개하고 방출자를 확정하시겠습니까?')) {
-      socket.emit('resolveEjectionMinigame', { code: roomCode });
+
+    /* ══════════════════════════════════════════════
+       게임 진행 레이아웃
+    ══════════════════════════════════════════════ */
+    function renderPlaying(body, code, rd) {
+      const colP = mk('div', 'col col-players');
+      const colG = mk('div', 'col col-game');
+      const colM = mk('div', 'col col-monitor');
+
+      renderColPlayers(colP, code, rd);
+      renderColGame(colG, code, rd);
+      renderColMonitor(colM, code, rd);
+
+      body.appendChild(colP);
+      body.appendChild(colG);
+      body.appendChild(colM);
     }
-  } else if (cl.contains('trigger-rampage-btn')) {
-    socket.emit('triggerQueenRampage', { code: roomCode });
-  } else if (target.id === 'resolve-rampage-btn') {
-    socket.emit('resolveQueenRampage', { code: roomCode });
-  } else if (cl.contains('eliminate-btn')) {
-    if (confirm('정말로 이 플레이어를 사망 처리하시겠습니까?')) {
-      socket.emit('eliminatePlayer', { roomCode, playerId: target.dataset.playerId, cause: 'admin_action' });
+
+    /* ── 참가자 현황 열 ── */
+    function renderColPlayers(panel, code, rd) {
+      panel.innerHTML = '<div class="col-header">👥 참가자 현황</div>';
+
+      const sorted = [...rd.players].sort((a, b) => {
+        const sc = r => ALIENS.includes(r) ? 3 : CORE_CREW.includes(r) ? 2 : SPECIAL_CREW.includes(r) ? 1 : 0;
+        return sc(b.role) - sc(a.role);
+      });
+      const grid = mk('ul', 'player-grid');
+      sorted.forEach(p => {
+        const li = mk('li', 'player-card');
+        if (p.status === 'dead') li.classList.add('dead');
+        if (ALIENS.includes(p.role)) li.classList.add('alien-team');
+        else if (CORE_CREW.includes(p.role)) li.classList.add('core-crew');
+        else if (SPECIAL_CREW.includes(p.role)) li.classList.add('special-crew');
+
+        let roleText = p.role || '미정';
+        if (p.role === '경호원' && rd.bodyguardProtection === p.id) {
+          const pp = rd.players.find(q => q.id === rd.bodyguardProtection);
+          if (pp) roleText += '▶' + pp.name;
+        }
+        if ((p.role === '함장' || p.role === '군인') && typeof p.bullets !== 'undefined')
+          roleText += ' (' + p.bullets + '발)';
+
+        const roleCls = ALIENS.includes(p.role) ? 'role-alien'
+          : CORE_CREW.includes(p.role) ? 'role-crew-core'
+            : SPECIAL_CREW.includes(p.role) ? 'role-crew-spec' : 'role-default';
+
+        const grp = p.group ? p.group + '모둠' : '미정';
+        li.innerHTML = '<div class="player-name">' + esc(p.name) + '</div>'
+          + '<div class="player-group">' + grp + '</div>'
+          + '<div class="player-role ' + roleCls + '">' + esc(roleText) + '</div>';
+
+        const btn = mk('button', 'elim-btn');
+        if (p.status === 'dead') { btn.textContent = '💀'; btn.style.cursor = 'default'; }
+        else { btn.textContent = '💚'; btn.title = '사망 처리'; btn.className = 'elim-btn eliminate-btn'; btn.dataset.playerId = p.id; }
+        li.appendChild(btn);
+        grid.appendChild(li);
+      });
+      panel.appendChild(grid);
     }
-  } else if (cl.contains('next-phase-btn')) {
-    socket.emit('nextPhase', { code: roomCode, phase: target.dataset.phase, day: target.dataset.day });
-  } else if (cl.contains('trigger-alien-action-btn')) {
-    socket.emit('triggerAlienAction', { code: roomCode });
-  } else if (cl.contains('resolve-night-btn')) {
-    socket.emit('resolveNightActions', { code: roomCode });
-  } else if (cl.contains('trigger-crew-action-btn')) {
-    socket.emit('triggerCrewAction', { code: roomCode });
-  } else if (cl.contains('end-night-btn')) {
-    socket.emit('endNightAndStartMeeting', { code: roomCode });
-  } else if (cl.contains('start-escape-vote-btn')) {
-    if (confirm('모든 생존자에게 투표 화면을 띄웁니다. 진행할까요?')) {
-      socket.emit('startEscapeVote', { code: roomCode });
+
+    /* ── 게임 진행 열 ── */
+    function renderColGame(panel, code, rd) {
+      panel.innerHTML = '<div class="col-header">🎮 게임 진행</div>';
+
+      /* 페이즈 뱃지 */
+      panel.appendChild(mkPhaseBadge(rd));
+
+      const actions = mk('div', 'action-stack');
+
+      if (rd.status === 'game_over') {
+        const p = mk('p', ''); p.style.color = 'var(--text3)'; p.textContent = '게임이 종료되었습니다.';
+        panel.appendChild(p);
+        return;
+      }
+
+      /* 위기 룰렛 */
+      if (rd.pendingAction === 'crisis_roulette') {
+        const crisis = rd.crisis || {};
+        const cb = mk('button', 'btn btn-purple btn-full'); cb.className += ' start-crisis-roulette-btn';
+        cb.textContent = '🎲 [' + (crisis.type || '위기') + '] 룰렛 시작';
+        actions.appendChild(cb);
+        const rp = mk('p', ''); rp.innerHTML = '예상 결과: <b style="color:var(--red)">' + esc(crisis.result || '?') + '</b>';
+        rp.style.fontSize = '.85rem'; rp.style.margin = '6px 0 0';
+        actions.appendChild(rp);
+      }
+      /* 비상탈출 시퀀스 */
+      else if (rd.phase === 'escape_sequence') {
+        const el = mk('div', 'escape-log'); el.innerHTML = (rd.escapeLog || []).join('<br>');
+        actions.appendChild(el);
+        const rb = mk('button', 'btn btn-warning btn-full resolve-escape-step-btn');
+        rb.textContent = '관문 ' + ((rd.escapeStep || 0) + 1) + '단계 확인';
+        actions.appendChild(rb);
+      }
+      /* 엔지니어 대기 */
+      else if (rd.pendingAction === 'engineer_choice') {
+        const ep = mk('p', ''); ep.textContent = '엔지니어가 선택하기를 기다리는 중...';
+        ep.style.cssText = 'font-size:.85rem;color:var(--accent);margin:8px 0;'; actions.appendChild(ep);
+      }
+      /* 탈출 최종 투표 시작 */
+      else if (rd.pendingAction === 'escape_vote_pending') {
+        const sv = mk('button', 'btn btn-success btn-full start-escape-vote-btn'); sv.textContent = '최종 투표 시작';
+        actions.appendChild(sv);
+      }
+      /* 탈출 투표 진행 중 */
+      else if (rd.pendingAction === 'escape_survivor_selection') {
+        const lpc = rd.players.filter(p => p.status === 'alive').length;
+        const vpc = Object.keys(rd.escapeVotes || {}).length;
+        const vt = mk('p', ''); vt.textContent = '탈출 캡슐 투표 (' + vpc + '/' + lpc + ')';
+        vt.style.cssText = 'font-weight:700;margin:0 0 8px;'; actions.appendChild(vt);
+        const etBtn = mk('button', 'btn btn-warning btn-full escape-timer-btn');
+        const tl = rd.timeLeft || 0;
+        etBtn.textContent = tl > 0 ? '⏱ 타이머 작동 중...' : '⏱ 3분 30초 타이머 시작'; if (tl > 0) etBtn.disabled = true;
+        actions.appendChild(etBtn);
+        const ffBtn = mk('button', 'btn btn-danger btn-full force-escape-fail-btn'); ffBtn.textContent = '시간 초과로 종료';
+        actions.appendChild(ffBtn);
+      }
+      /* 탈출 준비 완료 */
+      else if (rd.pendingAction === 'escape_ready') {
+        const names = (rd.escapees || []).map(p => esc(p.name) + '(' + esc(p.role) + ')').join(', ');
+        const np = mk('p', ''); np.innerHTML = '<b>최종 탑승자:</b> ' + names;
+        np.style.cssText = 'font-size:.83rem;margin:0 0 8px;'; actions.appendChild(np);
+        const seBtn = mk('button', 'btn btn-success btn-full start-escape-sequence-btn'); seBtn.textContent = '비상탈출 시퀀스 시작';
+        actions.appendChild(seBtn);
+      }
+      /* 역할 공개 */
+      else if (rd.phase === 'role_reveal') {
+        const b = mk('button', 'btn btn-primary btn-full next-phase-btn');
+        b.textContent = '☀️ 1일차 회의 시작'; b.dataset.phase = 'meeting'; b.dataset.day = 1;
+        actions.appendChild(b);
+      }
+      /* 낮: 회의 */
+      else if (rd.phase === 'meeting') {
+        /* 타이머 버튼 (항상 표시 — 자동이면 비상용) */
+        const tBtn = mk('button', 'btn btn-full meeting-timer-btn');
+        const tl = rd.timeLeft || 0;
+        if (tl > 0) {
+          tBtn.textContent = '⏱ 타이머 작동 중...'; tBtn.disabled = true;
+          tBtn.className = 'btn btn-ghost btn-full meeting-timer-btn';
+        } else if (rd.autoMode) {
+          tBtn.textContent = '⚙ 타이머 강제 시작 (비상용)';
+          tBtn.className = 'btn btn-ghost btn-full meeting-timer-btn';
+        } else {
+          tBtn.textContent = '⏱ 타이머 작동'; tBtn.className = 'btn btn-warning btn-full meeting-timer-btn';
+        }
+        actions.appendChild(tBtn);
+
+        if (rd.settings.useEjectionMinigame) {
+          if (rd.ejectionState === 'pending_start') {
+            if (!rd.autoMode) {
+              const snBtn = mk('button', 'btn btn-warning btn-full start-nomination-btn');
+              snBtn.textContent = '🗳 1차 후보 지목 시작'; actions.appendChild(snBtn);
+            } else {
+              const an = mk('p', ''); an.textContent = '⚡ 자동진행: 30초 전 지목 자동 시작'; an.style.cssText = 'font-size:.78rem;color:var(--green);margin:4px 0;'; actions.appendChild(an);
+            }
+          } else if (rd.ejectionState === 'nominating') {
+            const ip = mk('p', ''); ip.textContent = '🗳 지목 투표 진행 중... (모니터링 열 확인)'; ip.style.cssText = 'font-size:.82rem;color:var(--yellow);font-weight:700;margin:4px 0;'; actions.appendChild(ip);
+          } else if (rd.ejectionState === 'minigame_pending') {
+            const mgBtn = mk('button', 'btn btn-purple btn-full start-ejection-minigame-btn');
+            mgBtn.textContent = '🎮 방출 미니게임 시작'; actions.appendChild(mgBtn);
+          } else if (['minigame_active', 'minigame_all_selected'].includes(rd.ejectionState)) {
+            const resBtn = mk('button', 'btn btn-danger btn-full resolve-ejection-minigame-btn');
+            const done = rd.ejectionState === 'minigame_all_selected';
+            resBtn.textContent = done ? '💀 결과 공개 및 방출 실행' : '⏳ 후보들 선택 중...'; resBtn.disabled = !done;
+            actions.appendChild(resBtn);
+          }
+        } else {
+          const nb = mk('button', 'btn btn-night btn-full next-phase-btn'); nb.textContent = '🌙 밤으로 이동'; nb.dataset.phase = 'night_alien_action'; nb.dataset.day = rd.day; actions.appendChild(nb);
+        }
+      }
+      /* 밤: 에일리언 활동 */
+      else if (rd.phase === 'night_alien_action') {
+        if (rd.autoMode && rd.alienActionTriggered) {
+          const atd = mk('div', ''); atd.id = 'alien-timer-' + code;
+          atd.style.cssText = 'font-size:1.1rem;font-weight:800;color:#c084fc;text-align:center;padding:8px;background:rgba(167,139,250,.1);border:1px solid rgba(167,139,250,.3);border-radius:6px;margin-bottom:6px;';
+          atd.textContent = '⏱ 에일리언 활동 중...';
+          actions.appendChild(atd);
+        }
+        if (rd.pendingAction === 'queen_rampage') {
+          const qBtn = mk('button', 'btn btn-night-red btn-full trigger-rampage-btn'); qBtn.textContent = '👑 여왕의 만찬 시작'; actions.appendChild(qBtn);
+          const qrBtn = mk('button', 'btn btn-ghost btn-full'); qrBtn.id = 'resolve-rampage-btn'; qrBtn.textContent = '만찬 종료 → 탐사대 활동'; actions.appendChild(qrBtn);
+        } else if (rd.alienActionTriggered) {
+          if (rd.autoMode) {
+            // 자동진행: 안내 메시지만 (버튼 불필요)
+            const wm = mk('p', ''); wm.textContent = '⚡ 에일리언 활동 완료 — 결과 자동 반영 중...';
+            wm.style.cssText = 'font-size:.82rem;color:var(--green);font-weight:600;margin:6px 0;'; actions.appendChild(wm);
+          } else {
+            const rnBtn = mk('button', 'btn btn-warning btn-full resolve-night-btn'); rnBtn.textContent = '✅ 결과 반영 및 탐사대 활동 시작'; actions.appendChild(rnBtn);
+          }
+        } else {
+          const taBtn = mk('button', 'btn btn-night btn-full trigger-alien-action-btn'); taBtn.textContent = '🌙 (모두 엎드린 후) 에일리언 활동 시작'; actions.appendChild(taBtn);
+        }
+      }
+      /* 밤: 탐사대 활동 */
+      else if (rd.phase === 'night_crew_action') {
+        const enBtn = mk('button', 'btn btn-primary btn-full end-night-btn');
+        enBtn.textContent = '☀️ ' + (rd.day + 1) + '일차 아침으로 진행'; actions.appendChild(enBtn);
+      }
+
+      panel.appendChild(actions);
+
+      /* 게임 로그 (게임 진행 열 하단) */
+      const logHdr = mk('div', ''); logHdr.style.cssText = 'font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text3);margin-top:14px;padding-top:10px;border-top:1px solid var(--border);margin-bottom:6px;';
+      logHdr.textContent = '게임 로그';
+      panel.appendChild(logHdr);
+
+      const logBox = mk('div', 'game-log');
+      logBox.innerHTML = (rd.gameLog || []).map(e => {
+        const text = typeof e === 'string' ? e : e.text;
+        const type = typeof e === 'string' ? 'log' : (e.type || 'log');
+        return '<p class="log-' + type + '">' + esc(text) + '</p>';
+      }).join('');
+      panel.appendChild(logBox);
+
+      /* 진행 가이드 */
+      const guide = mk('div', 'guide-box');
+      guide.innerHTML = mkGuideText(rd);
+      panel.appendChild(guide);
     }
-  } else if (cl.contains('start-escape-sequence-btn')) {
-    const rd2 = gameRoomsState[roomCode];
-    const ids = (rd2.escapees || []).map(function(p) { return p.id; });
-    if (ids.length !== 4) { alert('오류: 최종 탑승자가 4명이 아닙니다.'); return; }
-    socket.emit('startEscapeSequence', { code: roomCode, survivorIds: ids });
-  } else if (cl.contains('escape-timer-btn')) {
-    socket.emit('startEscapeTimer', roomCode);
-    target.textContent = '타이머 작동 중...';
-    target.disabled = true;
-  } else if (cl.contains('force-escape-fail-btn')) {
-    if (confirm('정말로 시간 초과로 비상탈출을 실패 처리하시겠습니까?')) {
-      socket.emit('forceEscapeFailure', { code: roomCode });
+
+    function mkGuideText(rd) {
+      if (rd.pendingAction === 'crisis_roulette') return '<b>[가이드]</b> 위기 상황! 룰렛 시작 버튼을 누르세요.';
+      switch (rd.phase) {
+        case 'role_reveal': return '<b>[가이드]</b> 역할 확인 완료 후 <b>1일차 회의 시작</b> 클릭.';
+        case 'meeting':
+          if (rd.ejectionState === 'pending_start') return rd.autoMode ? '<b>[자동]</b> 모둠 선택 완료 시 타이머 자동 시작 → 30초 전 지목 화면 자동 표시.' : '<b>[가이드]</b> 자기소개 후 타이머 작동, 이후 1차 후보 지목 시작.';
+          if (rd.ejectionState === 'nominating') return '<b>[가이드]</b> 모니터링 열에서 투표 현황 확인. 완료 시 미니게임 시작 버튼 활성.';
+          if (rd.ejectionState === 'minigame_pending') return '<b>[가이드]</b> 후보 지목 완료! 방출 미니게임 시작 버튼 클릭.';
+          if (['minigame_active', 'minigame_all_selected'].includes(rd.ejectionState)) return '<b>[가이드]</b> 모니터링 열에서 카드 선택 확인. 전원 선택 완료 시 결과 공개 버튼 활성.';
+          return '';
+        case 'night_alien_action': return rd.alienActionTriggered ? '<b>[자동]</b> 에일리언 활동 완료 후 결과 자동 반영 대기 중.' : '<b>[가이드]</b> 모두 엎드린 후 에일리언 활동 시작 버튼 클릭.';
+        case 'night_crew_action': return '<b>[가이드]</b> 탐사대 활동 완료 후 아침 진행 버튼 클릭.';
+        case 'escape_sequence': return '<b>[가이드]</b> 관문 단계별 확인 버튼 클릭.';
+        default: return '';
+      }
     }
-  } else if (cl.contains('resolve-escape-step-btn')) {
-    socket.emit('resolveEscapeStep', { code: roomCode });
-  } else if (cl.contains('start-crisis-roulette-btn')) {
-    const crisis = gameRoomsState[roomCode]?.crisis;
-    const ct = crisis ? '[' + crisis.type + ']' : '';
-    if (confirm(ct + ' 룰렛을 시작하면 모든 참가자에게 결과가 공개됩니다. 정말 진행하시겠습니까?')) {
-      socket.emit('startCrisisRoulette', { roomCode });
+
+    /* ── 모니터링 열 ── */
+    function renderColMonitor(panel, code, rd) {
+      panel.innerHTML = '<div class="col-header">📊 모니터링</div>';
+      let hasContent = false;
+
+      /* 탈출 역할 주장 */
+      if (rd.pendingAction === 'escape_role_claim') {
+        hasContent = true;
+        const rc = rd.claimedRoles || {};
+        const living = rd.players.filter(p => p.status === 'alive');
+        const claimed = living.filter(p => rc[p.id]).length;
+        const t = mk('h4', ''); t.textContent = '🚀 역할 주장 (' + claimed + '/' + living.length + ')'; t.style.margin = '0 0 8px'; panel.appendChild(t);
+        living.forEach(p => {
+          const row = mk('div', 'monitor-row' + (rc[p.id] ? ' voted' : ''));
+          row.innerHTML = '<span>' + esc(p.name) + '</span>'
+            + (rc[p.id] ? '<span class="claim-badge">' + esc(rc[p.id]) + '</span>' : '<span style="color:var(--text3);font-size:.78rem;">대기 중...</span>');
+          panel.appendChild(row);
+        });
+      }
+
+      /* 탈출 투표 현황 */
+      if (rd.pendingAction === 'escape_survivor_selection') {
+        hasContent = true;
+        const ev = rd.escapeVotes || {};
+        const living = rd.players.filter(p => p.status === 'alive');
+        const t = mk('h4', ''); t.textContent = '🗳 탈출 투표 (' + Object.keys(ev).length + '/' + living.length + ')'; t.style.margin = '0 0 8px'; panel.appendChild(t);
+        living.forEach(p => {
+          const row = mk('div', 'monitor-row' + (ev[p.id] ? ' voted' : ''));
+          const vp = ev[p.id] ? rd.players.find(q => q.id === ev[p.id]) : null;
+          row.innerHTML = '<span>' + esc(p.name) + '</span>'
+            + (vp ? '<span class="claim-badge">▶ ' + esc(vp.name) + '</span>' : '<span style="color:var(--text3);font-size:.78rem;">투표 중...</span>');
+          panel.appendChild(row);
+        });
+      }
+
+      /* 탈출 최종 탑승자 */
+      if (rd.pendingAction === 'escape_ready' && rd.escapees && rd.escapees.length > 0) {
+        hasContent = true;
+        const t = mk('h4', ''); t.textContent = '🛸 최종 탑승자'; t.style.margin = '0 0 8px'; panel.appendChild(t);
+        rd.escapees.forEach(p => {
+          const row = mk('div', 'monitor-row voted');
+          row.innerHTML = '<span>' + esc(p.name) + '</span><span class="claim-badge">' + esc(p.role) + '</span>';
+          panel.appendChild(row);
+        });
+      }
+
+      /* 지목 투표 현황 */
+      if (rd.phase === 'meeting' && rd.ejectionState === 'nominating') {
+        hasContent = true;
+        const alive = rd.players.filter(p => p.status === 'alive' && p.group);
+        const gCounts = {};
+        alive.forEach(p => gCounts[p.group] = (gCounts[p.group] || 0) + 1);
+        const voters = alive.filter(p => gCounts[p.group] > 1);
+        let voted = 0;
+        if (rd.ejectionVotes) Object.values(rd.ejectionVotes).forEach(gv => voted += Object.keys(gv).length);
+        const t = mk('h4', ''); t.textContent = '🗳 지목 투표 (' + voted + '/' + voters.length + ')'; t.style.margin = '0 0 8px'; panel.appendChild(t);
+        const vg = mk('div', 'vote-grid');
+        voters.forEach(voter => {
+          const tid = rd.ejectionVotes?.[voter.group]?.[voter.id];
+          const tp = tid ? rd.players.find(p => p.id === tid) : null;
+          const row = mk('div', 'monitor-row' + (tid ? ' voted' : ''));
+          row.innerHTML = '<b style="font-size:.8rem;">' + esc(voter.name) + '</b>'
+            + (tp ? '<span style="font-size:.78rem;color:var(--green);">▶ ' + esc(tp.name) + '</span>' : '<span style="color:var(--text3);font-size:.75rem;">투표 중...</span>');
+          vg.appendChild(row);
+        });
+        panel.appendChild(vg);
+      }
+
+      /* 방출 미니게임 현황 */
+      if (rd.phase === 'meeting' && ['minigame_active', 'minigame_all_selected'].includes(rd.ejectionState)) {
+        const mg = rd.ejectionMinigame;
+        if (mg && mg.candidates) {
+          hasContent = true;
+          const t = mk('h4', ''); t.textContent = '🎮 방출 미니게임 (관리자 전용)'; t.style.margin = '0 0 8px'; panel.appendChild(t);
+          mg.candidates.forEach(cId => {
+            const cp = rd.players.find(p => p.id === cId);
+            const sel = mg.selections ? mg.selections[cId] : undefined;
+            const row = mk('div', 'monitor-row' + (sel !== undefined ? ' voted' : ''));
+            const ns = mk('strong', ''); ns.textContent = cp ? cp.name : '???'; ns.style.fontSize = '.83rem';
+            const cs = mk('span', 'mg-badge');
+            if (sel !== undefined) {
+              const card = mg.cards ? mg.cards.find(c => c.id === sel) : null;
+              if (card && card.content === '방출') { cs.className = 'mg-badge ejection'; cs.textContent = '💀 방출'; }
+              else if (card) { cs.className = 'mg-badge survival'; cs.textContent = '💚 생존'; }
+              else { cs.className = 'mg-badge pending'; cs.textContent = '선택됨'; }
+            } else { cs.className = 'mg-badge pending'; cs.textContent = '선택 중...'; }
+            row.appendChild(ns); row.appendChild(cs);
+            panel.appendChild(row);
+          });
+        }
+      }
+
+      if (!hasContent) {
+        const p = mk('p', ''); p.style.color = 'var(--text3)'; p.style.fontSize = '.83rem';
+        p.textContent = '현재 모니터링할 내용이 없습니다.';
+        panel.appendChild(p);
+      }
     }
-  } else if (cl.contains('kick-btn')) {
-    const pName = target.dataset.playerName;
-    if (confirm('\'' + pName + '\' 님을 대기실에서 퇴장시키겠습니까?')) {
-      socket.emit('kickPlayer', { roomCode, playerId: target.dataset.playerId });
+
+    /* ── 페이즈 뱃지 생성 ── */
+    function mkPhaseBadge(rd) {
+      const el = mk('div', 'phase-badge');
+      if (rd.status === 'game_over') { el.classList.add('special'); el.textContent = '🏁 게임 종료 — ' + rd.winner + ' 승리'; }
+      else if (rd.phase === 'role_reveal') { el.classList.add('day'); el.textContent = '☀️ ' + rd.day + '일차 — 역할 확인'; }
+      else if (rd.phase === 'meeting') {
+        el.classList.add('day');
+        const sub = { pending_start: '자기소개', nominating: '후보 지목 중', minigame_pending: '미니게임 대기', minigame_active: '미니게임 진행', minigame_all_selected: '결과 공개 대기' };
+        el.textContent = '☀️ ' + rd.day + '일차 회의 — ' + (sub[rd.ejectionState] || rd.ejectionState || '');
+      }
+      else if (rd.phase === 'night_alien_action') {
+        el.classList.add('night-alien');
+        el.textContent = '🌙 ' + rd.day + '일차 밤 — 🔴 에일리언 활동';
+        if (rd.pendingAction === 'queen_rampage') el.textContent += ' / 👑 여왕의 만찬';
+      }
+      else if (rd.phase === 'night_crew_action') { el.classList.add('night-crew'); el.textContent = '🌙 ' + rd.day + '일차 밤 — 🟡 탐사대 활동'; }
+      else if (rd.phase === 'escape_sequence') { el.classList.add('special'); el.textContent = '🚀 비상탈출 시퀀스 — 관문 ' + ((rd.escapeStep || 0) + 1); }
+      else { el.classList.add('day'); el.textContent = rd.day + '일차 ' + rd.phase; }
+      return el;
     }
-  }
-});
-</script>
+
+    /* ── 유틸 ── */
+    function mk(tag, cls) { const el = document.createElement(tag); if (cls) el.className = cls; return el; }
+    function esc(s) { return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+
+    /* ══════════════════════════════════════════════
+       클릭 핸들러
+    ══════════════════════════════════════════════ */
+    roomsContainer.addEventListener('click', function (e) {
+      const target = e.target;
+      const card = target.closest('.room-card');
+      if (!card) return;
+      const roomCode = card.dataset.code;
+      const cl = target.classList;
+
+      /* 대기실 */
+      if (cl.contains('kick-btn')) {
+        if (confirm('\'' + target.dataset.playerName + '\' 님을 퇴장시키겠습니까?'))
+          socket.emit('kickPlayer', { roomCode, playerId: target.dataset.playerId });
+      } else if (cl.contains('auto-assign-btn')) {
+        const rc = target.dataset.roomCode;
+        const inp = document.getElementById('auto-assign-inp-' + rc);
+        const total = parseInt(inp.value);
+        if (isNaN(total) || total < 4) { alert('최소 4명 이상'); return; }
+        const assigned = autoAssignRoles(total);
+        if (!assigned) { alert('배정 실패'); return; }
+        let t = 0;
+        card.querySelectorAll('.role-row input').forEach(i => { const v = assigned[i.dataset.role] || 0; i.value = v; t += v; });
+        const ts = document.getElementById('total-roles-' + rc);
+        if (ts) ts.textContent = '총원: ' + t;
+      } else if (cl.contains('start-game-btn')) {
+        const players = gameRoomsState[roomCode].players;
+        if (players.length < 4) { alert('최소 4명'); return; }
+        const roleSettings = {};
+        let totalRoles = 0;
+        card.querySelectorAll('.role-row input').forEach(i => {
+          const cnt = parseInt(i.value); if (cnt > 0) roleSettings[i.dataset.role] = cnt; totalRoles += cnt || 0;
+        });
+        if (totalRoles > 0 && totalRoles !== players.length) { alert('역할 합계가 인원수와 다릅니다.'); return; }
+        const gc = document.getElementById('group-count-' + roomCode);
+        const ps = document.getElementById('mission-preset-select-' + roomCode);
+        const ej = document.getElementById('ejection-minigame-toggle-' + roomCode);
+        const autoChk = document.getElementById('auto-chk-' + roomCode);
+        const autoMt = document.getElementById('auto-mt-' + roomCode);
+        const autoAt = document.getElementById('auto-at-' + roomCode);
+        /* Q3: 게임 시작 시 자동진행 설정 자동 적용 (별도 저장 버튼 불필요) */
+        socket.emit('setAutoMode', {
+          roomCode,
+          autoMode: autoChk ? autoChk.checked : true,
+          meetingTime: autoMt ? parseInt(autoMt.value) : 90,
+          alienTime: autoAt ? parseInt(autoAt.value) : 60
+        });
+        socket.emit('startGame', {
+          code: roomCode,
+          settings: roleSettings,
+          groupCount: parseInt(gc?.value) || 4,
+          selectedPreset: ps ? ps.value : '',
+          useEjectionMinigame: ej ? ej.checked : true
+        });
+
+        /* 게임 진행 */
+      } else if (cl.contains('meeting-timer-btn')) {
+        socket.emit('startMeetingTimer', roomCode);
+      } else if (cl.contains('start-nomination-btn')) {
+        const rd2 = gameRoomsState[roomCode];
+        const unsel = rd2.players.filter(p => p.status === 'alive' && !p.group);
+        if (unsel.length > 0) { alert('모둠 미선택: ' + unsel.map(p => p.name).join(', ')); return; }
+        if (confirm('후보 지목 화면을 띄웁니다. 진행할까요?')) socket.emit('startEjectionNomination', { code: roomCode });
+      } else if (cl.contains('start-ejection-minigame-btn')) {
+        if (confirm('방출 미니게임을 시작합니다.')) socket.emit('startEjectionMinigame', { code: roomCode });
+      } else if (cl.contains('resolve-ejection-minigame-btn')) {
+        if (confirm('결과를 공개하고 방출자를 확정하시겠습니까?')) socket.emit('resolveEjectionMinigame', { code: roomCode });
+      } else if (cl.contains('trigger-rampage-btn')) {
+        socket.emit('triggerQueenRampage', { code: roomCode });
+      } else if (target.id === 'resolve-rampage-btn') {
+        socket.emit('resolveQueenRampage', { code: roomCode });
+      } else if (cl.contains('eliminate-btn')) {
+        if (confirm('이 플레이어를 사망 처리하시겠습니까?'))
+          socket.emit('eliminatePlayer', { roomCode, playerId: target.dataset.playerId, cause: 'admin_action' });
+      } else if (cl.contains('next-phase-btn')) {
+        socket.emit('nextPhase', { code: roomCode, phase: target.dataset.phase, day: target.dataset.day });
+      } else if (cl.contains('trigger-alien-action-btn')) {
+        socket.emit('triggerAlienAction', { code: roomCode });
+      } else if (cl.contains('resolve-night-btn')) {
+        socket.emit('resolveNightActions', { code: roomCode });
+      } else if (cl.contains('end-night-btn')) {
+        socket.emit('endNightAndStartMeeting', { code: roomCode });
+      } else if (cl.contains('start-escape-vote-btn')) {
+        if (confirm('모든 생존자에게 투표 화면을 띄웁니다.')) socket.emit('startEscapeVote', { code: roomCode });
+      } else if (cl.contains('start-escape-sequence-btn')) {
+        const rd2 = gameRoomsState[roomCode];
+        const ids = (rd2.escapees || []).map(p => p.id);
+        if (ids.length !== 4) { alert('오류: 탑승자 4명 필요'); return; }
+        socket.emit('startEscapeSequence', { code: roomCode, survivorIds: ids });
+      } else if (cl.contains('escape-timer-btn')) {
+        socket.emit('startEscapeTimer', roomCode);
+        target.textContent = '⏱ 타이머 작동 중...'; target.disabled = true;
+      } else if (cl.contains('force-escape-fail-btn')) {
+        if (confirm('시간 초과로 탈출 실패 처리하시겠습니까?')) socket.emit('forceEscapeFailure', { code: roomCode });
+      } else if (cl.contains('resolve-escape-step-btn')) {
+        socket.emit('resolveEscapeStep', { code: roomCode });
+      } else if (cl.contains('start-crisis-roulette-btn')) {
+        const crisis = gameRoomsState[roomCode]?.crisis;
+        const ct = crisis ? '[' + crisis.type + '] ' : '';
+        if (confirm(ct + '룰렛을 시작하면 모든 참가자에게 결과가 공개됩니다.')) socket.emit('startCrisisRoulette', { roomCode });
+      }
+    });
+  </script>
 </body>
+
 </html>
