@@ -1005,7 +1005,8 @@ io.on('connection', (socket) => {
         const allAlive = room.players.filter(p => p.status === 'alive');
         const allSelected = allAlive.every(p => !!p.group);
         const timerKey = roomCode + '_meeting';
-        if (allSelected && !timerIntervals[timerKey] && room.ejectionState === 'pending_start') {
+        // FIX: minigame_pending이 아닌 경우라면 타이머 시작 (pending_start or nominating)
+        if (allSelected && !timerIntervals[timerKey] && room.ejectionState !== 'minigame_pending' && room.ejectionState !== 'minigame_active' && room.ejectionState !== 'minigame_all_selected') {
           let autoLeft = room.autoMeetingTime || 90;
           room.timeLeft = autoLeft;
           io.to(roomCode).emit('timerUpdate', { roomCode, timeLeft: autoLeft });
@@ -1016,8 +1017,12 @@ io.on('connection', (socket) => {
             room.timeLeft = autoLeft;
             io.to(roomCode).emit('timerUpdate', { roomCode, timeLeft: autoLeft });
             io.to(ADMIN_ROOM).emit('timerUpdate', { roomCode, timeLeft: autoLeft });
-            if (autoLeft === 30 && room.ejectionState === 'pending_start') {
-              room.ejectionState = 'nominating';
+            if (autoLeft === 30) {
+              // 아직 pending_start 상태면 nominating으로 전환
+              if (room.ejectionState === 'pending_start') {
+                room.ejectionState = 'nominating';
+              }
+              // 이미 nominating이어도 broadcastUpdates로 클라이언트 갱신
               broadcastUpdates(roomCode);
             }
             if (autoLeft < 0) {
@@ -1406,6 +1411,9 @@ io.on('connection', (socket) => {
           room.ejectionNominations = {};
           room.ejectionMinigame = {};
         }
+        // 타이머 키도 초기화 (이전 라운드 타이머 잔존 방지)
+        const prevTimerKey = code + '_meeting';
+        if (timerIntervals[prevTimerKey]) { clearInterval(timerIntervals[prevTimerKey]); delete timerIntervals[prevTimerKey]; }
         // AUTO MODE: 타이머는 selectGroup에서 모두 선택 완료 시 시작 (1일차/2일차 통일)
         // nextPhase에서는 타이머 시작하지 않음
       }
@@ -2613,8 +2621,10 @@ io.on('connection', (socket) => {
       room.timeLeft = autoLeft;
       io.to(roomCode).emit('timerUpdate', { roomCode, timeLeft: autoLeft });
       io.to(ADMIN_ROOM).emit('timerUpdate', { roomCode, timeLeft: autoLeft });
-      if (autoLeft === 30 && room.ejectionState === 'pending_start') {
-        room.ejectionState = 'nominating';
+      if (autoLeft === 30) {
+        if (room.ejectionState === 'pending_start') {
+          room.ejectionState = 'nominating';
+        }
         broadcastUpdates(roomCode);
       }
       if (autoLeft < 0) {

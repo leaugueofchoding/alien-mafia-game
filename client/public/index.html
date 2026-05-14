@@ -692,13 +692,13 @@
                         + '우리는 에일리언의 눈을 피해 어둠 속에서만 움직입니다. '
                         + '정체가 만천하에 공개된 자는 이미 에일리언의 감시망에 완벽하게 노출되었으므로, '
                         + '그에게 접근하는 것 자체가 의료진 전원의 몰살을 초래할 수 있습니다.<br><br>'
-                        + '<b style="color:#fbbf24;">\u300c어둠 속에 숨어있는 자\u300d들만 은밀히 치료합니다.</b>'
+                        + '<b style="color:#fbbf24;">\u300c두 명 이상의 의사\u300d가 같은 대상에게 백신을 주입한 경우 다음 포식에서 면역됩니다.</b>'
                         + '</div>';
                     if (alreadyPicked) {
-                        abilityContent = '<h4>🏥 의사 능력</h4>' + flavorText + '<p>✅ 보호 대상을 선택했습니다. 다른 의사들의 선택을 기다리는 중...</p>';
+                        abilityContent = '<h4>🏥 의사 능력</h4>' + flavorText + '<p>✅ 백신 주입 대상을 선택했습니다. 다른 의사들의 선택을 기다리는 중...</p>';
                     } else if (aliveDoctors.length >= 2 && validTargets.length > 0) {
                         abilityContent = '<h4>🏥 의사 능력</h4>' + flavorText
-                            + '<p style="font-size:.88em;color:#86efac;margin-bottom:10px;">👇 보호할 대상을 선택하세요. (정체 탄로 대상 제외됨)</p>'
+                            + '<p style="font-size:.88em;color:#86efac;margin-bottom:10px;">👇 백신을 주입할 대상을 선택하세요. (정체 탄로 대상은 제외되었음)</p>'
                             + '<ul class="player-grid-list">' + validTargets.map(function (t) {
                                 return '<li><button class="target-btn" data-ability="doctor" data-target-id="' + t.id + '">' + t.name + '</button></li>';
                             }).join('') + '</ul>';
