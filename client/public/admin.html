@@ -910,7 +910,25 @@
     /* ══════════════════════════════════════════════
        메인 렌더
     ══════════════════════════════════════════════ */
+    function preserveInputs() {
+      const saved = {};
+      document.querySelectorAll('input[id], select[id]').forEach(el => {
+        if (el.type === 'checkbox') saved[el.id] = el.checked;
+        else saved[el.id] = el.value;
+      });
+      return saved;
+    }
+    function restoreInputs(saved) {
+      for (const id in saved) {
+        const el = document.getElementById(id);
+        if (!el) continue;
+        if (el.type === 'checkbox') el.checked = saved[id];
+        else el.value = saved[id];
+      }
+    }
+
     function renderAll() {
+      const saved = preserveInputs();
       roomsContainer.innerHTML = '';
       if (!Object.keys(gameRoomsState).length) {
         roomsContainer.innerHTML = '<p style="padding:24px;color:var(--text3);">아직 활성화된 게임방이 없습니다. 방 코드를 입력하고 방 생성 버튼을 누르세요.</p>';
@@ -949,6 +967,7 @@
         card.appendChild(body);
         roomsContainer.appendChild(card);
       }
+      restoreInputs(saved);
     }
 
     /* ══════════════════════════════════════════════
@@ -1205,8 +1224,9 @@
           } else if (rd.ejectionState === 'nominating') {
             const ip = mk('p', ''); ip.textContent = '🗳 지목 투표 진행 중... (모니터링 열 확인)'; ip.style.cssText = 'font-size:.82rem;color:var(--yellow);font-weight:700;margin:4px 0;'; actions.appendChild(ip);
           } else if (rd.ejectionState === 'minigame_pending') {
-            const mgBtn = mk('button', 'btn btn-purple btn-full start-ejection-minigame-btn');
-            mgBtn.textContent = '🎮 방출 미니게임 시작'; actions.appendChild(mgBtn);
+            // Q3: 자동 시작됨 - 안내만 표시
+            const autoMg = mk('p', ''); autoMg.textContent = '⚡ 방출 미니게임 자동 시작 중...';
+            autoMg.style.cssText = 'color:var(--purple);font-weight:700;font-size:.88rem;margin:6px 0;'; actions.appendChild(autoMg);
           } else if (['minigame_active', 'minigame_all_selected'].includes(rd.ejectionState)) {
             const resBtn = mk('button', 'btn btn-danger btn-full resolve-ejection-minigame-btn');
             const done = rd.ejectionState === 'minigame_all_selected';
@@ -1214,7 +1234,7 @@
             actions.appendChild(resBtn);
           }
         } else {
-          const nb = mk('button', 'btn btn-night btn-full next-phase-btn'); nb.textContent = '🌙 밤으로 이동'; nb.dataset.phase = 'night_alien_action'; nb.dataset.day = rd.day; actions.appendChild(nb);
+          const nb = mk('button', 'btn btn-night btn-full next-phase-btn'); nb.textContent = '🌙 밤으로 이동 (탐사대 활동 먼저)'; nb.dataset.phase = 'night_crew_action'; nb.dataset.day = rd.day; actions.appendChild(nb);
         }
       }
       /* 밤: 에일리언 활동 */
@@ -1242,8 +1262,8 @@
       }
       /* 밤: 탐사대 활동 */
       else if (rd.phase === 'night_crew_action') {
-        const enBtn = mk('button', 'btn btn-primary btn-full end-night-btn');
-        enBtn.textContent = '☀️ ' + (rd.day + 1) + '일차 아침으로 진행'; actions.appendChild(enBtn);
+        const enBtn = mk('button', 'btn btn-night-red btn-full end-night-btn');
+        enBtn.textContent = '🌙 탐사대 활동 완료 → 에일리언 활동 시작'; actions.appendChild(enBtn);
       }
 
       panel.appendChild(actions);
@@ -1278,7 +1298,7 @@
           if (['minigame_active', 'minigame_all_selected'].includes(rd.ejectionState)) return '<b>[가이드]</b> 모니터링 열에서 카드 선택 확인. 전원 선택 완료 시 결과 공개 버튼 활성.';
           return '';
         case 'night_alien_action': return rd.alienActionTriggered ? '<b>[자동]</b> 에일리언 활동 완료 후 결과 자동 반영 대기 중.' : '<b>[가이드]</b> 모두 엎드린 후 에일리언 활동 시작 버튼 클릭.';
-        case 'night_crew_action': return '<b>[가이드]</b> 탐사대 활동 완료 후 아침 진행 버튼 클릭.';
+        case 'night_crew_action': return '<b>[가이드]</b> 탐사대 활동 완료 후 <b>에일리언 활동 시작</b> 버튼 클릭.';
         case 'escape_sequence': return '<b>[가이드]</b> 관문 단계별 확인 버튼 클릭.';
         default: return '';
       }
@@ -1398,7 +1418,7 @@
         el.textContent = '🌙 ' + rd.day + '일차 밤 — 🔴 에일리언 활동';
         if (rd.pendingAction === 'queen_rampage') el.textContent += ' / 👑 여왕의 만찬';
       }
-      else if (rd.phase === 'night_crew_action') { el.classList.add('night-crew'); el.textContent = '🌙 ' + rd.day + '일차 밤 — 🟡 탐사대 활동'; }
+      else if (rd.phase === 'night_crew_action') { el.classList.add('night-crew'); el.textContent = '🌙 ' + rd.day + '일차 밤 1단계 — 🟡 탐사대 활동'; }
       else if (rd.phase === 'escape_sequence') { el.classList.add('special'); el.textContent = '🚀 비상탈출 시퀀스 — 관문 ' + ((rd.escapeStep || 0) + 1); }
       else { el.classList.add('day'); el.textContent = rd.day + '일차 ' + rd.phase; }
       return el;

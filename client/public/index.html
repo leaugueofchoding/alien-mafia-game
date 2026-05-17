@@ -296,13 +296,13 @@
 `;
                         }).join('');
 
-                        contentHtml = `
-                    <h3>${title}</h3>
-                    <p>${subtitle}</p>
-                    <ul class="player-grid-list" style="grid-template-columns: repeat(${minigame.cards.length}, 1fr); margin-top: 20px;">
-                        ${cardsHtml}
-                    </ul>
-                `;
+                        const mgTimerHtml = isCandidate
+                            ? '<div id="minigame-timer" style="font-size:1.1em;font-weight:bold;color:#fbbf24;margin:6px 0;padding:5px 12px;background:rgba(251,191,36,.12);border:1px solid rgba(251,191,36,.3);border-radius:8px;display:inline-block;">⏱ 대기 중...</div>'
+                            : '';
+                        contentHtml = '<h3>' + title + '</h3>'
+                            + '<p>' + subtitle + '</p>'
+                            + mgTimerHtml
+                            + '<ul class="player-grid-list" style="grid-template-columns: repeat(' + minigame.cards.length + ', 1fr); margin-top: 20px;">' + cardsHtml + '</ul>';
                         break;
 
                     default:
@@ -349,30 +349,26 @@
         function showQueenHuntScreen(otherAliens, targets) {
             clearContainer();
             huntSelections = [];
-
             const maxSelection = Math.min(2, targets.length);
-            const targetButtons = targets.map(target => `<li><button class="target-btn" data-ability="queen_hunt" data-target-id="${target.id}">${target.name}</button></li>`).join('');
-
-            playerContainer.innerHTML = `
-                <h2>[여왕의 분노] 대상을 최대 ${maxSelection}명 선택하세요.</h2>
-                <p>(단 한번만 사용할 수 있는 강력한 능력입니다. 이번에 사용하지 않으면 다음 밤에 다시 사용할 수 있습니다.)</p>
-                <p>${otherAliens.length > 0 ? `(동료 에일리언: ${otherAliens.join(', ')})` : ''}</p>
-                <ul class="player-grid-list">${targetButtons}</ul>
-                <button id="confirm-hunt-btn" disabled>선택 완료 (${maxSelection}명 선택)</button>
-                <button id="skip-hunt-btn" style="margin-top: 10px; background-color: #6c757d;">이번 밤에는 사용 안 함</button>
-            `;
+            const targetButtons = targets.map(target => '<li><button class="target-btn" data-ability="queen_hunt" data-target-id="' + target.id + '">' + target.name + '</button></li>').join('');
+            playerContainer.innerHTML = '<h2>[여왕의 분노] 대상을 최대 ' + maxSelection + '명 선택하세요.</h2>'
+                + '<div id="alien-action-timer" style="font-size:1.1em;font-weight:bold;color:#c084fc;margin:6px 0;padding:5px 12px;background:rgba(167,139,250,.15);border:1px solid rgba(167,139,250,.3);border-radius:8px;display:inline-block;">⏱ 대기 중...</div>'
+                + '<p style="font-size:.9em;color:#aaa;">(단 한번만 사용할 수 있는 강력한 능력입니다. 이번에 사용하지 않으면 다음 밤에 다시 사용할 수 있습니다.)</p>'
+                + (otherAliens.length > 0 ? '<p style="font-size:.88em;color:#fca5a5;">(동료 에일리언: ' + otherAliens.join(', ') + ')</p>' : '')
+                + '<ul class="player-grid-list">' + targetButtons + '</ul>'
+                + '<button id="confirm-hunt-btn" disabled>선택 완료 (' + maxSelection + '명 선택)</button>'
+                + '<button id="skip-hunt-btn" style="margin-top:10px;background-color:#6c757d;">이번 밤에는 사용 안 함</button>';
         }
 
         function showQueenRampageScreen(targets) {
             clearContainer();
             huntSelections = [];
-            const targetButtons = targets.map(target => `<li><button class="target-btn" data-ability="queen_rampage" data-target-id="${target.id}">${target.name}</button></li>`).join('');
-            playerContainer.innerHTML = `
-        <h2>[여왕의 만찬]</h2>
-        <p>(분노에 휩싸여 최대 4명의 대상을 공격합니다. 대상을 선택하지 않을 수도 있습니다.)</p>
-        <ul class="player-grid-list">${targetButtons}</ul>
-        <button id="confirm-rampage-btn">선택 완료 (0명)</button>
-    `;
+            const targetButtons = targets.map(target => '<li><button class="target-btn" data-ability="queen_rampage" data-target-id="' + target.id + '">' + target.name + '</button></li>').join('');
+            playerContainer.innerHTML = '<h2>[여왕의 만찬]</h2>'
+                + '<div id="alien-action-timer" style="font-size:1.1em;font-weight:bold;color:#fca5a5;margin:6px 0;padding:5px 12px;background:rgba(220,38,38,.15);border:1px solid rgba(220,38,38,.3);border-radius:8px;display:inline-block;">⏱ 대기 중...</div>'
+                + '<p style="font-size:.9em;color:#aaa;">(분노에 휩싸여 최대 4명의 대상을 공격합니다. 대상을 선택하지 않을 수도 있습니다.)</p>'
+                + '<ul class="player-grid-list">' + targetButtons + '</ul>'
+                + '<button id="confirm-rampage-btn">선택 완료 (0명)</button>';
         }
 
         // 기존 showShamanActionScreen 함수를 아래 코드로 교체해주세요.
@@ -618,7 +614,7 @@
 
                 // showCrewActionScreen 함수를 재활용하여 전체 UI 구조를 만듭니다.
                 const room = gameRoomsState[currentRoomCode];
-                showCrewActionScreen(room, abilityContent);
+                showCrewActionScreen(room, descHtml + abilityContent);
             }
         });
 
@@ -631,6 +627,28 @@
 
             let abilityContent = '';
             const isAlienTeam = me.role.includes('에일리언');
+
+            // Q4: 역할별 컨셉 설명
+            const _roleDescs = {
+                '함장': '함선의 최고 지휘관. 총알로 에일리언을 즉결 처분할 수 있습니다.',
+                '엔지니어': '함선 핵심 시스템 전문가. 함장 사망 시 비상탈출 열쇠를 쥡니다.',
+                '의사': '탐사대 의료진. 어둠 속에서 동료를 지키는 보이지 않는 방패.',
+                '경호원': '지정한 대상을 몸으로 막는 인간 방패. 희생이 곧 임무.',
+                '초능력자': '예지력으로 에일리언을 꿰뚫어봅니다. 단, 실패 시 대가가 따릅니다.',
+                '수다쟁이': '비밀을 폭로하는 능력. 에일리언을 향하면 최고의 무기, 아군을 향하면 독.',
+                '군인': '총기로 에일리언을 즉시 제거합니다. 총알은 소중히 쓰세요.',
+                '신의 사도': '4일간 믿음을 지키면 신앙의 기적이 탐사대를 구원합니다.',
+                '뚱이': '비상탈출 시 모든 식량을 독식하는 탐식가입니다.',
+                '에일리언 여왕': '포식자의 여왕. 분노의 만찬으로 여러 명을 동시에 제거할 수 있습니다.',
+                '에일리언': '어둠 속의 포식자. 매 밤 조용히 희생자를 제거합니다.',
+                '에일리언 알': '3일 후 부화합니다. 오염 또는 부화 — 결과는 알 수 없습니다.',
+                '에일리언 주술사': '탐사대의 능력을 무력화하는 저주를 겁니다.',
+                '일반 승객': '특별한 능력은 없지만, 당신의 판단력이 탐사대를 이끕니다.'
+            };
+            const _descText = _roleDescs[me.role] || '';
+            const descHtml = _descText
+                ? '<div style="background:rgba(91,141,238,.08);border:1px solid rgba(91,141,238,.2);border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:.85em;color:#94a3b8;line-height:1.5;"><b style="color:#7dd3fc;">' + me.role + '</b><br>' + _descText + '</div>'
+                : '';
 
             if (!room.crewActionTriggered) {
                 const message = isAlienTeam
@@ -692,13 +710,13 @@
                         + '우리는 에일리언의 눈을 피해 어둠 속에서만 움직입니다. '
                         + '정체가 만천하에 공개된 자는 이미 에일리언의 감시망에 완벽하게 노출되었으므로, '
                         + '그에게 접근하는 것 자체가 의료진 전원의 몰살을 초래할 수 있습니다.<br><br>'
-                        + '<b style="color:#fbbf24;">\u300c두 명 이상의 의사\u300d가 같은 대상에게 백신을 주입한 경우 다음 포식에서 면역됩니다.</b>'
+                        + '<b style="color:#fbbf24;">\u300c어둠 속에 숨어있는 자\u300d들만 은밀히 치료합니다.</b>'
                         + '</div>';
                     if (alreadyPicked) {
-                        abilityContent = '<h4>🏥 의사 능력</h4>' + flavorText + '<p>✅ 백신 주입 대상을 선택했습니다. 다른 의사들의 선택을 기다리는 중...</p>';
+                        abilityContent = '<h4>🏥 의사 능력</h4>' + flavorText + '<p>✅ 보호 대상을 선택했습니다. 다른 의사들의 선택을 기다리는 중...</p>';
                     } else if (aliveDoctors.length >= 2 && validTargets.length > 0) {
                         abilityContent = '<h4>🏥 의사 능력</h4>' + flavorText
-                            + '<p style="font-size:.88em;color:#86efac;margin-bottom:10px;">👇 백신을 주입할 대상을 선택하세요. (정체 탄로 대상은 제외되었음)</p>'
+                            + '<p style="font-size:.88em;color:#86efac;margin-bottom:10px;">👇 보호할 대상을 선택하세요. (정체 탄로 대상 제외됨)</p>'
                             + '<ul class="player-grid-list">' + validTargets.map(function (t) {
                                 return '<li><button class="target-btn" data-ability="doctor" data-target-id="' + t.id + '">' + t.name + '</button></li>';
                             }).join('') + '</ul>';
@@ -713,7 +731,22 @@
                 }
 
                 if (!hasAbility) {
-                    abilityContent = `<h4>사용할 수 있는 특별한 능력이 없습니다.</h4><p>'내 미션' 탭을 확인하여 탐사대의 공동 임무를 해결하거나, 적의 임무를 방해하세요!</p>`;
+                    // Q1: 위장 화면 - 실제 능력 UI와 동일하게 표시 (비활성화 표시 없음)
+                    const fakeList = [
+                        { title: '경호할 대상을 선택하세요.', desc: '(선택한 대상은 다음 날 아침까지 모든 공격에서 1회 보호됩니다.)', ability: 'fake_bodyguard' },
+                        { title: '정체를 꿰뚫어볼 대상을 선택하세요.', desc: '(대상 수에 따라 성공 확률이 달라지며, 실패 시 큰 위험이 따릅니다.)', ability: 'fake_psychic' },
+                        { title: '역할을 폭로할 대상을 선택하세요.', desc: '(선택된 대상의 역할은 모두에게 공개됩니다.)', ability: 'fake_chatter' },
+                        { title: '저격할 대상을 선택하세요.', desc: '(남은 총알: 1발)', ability: 'fake_soldier' }
+                    ];
+                    const fk = fakeList[Math.floor(Math.random() * fakeList.length)];
+                    const alivePeers = room.players.filter(function (p) { return p.status === 'alive' && p.id !== socket.id; });
+                    const fakeBtns = alivePeers.map(function (t) {
+                        // 실제 target-btn과 동일한 클래스/스타일이지만 data-ability="fake_*"
+                        return '<li><button class="target-btn" data-ability="' + fk.ability + '" data-target-id="' + t.id + '">' + t.name + '</button></li>';
+                    }).join('');
+                    abilityContent = '<h4>' + fk.title + '</h4>'
+                        + '<p>' + fk.desc + '</p>'
+                        + '<ul class="player-grid-list">' + fakeBtns + '</ul>';
                 }
             }
 
@@ -763,27 +796,38 @@
                 missionContent = '<h4>이번 게임에는 미션 보드가 활성화되지 않았습니다.</h4>';
             }
 
-            const fakeCaptainUI = `...`; // 기존 위장 화면 UI
-            const fakePsychicUI = `...`; // 기존 위장 화면 UI
-            const camouflageContent = Math.random() < 0.5 ? fakeCaptainUI : fakePsychicUI;
+            // 위장 화면 생성 (실제 능력과 동일한 UI)
+            const camouflageList = [
+                { title: '경호할 대상을 선택하세요.', desc: '(선택한 대상은 다음 날 아침까지 모든 공격에서 1회 보호됩니다.)', ability: 'fake_bodyguard' },
+                { title: '정체를 꿰뚫어볼 대상을 선택하세요.', desc: '(대상 수에 따라 성공 확률이 달라지며, 실패 시 큰 위험이 따릅니다.)', ability: 'fake_psychic' },
+                { title: '역할을 폭로할 대상을 선택하세요.', desc: '(선택된 대상의 역할은 모두에게 익명으로 공개됩니다.)', ability: 'fake_chatter' },
+                { title: '저격할 대상을 선택하세요.', desc: '(총알: 1발 남음 / 에일리언을 맞히면 즉시 제거됩니다.)', ability: 'fake_soldier' },
+                { title: '보호할 대상을 선택하세요.', desc: '(의사팀과 협력하여 오늘 밤 에일리언 공격으로부터 보호합니다.)', ability: 'fake_doctor' }
+            ];
+            const camouFake = camouflageList[Math.floor(Math.random() * camouflageList.length)];
+            const camoTargets = room.players.filter(function (p) { return p.status === 'alive' && p.id !== socket.id; });
+            const camoBtns = camoTargets.map(function (t) {
+                return '<li><button class="target-btn" data-ability="' + camouFake.ability + '" data-target-id="' + t.id + '">' + t.name + '</button></li>';
+            }).join('');
+            const camouflageContent = '<h4>' + camouFake.title + '</h4>'
+                + '<p>' + camouFake.desc + '</p>'
+                + '<ul class="player-grid-list">' + camoBtns + '</ul>';
 
-            playerContainer.innerHTML = `
-        <h2>${room.day}일차 밤: 탐사대 활동</h2>
-        <div class="tab-container">
-            <button class="tab-link active" data-tab="ability">내 능력</button>
-            <button class="tab-link" data-tab="lobby">대기실</button>
-            <button class="tab-link" data-tab="situation">상황판</button>
-            <button class="tab-link" data-tab="mission">내 미션</button>
-            <button class="tab-link" data-tab="camouflage">위장 화면</button> 
-        </div>
-        <div class="content-container">
-            <div id="ability-content" class="tab-content active">${abilityContent}</div>
-            <div id="lobby-content" class="tab-content"></div>
-            <div id="situation-content" class="tab-content">${situationBoardContent}</div>
-            <div id="mission-content" class="tab-content">${missionContent}</div>
-            <div id="camouflage-content" class="tab-content">${camouflageContent}</div>
-        </div>
-    `;
+            playerContainer.innerHTML = '<h2>' + room.day + '일차 밤: 탐사대 활동</h2>'
+                + '<div class="tab-container">'
+                + '<button class="tab-link active" data-tab="ability">내 능력</button>'
+                + '<button class="tab-link" data-tab="lobby">대기실</button>'
+                + '<button class="tab-link" data-tab="situation">상황판</button>'
+                + '<button class="tab-link" data-tab="mission">내 미션</button>'
+                + '<button class="tab-link" data-tab="camouflage">위장 화면</button>'
+                + '</div>'
+                + '<div class="content-container">'
+                + '<div id="ability-content" class="tab-content active">' + abilityContent + '</div>'
+                + '<div id="lobby-content" class="tab-content"></div>'
+                + '<div id="situation-content" class="tab-content">' + situationBoardContent + '</div>'
+                + '<div id="mission-content" class="tab-content">' + missionContent + '</div>'
+                + '<div id="camouflage-content" class="tab-content">' + camouflageContent + '</div>'
+                + '</div>';
 
             document.querySelectorAll('.tab-link').forEach(button => {
                 button.addEventListener('click', () => {
@@ -1221,11 +1265,19 @@
                 const timerDisplay = document.getElementById('timer-display');
                 if (timerDisplay) timerDisplay.textContent = timeStr;
             }
-            // Q4: 에일리언 활동 화면 타이머 (죽었어도 표시)
+            // Q4: 에일리언/여왕 활동 화면 타이머
             const alienTimerEl = document.getElementById('alien-action-timer');
             if (alienTimerEl) {
                 alienTimerEl.textContent = '⏱ 남은 시간: ' + timeStr;
                 alienTimerEl.style.color = (timeLeft >= 0 && timeLeft <= 10) ? '#ff4d6d' : '#ffd60a';
+            }
+            // Q3: 방출 미니게임 10초 타이머
+            if (data.label === 'minigame') {
+                const mgEl = document.getElementById('minigame-timer');
+                if (mgEl) {
+                    mgEl.textContent = timeLeft >= 0 ? ('⏱ ' + timeStr + ' 안에 선택하세요!') : '⏱ 시간 종료! 자동 선택 중...';
+                    mgEl.style.color = (timeLeft >= 0 && timeLeft <= 5) ? '#fca5a5' : '#fbbf24';
+                }
             }
         });
 
@@ -1745,6 +1797,16 @@
                             break;
                         case 'chatterbox':
                             socket.emit('useChatterboxAbility', { targetId });
+                            break;
+                        case 'fake_bodyguard':
+                        case 'fake_psychic':
+                        case 'fake_chatter':
+                        case 'fake_soldier':
+                            // Q1: 위장 능력 클릭 - 시각적 피드백만 (서버 emit 없음)
+                            target.classList.add('pre-selected');
+                            document.querySelectorAll('.target-btn[data-ability^="fake_"]').forEach(function (btn) {
+                                if (btn !== target) btn.disabled = true;
+                            });
                             break;
                         case 'doctor':
                             socket.emit('useDoctorAbility', { targetId });
