@@ -835,6 +835,7 @@
     const SPECIAL_CREW = ['의사', '경호원', '초능력자', '수다쟁이', '군인', '신의 사도'];
 
     let gameRoomsState = {};
+    let playerCountMap = {}; // BUG1 FIX: 대기실 총원 별도 저장
     let missionPresetsState = [];
 
     /* ── 자동 역할 배정 ── */
@@ -867,8 +868,17 @@
     /* ── 소켓 ── */
     socket.on('connect', () => socket.emit('adminConnect'));
     socket.on('updateAdmin', data => {
+      const prevRooms = gameRoomsState;
       gameRoomsState = data.rooms;
       missionPresetsState = data.missionPresets || [];
+
+      // BUG1 FIX: 별도 Map에 총원 저장 (updateAdmin 때 gameRoomsState 교체돼도 유지)
+      for (const code in gameRoomsState) {
+        const rd = gameRoomsState[code];
+        if (rd.status === 'waiting') {
+          playerCountMap[code] = rd.players.length;
+        }
+      }
       renderAll();
     });
     socket.on('confirmForceEject', data => {
@@ -1033,17 +1043,16 @@
       /* 자동 배정 */
       const aaPanel = mk('div', 'role-assign-panel');
       const aaTotalSpan = mk('span', ''); aaTotalSpan.id = 'total-roles-' + code;
+      aaTotalSpan.style.display = 'none'; // Q1: 중복 제거 - 자동배정 버튼 옆 숫자 입력칸으로 충분
       const currentCounts = (rd.settings && Object.keys(rd.settings).length > 1) ? rd.settings : {};
-      let initTotal = ALL_ROLES.reduce((s, r) => s + (currentCounts[r] || 0), 0);
-      aaTotalSpan.textContent = '총원: ' + initTotal;
       aaPanel.innerHTML = '<h5>🎲 총원 → 자동 배정</h5>';
       const aaRow = mk('div', 'quick-assign-row');
       const aaInp = mk('input', ''); aaInp.type = 'number'; aaInp.id = 'auto-assign-inp-' + code;
-      aaInp.value = rd.players.length || 4; aaInp.min = 4; aaInp.max = 40; aaInp.placeholder = '총원';
+      aaInp.value = playerCountMap[code] !== undefined ? playerCountMap[code] : rd.players.length; aaInp.min = 0; aaInp.max = 40; aaInp.placeholder = '총원';
       const aaBtn = mk('button', 'btn btn-primary btn-sm auto-assign-btn'); aaBtn.textContent = '자동 배정'; aaBtn.dataset.roomCode = code;
       aaRow.appendChild(aaInp); aaRow.appendChild(aaBtn);
       aaPanel.appendChild(aaRow);
-      const totalRow = mk('div', 'total-count'); totalRow.appendChild(aaTotalSpan);
+      const totalRow = mk('div', 'total-count'); totalRow.style.display = 'none'; totalRow.appendChild(aaTotalSpan);
       aaPanel.appendChild(totalRow);
       colR.appendChild(aaPanel);
 
@@ -1223,6 +1232,8 @@
             }
           } else if (rd.ejectionState === 'nominating') {
             const ip = mk('p', ''); ip.textContent = '🗳 지목 투표 진행 중... (모니터링 열 확인)'; ip.style.cssText = 'font-size:.82rem;color:var(--yellow);font-weight:700;margin:4px 0;'; actions.appendChild(ip);
+            const emergNom = mk('button', 'btn btn-ghost btn-full btn-sm'); emergNom.textContent = '⚙ 비상: 방출 미니게임 강제 시작';
+            emergNom.style.cssText = 'margin-top:4px;font-size:.78rem;'; emergNom.className = 'btn btn-ghost btn-full start-ejection-minigame-btn'; actions.appendChild(emergNom);
           } else if (rd.ejectionState === 'minigame_pending') {
             // Q3: 자동 시작됨 - 안내만 표시
             const autoMg = mk('p', ''); autoMg.textContent = '⚡ 방출 미니게임 자동 시작 중...';
@@ -1250,12 +1261,15 @@
           const qrBtn = mk('button', 'btn btn-ghost btn-full'); qrBtn.id = 'resolve-rampage-btn'; qrBtn.textContent = '만찬 종료 → 탐사대 활동'; actions.appendChild(qrBtn);
         } else if (rd.alienActionTriggered) {
           if (rd.autoMode) {
-            // 자동진행: 안내 메시지만 (버튼 불필요)
             const wm = mk('p', ''); wm.textContent = '⚡ 에일리언 활동 완료 — 결과 자동 반영 중...';
             wm.style.cssText = 'font-size:.82rem;color:var(--green);font-weight:600;margin:6px 0;'; actions.appendChild(wm);
           } else {
             const rnBtn = mk('button', 'btn btn-warning btn-full resolve-night-btn'); rnBtn.textContent = '✅ 결과 반영 및 탐사대 활동 시작'; actions.appendChild(rnBtn);
           }
+          // Q3: 비상용 버튼 (항상 표시)
+          const emergRn = mk('button', 'btn btn-ghost btn-full btn-sm'); emergRn.textContent = '⚙ 비상: 결과 강제 반영';
+          emergRn.style.cssText = 'margin-top:4px;font-size:.78rem;color:var(--text3);'; emergRn.className = 'btn btn-ghost btn-full resolve-night-btn';
+          actions.appendChild(emergRn);
         } else {
           const taBtn = mk('button', 'btn btn-night btn-full trigger-alien-action-btn'); taBtn.textContent = '🌙 (모두 엎드린 후) 에일리언 활동 시작'; actions.appendChild(taBtn);
         }
@@ -1264,6 +1278,8 @@
       else if (rd.phase === 'night_crew_action') {
         const enBtn = mk('button', 'btn btn-night-red btn-full end-night-btn');
         enBtn.textContent = '🌙 탐사대 활동 완료 → 에일리언 활동 시작'; actions.appendChild(enBtn);
+        const emergCrew = mk('button', 'btn btn-ghost btn-full btn-sm end-night-btn');
+        emergCrew.textContent = '⚙ 비상: 강제 다음 단계'; emergCrew.style.cssText = 'margin-top:4px;font-size:.78rem;'; actions.appendChild(emergCrew);
       }
 
       panel.appendChild(actions);
@@ -1445,8 +1461,9 @@
       } else if (cl.contains('auto-assign-btn')) {
         const rc = target.dataset.roomCode;
         const inp = document.getElementById('auto-assign-inp-' + rc);
-        const total = parseInt(inp.value);
-        if (isNaN(total) || total < 4) { alert('최소 4명 이상'); return; }
+        const rd2 = gameRoomsState[rc];
+        const total = parseInt(inp.value) || (rd2 ? rd2.players.length : 0);
+        if (isNaN(total) || total < 1) { alert('참가자가 없습니다.'); return; }
         const assigned = autoAssignRoles(total);
         if (!assigned) { alert('배정 실패'); return; }
         let t = 0;

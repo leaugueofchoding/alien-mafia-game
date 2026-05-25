@@ -209,49 +209,31 @@ function broadcastUpdates(roomCode) {
 }
 
 function transitionToNightPhase(roomCode) {
+  // Q5: 방출 미니게임 완료 후 순서: 탐사대 활동 → 에일리언 활동
   const room = gameRooms[roomCode];
   if (!room) return;
 
-  console.log(`[${roomCode}] Cleaning up minigame and transitioning to night phase.`);
-
-  // 미니게임 관련 상태를 먼저 초기화합니다.
+  // 미니게임 관련 상태 초기화
   delete room.ejectionState;
   delete room.ejectionVotes;
   delete room.ejectionNominations;
   delete room.ejectionMinigame;
 
-  const livingPlayers = room.players.filter(p => p.status === 'alive');
-  const normalAliens = livingPlayers.filter(p => p.role === '에일리언');
-  const queen = livingPlayers.find(p => p.role === '에일리언 여왕');
-  const activeAlienCount = normalAliens.length + (queen && !queen.abilityUsed ? 1 : 0);
+  // Q5: 탐사대 활동을 먼저 시작
+  room.phase = 'night_crew_action';
+  room.crewActionTriggered = false;
+  delete room.alienActionTriggered;
+  delete room.alienActionsConfirmed;
+  delete room.selections;
+  delete room.bodyguardProtection;
+  delete room.medicalProtectionTarget;
+  delete room.doctorProtections;
+  delete room.shamanBlockedPlayers;
 
-  if (activeAlienCount === 0) {
-    const logMessage = '[시스템] 능력을 사용할 수 있는 에일리언이 없습니다.';
-    console.log(`[${roomCode}] No active aliens. Announcing and scheduling next phase.`);
+  if (room.gameLog) room.gameLog.unshift({ text: '[' + room.day + '일차 밤 1단계] 탐사대 활동 시작', type: 'phase_change' });
 
-    if (room.gameLog) {
-      room.gameLog.unshift({ text: logMessage, type: 'log' });
-    }
-    // ★★★ 핵심 수정: broadcastUpdates(roomCode) 호출을 제거합니다. ★★★
-    io.to(roomCode).emit('noAlienActivity', { message: "오늘 밤에는 능력을 사용할 수 있는 에일리언이 없습니다. 바로 탐사대 활동을 시작합니다." });
-    // 관리자에게는 로그가 포함된 업데이트를 한 번 보내줍니다.
-    io.to(ADMIN_ROOM).emit('updateAdmin', { rooms: gameRooms, presets: PRESETS, missionPresets: Object.keys(MISSIONS) });
-
-
-    setTimeout(() => {
-      const roomNow = gameRooms[roomCode];
-      if (roomNow && roomNow.status === 'playing') {
-        roomNow.phase = 'night_crew_action';
-        startCrewActionPhase(roomCode);
-      }
-    }, 4000);
-  } else {
-    room.phase = 'night_alien_action';
-    room.selections = {};
-    delete room.alienActionTriggered;
-    delete room.crewActionTriggered;
-    broadcastUpdates(roomCode);
-  }
+  startCrewActionPhase(roomCode);
+  broadcastUpdates(roomCode);
 }
 
 // 기존 checkAllAlienActionsComplete 함수를 아래 코드로 통째로 교체해주세요.
@@ -297,6 +279,7 @@ function checkAllAlienActionsComplete(roomCode) {
     }
     broadcastUpdates(roomCode);
     // 짧은 딜레이 후 자동 resolveNight
+    // Q5: 1.5초 후 자동 resolve → goToMorning
     setTimeout(() => {
       const r2 = gameRooms[roomCode];
       if (!r2 || r2.phase !== 'night_alien_action') return;
@@ -573,10 +556,15 @@ function resolveNightActionsInternal(roomCode) {
         targetsToEliminate.add(selection);
       }
     }
-    // Q3: 의사 보호 대상 제거 (로그 미표시 - 전략 노출 방지)
+    // Q3: 의사 보호 대상 제거
     if (room.medicalProtectionTarget && targetsToEliminate.has(room.medicalProtectionTarget)) {
+      const immunePlayer = room.players.find(p => p.id === room.medicalProtectionTarget);
       targetsToEliminate.delete(room.medicalProtectionTarget);
-      // 백신 주입 성공 로그는 백신 사용 시에만 표시 (useDoctorAbility에서 처리)
+      // Q1: 면역 성공 로그 + 주효 플레이 기록
+      if (immunePlayer) {
+        if (room.gameLog) room.gameLog.unshift({ text: '[의료진] ' + immunePlayer.name + '님이 에일리언의 바이러스 공격으로부터 면역되어 생존하였습니다.', type: 'log' });
+        if (room.notablePlays) room.notablePlays.push({ type: 'best', text: '의사팀의 백신으로 ' + immunePlayer.name + '(' + immunePlayer.role + ')님이 에일리언 포식에서 생존했습니다.' });
+      }
     }
     delete room.medicalProtectionTarget;
     const uniqueTargets = Array.from(targetsToEliminate);
@@ -613,8 +601,88 @@ function resolveNightActionsInternal(roomCode) {
   const gameEnded = checkWinConditions(roomCode);
   if (gameEnded) return;
 
-  room.phase = 'night_crew_action';
-  startCrewActionPhase(roomCode);
+  // Q5: 에일리언 활동이 밤의 마지막 → 바로 다음날 morning 루틴
+  goToMorning(roomCode);
+}
+
+// autoStartMinigame: minigame_pending 상태에서 미니게임 자동 시작 + 10초 타이머
+function autoStartMinigame(roomCode) {
+  const r2 = gameRooms[roomCode];
+  if (!r2 || r2.ejectionState !== 'minigame_pending') return;
+  const cands = Object.values(r2.ejectionNominations);
+  if (cands.length === 0) return;
+  const cnt = cands.length;
+  // 카드 생성: 방출 1개 보장
+  const ejIdx = Math.floor(Math.random() * cnt);
+  const cards = cands.map((_, i) => ({ id: i, content: i === ejIdx ? '방출' : '생존' }));
+  // shuffle
+  for (let i = cards.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [cards[i], cards[j]] = [cards[j], cards[i]];
+  }
+  r2.ejectionMinigame = { candidates: cands, cards, selections: {}, results: null };
+  r2.ejectionState = 'minigame_active';
+  broadcastUpdates(roomCode);
+
+  // 10초 타임아웃
+  let mgLeft = 10;
+  const mgKey = roomCode + '_minigame';
+  if (timerIntervals[mgKey]) clearInterval(timerIntervals[mgKey]);
+  io.to(roomCode).emit('timerUpdate', { roomCode, timeLeft: mgLeft, label: 'minigame' });
+  io.to(ADMIN_ROOM).emit('timerUpdate', { roomCode, timeLeft: mgLeft, label: 'minigame' });
+  timerIntervals[mgKey] = setInterval(() => {
+    mgLeft--;
+    io.to(roomCode).emit('timerUpdate', { roomCode, timeLeft: mgLeft, label: 'minigame' });
+    io.to(ADMIN_ROOM).emit('timerUpdate', { roomCode, timeLeft: mgLeft, label: 'minigame' });
+    if (mgLeft < 0) {
+      clearInterval(timerIntervals[mgKey]);
+      delete timerIntervals[mgKey];
+      const r3 = gameRooms[roomCode];
+      if (!r3 || !['minigame_active', 'minigame_all_selected'].includes(r3.ejectionState)) return;
+      const mg = r3.ejectionMinigame;
+      const usedIds = Object.values(mg.selections);
+      const remaining = mg.cards.filter(c => !usedIds.includes(c.id));
+      mg.candidates.forEach(cId => {
+        if (mg.selections[cId] === undefined && remaining.length > 0) {
+          const pick = remaining.splice(Math.floor(Math.random() * remaining.length), 1)[0];
+          mg.selections[cId] = pick.id;
+          io.to(cId).emit('cardSelectionConfirmed', { cardId: pick.id });
+        }
+      });
+      r3.ejectionState = 'minigame_all_selected';
+      broadcastUpdates(roomCode);
+    }
+  }, 1000);
+}
+
+// goToMorning: 밤 종료 후 다음날 meeting 세팅
+function goToMorning(roomCode) {
+  const room = gameRooms[roomCode];
+  if (!room) return;
+  room.day++;
+  room.phase = 'meeting';
+  room.ejectionState = 'pending_start';
+  room.ejectionVotes = {};
+  room.ejectionNominations = {};
+  room.ejectionMinigame = {};
+  delete room.alienActionTriggered;
+  delete room.alienActionsConfirmed;
+  delete room.queenRampageStarted;
+  delete room.selections;
+  if (room.gameLog) room.gameLog.unshift({ text: '[' + room.day + '일차 회의 시작]', type: 'phase_change' });
+  // 1인 모둠 자동지목 초기화
+  room.players.forEach(p => { if (p.status === 'alive') delete p.group; });
+  room.needsGroupSelection = true;
+  room.dailyMissionSolves = {};
+  delete room.shamanBlockedPlayers;
+  // 이전 타이머 정리
+  const mk = roomCode + '_meeting';
+  if (timerIntervals[mk]) { clearInterval(timerIntervals[mk]); delete timerIntervals[mk]; }
+  const ak = roomCode + '_alien';
+  if (timerIntervals[ak]) { clearInterval(timerIntervals[ak]); delete timerIntervals[ak]; }
+  const gameEnded = checkSpecialVictoryConditions(roomCode);
+  if (gameEnded) return;
+  broadcastUpdates(roomCode);
 }
 
 // startCrewActionPhase 함수를 찾아 통째로 교체해주세요.
@@ -987,15 +1055,12 @@ io.on('connection', (socket) => {
           if (allGroupsNominated && totalActiveGroups > 0) {
             if (room.ejectionState !== 'minigame_pending') {
               room.ejectionState = 'minigame_pending';
-              // ★★★ 수정: 'code'를 'roomCode'로 변경 ★★★
-              console.log(`[${roomCode}] All active groups have nominated. State is now minigame_pending.`);
-
               const nomineeIds = Object.values(room.ejectionNominations);
-              const nomineeNames = nomineeIds.map(id => room.players.find(p => p.id === id)?.name).join(', ');
-              if (room.gameLog) {
-                room.gameLog.unshift(`[회의] 최종 방출 후보가 ${nomineeNames}(으)로 결정되었습니다.`);
-              }
+              const nomineeNames = nomineeIds.map(function (id) { const p = room.players.find(function (q) { return q.id === id; }); return p ? p.name : '???'; }).join(', ');
+              if (room.gameLog) room.gameLog.unshift({ text: '[회의] 최종 방출 후보: ' + nomineeNames + ' — 방출 미니게임을 시작합니다!', type: 'log' });
             }
+            // 모두 1인 모둠인 경우 자동 미니게임 시작
+            setTimeout(function () { autoStartMinigame(roomCode); }, 800);
           }
         }
       }
@@ -1005,25 +1070,33 @@ io.on('connection', (socket) => {
         const allAlive = room.players.filter(p => p.status === 'alive');
         const allSelected = allAlive.every(p => !!p.group);
         const timerKey = roomCode + '_meeting';
-        // FIX: minigame_pending이 아닌 경우라면 타이머 시작 (pending_start or nominating)
-        if (allSelected && !timerIntervals[timerKey] && room.ejectionState !== 'minigame_pending' && room.ejectionState !== 'minigame_active' && room.ejectionState !== 'minigame_all_selected') {
+        // BUG1 FIX: 다인 모둠이 있으면 타이머 시작 (1인 자동지목으로 partial nominations된 경우 포함)
+        const hasMultiMemberGroup = [...new Set(room.players.filter(p => p.status === 'alive').map(p => p.group))]
+          .some(gn => room.players.filter(p => p.status === 'alive' && p.group === gn).length > 1);
+        const canStartTimer = allSelected && !timerIntervals[timerKey] &&
+          !['minigame_active', 'minigame_all_selected'].includes(room.ejectionState) &&
+          (room.ejectionState !== 'minigame_pending' || hasMultiMemberGroup);
+        if (canStartTimer) {
           let autoLeft = room.autoMeetingTime || 90;
           room.timeLeft = autoLeft;
           io.to(roomCode).emit('timerUpdate', { roomCode, timeLeft: autoLeft });
           io.to(ADMIN_ROOM).emit('timerUpdate', { roomCode, timeLeft: autoLeft });
           console.log('[' + roomCode + '] AUTO: day ' + room.day + ' meeting timer started after all groups selected');
+          broadcastUpdates(roomCode); // Q2: 타이머 시작 즉시 상태 갱신
           timerIntervals[timerKey] = setInterval(() => {
             autoLeft--;
             room.timeLeft = autoLeft;
             io.to(roomCode).emit('timerUpdate', { roomCode, timeLeft: autoLeft });
             io.to(ADMIN_ROOM).emit('timerUpdate', { roomCode, timeLeft: autoLeft });
             if (autoLeft === 30) {
-              // 아직 pending_start 상태면 nominating으로 전환
               if (room.ejectionState === 'pending_start') {
                 room.ejectionState = 'nominating';
               }
-              // 이미 nominating이어도 broadcastUpdates로 클라이언트 갱신
               broadcastUpdates(roomCode);
+              // BUG3 FIX: 추가 broadcast로 클라이언트 확실히 갱신
+              setTimeout(() => {
+                if (gameRooms[roomCode]) broadcastUpdates(roomCode);
+              }, 300);
             }
             if (autoLeft < 0) {
               clearInterval(timerIntervals[timerKey]);
@@ -1052,6 +1125,7 @@ io.on('connection', (socket) => {
                 if (Object.keys(room.ejectionNominations).length > 0) {
                   room.ejectionState = 'minigame_pending';
                   broadcastUpdates(roomCode);
+                  setTimeout(() => { autoStartMinigame(roomCode); }, 800);
                 }
               }
             }
@@ -1128,14 +1202,12 @@ io.on('connection', (socket) => {
 
       if (allGroupsNominated && totalActiveGroups > 0) {
         room.ejectionState = 'minigame_pending';
-        console.log(`[${roomCode}] All ${totalActiveGroups} active groups have nominated. State is now minigame_pending.`);
-
-        // ★★★ 여기에 아래 로그 추가 코드를 넣으면 됩니다. ★★★
         const nomineeIds = Object.values(room.ejectionNominations);
-        const nomineeNames = nomineeIds.map(id => room.players.find(p => p.id === id)?.name).join(', ');
-        if (room.gameLog) {
-          room.gameLog.unshift(`[회의] 최종 방출 후보가 ${nomineeNames}(으)로 결정되었습니다.`);
-        }
+        const nomineeNames = nomineeIds.map(id => { const p = room.players.find(q => q.id === id); return p ? p.name : '???'; }).join(', ');
+        if (room.gameLog) room.gameLog.unshift({ text: '[회의] 최종 방출 후보: ' + nomineeNames + ' — 방출 미니게임을 시작합니다!', type: 'log' });
+
+        broadcastUpdates(roomCode);
+        setTimeout(() => { autoStartMinigame(roomCode); }, 800);
       }
     }
     broadcastUpdates(roomCode);
@@ -1365,7 +1437,24 @@ io.on('connection', (socket) => {
       delete timerIntervals[alienTimerKey];
     }
 
-    // ★★★ 핵심 수정 ★★★
+    // ★★★ Q5 순서: meeting → night_crew_action → night_alien_action ★★★
+    if (phase === 'night_crew_action') {
+      // meeting 종료 → 탐사대 활동 시작
+      room.phase = 'night_crew_action';
+      room.crewActionTriggered = false;
+      room.alienActionTriggered = false;
+      delete room.alienActionsConfirmed;
+      delete room.selections;
+      delete room.bodyguardProtection;
+      delete room.medicalProtectionTarget;
+      delete room.doctorProtections;
+      delete room.shamanBlockedPlayers;
+      if (room.gameLog) room.gameLog.unshift({ text: '[' + room.day + '일차 밤 1단계] 탐사대 활동 시작', type: 'phase_change' });
+      startCrewActionPhase(code);
+      broadcastUpdates(code);
+      return;
+    }
+
     if (phase === 'night_alien_action') {
       const livingPlayers = room.players.filter(p => p.status === 'alive');
       const normalAliens = livingPlayers.filter(p => p.role === '에일리언');
@@ -1486,10 +1575,9 @@ io.on('connection', (socket) => {
         io.to(shaman.id).emit('shamanAction', { otherAliens, targets: shamanTargets });
       }
 
-      // ── AUTO MODE: 에일리언 활동 타임아웃 (단일 타이머) ──
-      if (room.autoMode && room.autoAlienTime > 0) {
+      // ── AUTO MODE: 에일리언 활동 타임아웃 (중복 방지) ──
+      if (room.autoMode && room.autoAlienTime > 0 && !timerIntervals[code + '_alien']) {
         const alienKey = code + '_alien';
-        if (timerIntervals[alienKey]) { clearInterval(timerIntervals[alienKey]); delete timerIntervals[alienKey]; }
         let alienLeft = room.autoAlienTime;
         room.timeLeft = alienLeft;
         io.to(code).emit('timerUpdate', { roomCode: code, timeLeft: alienLeft });
@@ -1580,16 +1668,14 @@ io.on('connection', (socket) => {
     const confirmed = room.alienActionsConfirmed || [];
     const allAliensReady = remainingAliens.length === 0 || remainingAliens.every(p => confirmed.includes(p.id));
     if (allAliensReady) {
-      room.phase = 'night_crew_action';
-      startCrewActionPhase(code);
+      // Q5: 에일리언 활동이 밤 마지막 → 바로 다음날 morning
+      goToMorning(code);
     } else {
-      // 아직 일반 에일리언 행동 대기 중 - 그들이 완료하면 checkAllAlienActionsComplete가 처리
       room.phase = 'night_alien_action';
       broadcastUpdates(code);
     }
   });
 
-  // ★★★ 기존 코드를 아래 코드로 완전히 교체해주세요. ★★★
   socket.on('startMeetingTimer', (roomCode) => {
     console.log(`[${roomCode}] Received startMeetingTimer event.`); // 디버깅 로그 추가
 
@@ -2152,37 +2238,7 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('useQueenHunt', (data) => {
-    const { targetIds } = data;
-    const selectorId = socket.id;
-    let roomCode = '';
-    for (const code in gameRooms) {
-      if (gameRooms[code].players.some(p => p.id === selectorId)) { roomCode = code; break; }
-    }
-
-    if (roomCode) {
-      const room = gameRooms[roomCode];
-      const queen = room.players.find(p => p.id === socket.id);
-
-      if (room && queen && queen.role === '에일리언 여왕' && !queen.abilityUsed && targetIds) {
-        // 여왕의 선택을 서버에 기록합니다.
-        room.selections[selectorId] = targetIds;
-
-        // 관리자에게 로그를 남깁니다.
-        if (room.gameLog) {
-          const targetNames = targetIds.map(id => room.players.find(p => p.id === id)?.name).join(', ');
-          room.gameLog.unshift({ text: `[시스템] 에일리언 여왕이 [사냥] 능력으로 ${targetNames}을(를) 선택했습니다.`, type: 'log' });
-        }
-
-        // ★★★ 핵심 수정 ★★★
-        // 여왕의 행동은 '활동 완료'로 간주하지 않고, 턴 종료를 확인하지 않습니다.
-        // 그냥 여왕의 화면만 업데이트하고, 다른 에일리언들이 이 선택을 볼 수 있게 합니다.
-        io.to(selectorId).emit('actionConfirmed'); // 여왕에게 선택이 완료되었음을 알림
-        broadcastAlienSelections(roomCode);     // 다른 에일리언에게 선택 현황 공유
-        broadcastUpdates(roomCode);              // 관리자 화면 업데이트
-      }
-    }
-  });
+  // (중복 useQueenHunt 핸들러 제거 - 아래 핸들러가 유효한 버전)
 
   socket.on('useQueenRampage', (data) => {
     const { targetIds } = data;
@@ -2555,53 +2611,31 @@ io.on('connection', (socket) => {
     }, ROULETTE_DURATION + VIEW_DURATION);
   });
 
-  // endNightAndStartMeeting 함수를 찾아 통째로 교체해주세요.
+  // night_crew_action 완료 → night_alien_action으로 전환 (Q5: 순서 변경)
   socket.on('endNightAndStartMeeting', (data) => {
     const { code } = data;
     const room = gameRooms[code];
     if (!room) return;
-
-    // ★★★ 핵심 수정: 밤과 관련된 모든 상태를 여기서 초기화합니다. ★★★
-    delete room.selections;
-    delete room.shamanBlockedPlayers;
-    delete room.alienActionTriggered;
-    delete room.crewActionTriggered;
-    // BUG1 FIX: 남아있는 에일리언/미팅 타이머 모두 정리
-    const _nightTimerKey = code + '_alien';
-    if (timerIntervals[_nightTimerKey]) { clearInterval(timerIntervals[_nightTimerKey]); delete timerIntervals[_nightTimerKey]; }
-    const _meetTimerKey = code + '_meeting';
-    if (timerIntervals[_meetTimerKey]) { clearInterval(timerIntervals[_meetTimerKey]); delete timerIntervals[_meetTimerKey]; }
-
-    room.dailyMissionSolves = {};
-    room.day += 1;
-    room.phase = 'meeting';
-
-    if (room.gameLog) {
-      room.gameLog.unshift({ text: `[${room.day}일차 회의 시작]`, type: 'phase_change' });
+    // Q5: 크루 활동 후 바로 에일리언 활동으로
+    if (room.phase === 'night_crew_action') {
+      room.phase = 'night_alien_action';
+      room.alienActionTriggered = false;
+      room.alienActionsConfirmed = []; // BUG2 FIX: delete 대신 초기화
+      room.selections = {};            // BUG2 FIX: delete 대신 빈 객체
+      delete room.crewActionTriggered;
+      delete room.bodyguardProtection;
+      delete room.medicalProtectionTarget;
+      delete room.doctorProtections;
+      broadcastUpdates(code);
+      return;
     }
 
-    if (room.settings.useEjectionMinigame) {
-      room.ejectionState = 'pending_start';
-      room.ejectionVotes = {};
-      room.ejectionNominations = {};
-      room.ejectionMinigame = {};
+    // Q5: night_alien_action 완료 → goToMorning (다음날 morning)
+    if (room.phase === 'night_alien_action') {
+      goToMorning(code);
+      return;
     }
-
-    const gameEnded = checkSpecialVictoryConditions(code);
-    if (gameEnded) return;
-
-    // 타이머는 모둠 선택 완료 시점(selectGroup)에서 시작됨
-    // 2일차+는 needsGroupSelection으로 참가자들이 모둠 재선택 후 타이머 자동 시작
-
-    if (room.day > 1) {
-      room.needsGroupSelection = true;
-      room.players.forEach(p => {
-        if (p.status === 'alive') {
-          delete p.group;
-          delete p.abilityUsedThisTurn;
-        }
-      });
-    }
+    // fallback
     broadcastUpdates(code);
   });
 
@@ -2626,6 +2660,9 @@ io.on('connection', (socket) => {
           room.ejectionState = 'nominating';
         }
         broadcastUpdates(roomCode);
+        setTimeout(() => {
+          if (gameRooms[roomCode]) broadcastUpdates(roomCode);
+        }, 300);
       }
       if (autoLeft < 0) {
         clearInterval(timerIntervals[timerKey]);
