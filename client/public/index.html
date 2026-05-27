@@ -158,6 +158,7 @@
         let displayedLogCount = 0;
         let currentRoomCode = '';
         let gameRoomsState = {}; // 게임 전체 상태를 저장할 변수
+        let isEngineerChoiceActive = false; // 엔지니어 선택 화면 활성 여부
 
         function clearContainer() {
             playerContainer.innerHTML = '';
@@ -707,22 +708,21 @@
                     });
                     const flavorText = '<div style="background:rgba(0,0,0,.3);border:1px solid #333;border-radius:8px;padding:12px;margin-bottom:14px;font-size:.82em;color:#94a3b8;line-height:1.6;">'
                         + '<b style="color:#7dd3fc;">탐사대 의료진 행동 원칙</b><br><br>'
-                        + '우리는 에일리언의 눈을 피해 어둠 속에서만 움직입니다. '
-                        + '정체가 만천하에 공개된 자는 이미 에일리언의 감시망에 완벽하게 노출되었으므로, '
-                        + '그에게 접근하는 것 자체가 의료진 전원의 몰살을 초래할 수 있습니다.<br><br>'
-                        + '<b style="color:#fbbf24;">\u300c어둠 속에 숨어있는 자\u300d들만 은밀히 치료합니다.</b>'
+                        + '🛡️ <b style="color:#86efac;">[패시브]</b> 의사가 있는 모둠은 에일리언 알 오염으로 사망하지 않습니다.<br><br>'
+                        + '💉 <b style="color:#7dd3fc;">[액티브]</b> 대상에게 백신을 접종합니다. <b style="color:#fbbf24;">같은 대상에게 2회 누적 접종</b> 시 포식 1회를 저지합니다.<br>'
+                        + '<span style="font-size:.9em;color:#64748b;">(같은 회기에 의사 2명 접종 유효 / 다른 회기에 같은 의사 누적 유효 / 다른 의사가 1회씩 누적도 유효)</span><br><br>'
+                        + '⚠️ <b style="color:#fca5a5;">[주의]</b> 백신 3회 누적 시 과다 투약으로 사망 처리됩니다. <span style="font-size:.9em;color:#64748b;">(에일리언 팀은 면역)</span><br><br>'
+                        + '<b style="color:#fbbf24;">「어둠 속에 숨어있는 자」들만 은밀히 치료합니다.</b>'
                         + '</div>';
                     if (alreadyPicked) {
-                        abilityContent = '<h4>🏥 의사 능력</h4>' + flavorText + '<p>✅ 보호 대상을 선택했습니다. 다른 의사들의 선택을 기다리는 중...</p>';
-                    } else if (aliveDoctors.length >= 2 && validTargets.length > 0) {
+                        abilityContent = '<h4>🏥 의사 능력</h4>' + flavorText + '<p>✅ 백신 접종 대상을 선택했습니다. 다른 의사들의 선택을 기다리는 중...</p>';
+                    } else if (validTargets.length > 0) {
+                        // ★ 수정3: 백신 뱃지·현황 일절 표시 금지 (의사 간 정보 은닉)
                         abilityContent = '<h4>🏥 의사 능력</h4>' + flavorText
-                            + '<p style="font-size:.88em;color:#86efac;margin-bottom:10px;">👇 보호할 대상을 선택하세요. (정체 탄로 대상 제외됨)</p>'
+                            + '<p style="font-size:.88em;color:#86efac;margin-bottom:10px;">👇 백신을 접종할 대상을 선택하세요.</p>'
                             + '<ul class="player-grid-list">' + validTargets.map(function (t) {
                                 return '<li><button class="target-btn" data-ability="doctor" data-target-id="' + t.id + '">' + t.name + '</button></li>';
                             }).join('') + '</ul>';
-                    } else if (aliveDoctors.length < 2) {
-                        abilityContent = '<h4>🏥 의사 능력</h4>' + flavorText
-                            + '<p style="color:#fca5a5;">⚠️ 생존한 의사가 1명뿐입니다.<br>의사 2명 이상이 같은 대상을 선택해야 보호 효과가 발동됩니다.</p>';
                     } else {
                         abilityContent = '<h4>🏥 의사 능력</h4>' + flavorText
                             + '<p style="color:#fca5a5;">⚠️ 현재 보호 가능한 대상이 없습니다. (모든 생존자의 정체가 탄로났습니다.)</p>';
@@ -731,22 +731,11 @@
                 }
 
                 if (!hasAbility) {
-                    // Q1: 위장 화면 - 실제 능력 UI와 동일하게 표시 (비활성화 표시 없음)
-                    const fakeList = [
-                        { title: '경호할 대상을 선택하세요.', desc: '(선택한 대상은 다음 날 아침까지 모든 공격에서 1회 보호됩니다.)', ability: 'fake_bodyguard' },
-                        { title: '정체를 꿰뚫어볼 대상을 선택하세요.', desc: '(대상 수에 따라 성공 확률이 달라지며, 실패 시 큰 위험이 따릅니다.)', ability: 'fake_psychic' },
-                        { title: '역할을 폭로할 대상을 선택하세요.', desc: '(선택된 대상의 역할은 모두에게 공개됩니다.)', ability: 'fake_chatter' },
-                        { title: '저격할 대상을 선택하세요.', desc: '(남은 총알: 1발)', ability: 'fake_soldier' }
-                    ];
-                    const fk = fakeList[Math.floor(Math.random() * fakeList.length)];
-                    const alivePeers = room.players.filter(function (p) { return p.status === 'alive' && p.id !== socket.id; });
-                    const fakeBtns = alivePeers.map(function (t) {
-                        // 실제 target-btn과 동일한 클래스/스타일이지만 data-ability="fake_*"
-                        return '<li><button class="target-btn" data-ability="' + fk.ability + '" data-target-id="' + t.id + '">' + t.name + '</button></li>';
-                    }).join('');
-                    abilityContent = '<h4>' + fk.title + '</h4>'
-                        + '<p>' + fk.desc + '</p>'
-                        + '<ul class="player-grid-list">' + fakeBtns + '</ul>';
+                    // 능력 없는 직군: 내 능력 탭에는 안내 문구만 표시
+                    abilityContent = '<div style="padding:20px;text-align:center;">'
+                        + '<p style="font-size:1.1em;color:#94a3b8;margin-bottom:12px;">🔍 현재 활용할 수 있는 능력이 없습니다.</p>'
+                        + '<p style="font-size:0.88em;color:#64748b;">당신의 역할은 직접적인 능력보다<br>판단력과 발언으로 팀을 이끄는 것입니다.</p>'
+                        + '</div>';
                 }
             }
 
@@ -757,11 +746,20 @@
                 return `<tr><td>${role}</td><td>${alive} / ${total}</td></tr>`;
             }).join('');
 
-            const gameLogHtml = (room.gameLog || []).map(logEntry => {
-                const text = typeof logEntry === 'string' ? logEntry : logEntry.text;
-                const type = typeof logEntry === 'string' ? 'log' : (logEntry.type || 'log');
-                return `<p class="log-${type}">${text}</p>`;
-            }).join('');
+            const gameLogHtml = (function () {
+                const logs = room.gameLog || [];
+                const seenTexts = new Set();
+                return logs.map(logEntry => {
+                    const text = typeof logEntry === 'string' ? logEntry : logEntry.text;
+                    const type = typeof logEntry === 'string' ? 'log' : (logEntry.type || 'log');
+                    // 의사 보호 관련 로그 중복 방지
+                    if (text && (text.includes('의학적으로') || text.includes('백신') || text.includes('보호'))) {
+                        if (seenTexts.has(text)) return '';
+                        seenTexts.add(text);
+                    }
+                    return `<p class="log-${type}">${text}</p>`;
+                }).filter(Boolean).join('');
+            })();
 
             const situationBoardContent = `
         <div class="log-box">${gameLogHtml}</div>
@@ -1107,6 +1105,21 @@
             }
 
             if (room.pendingAction === 'queen_rampage') {
+                // ★ 수정5: 페이즈가 탐사대 활동이면 만찬 공지 화면 대신 탐사대 화면 표시
+                if (room.phase === 'night_crew_action') {
+                    showCrewActionScreen(room);
+                    // 탭 컨테이너 처리 후 return
+                    const tabContainer = document.querySelector('.tab-container');
+                    if (tabContainer) {
+                        const activeButton = document.querySelector(`.tab-link[data-tab="${currentTab}"]`);
+                        if (activeButton) activeButton.click();
+                        else {
+                            const situationTab = document.querySelector('.tab-link[data-tab="situation"]');
+                            if (situationTab) { situationTab.click(); currentTab = 'situation'; }
+                        }
+                    }
+                    return;
+                }
                 if (me.role !== '에일리언 여왕' || !room.rampageTriggered) {
                     showFeastAnnouncedScreen();
                 }
@@ -1235,6 +1248,22 @@
 
         socket.on('abilityError', (message) => {
             alert(message);
+        });
+
+        // 3-1: 의사 다중 접종 로그 이벤트 (서버에서 발생 시)
+        socket.on('doctorVaccineUpdate', (data) => {
+            if (!amIAlive) return;
+            if (data.doubleVaccinated) {
+                // ★ 수정4: 대상 이름 표시 안 함
+                const logMsg = `💉 탐사대원 중 한 명이 백신 ${data.count}회 접종을 받았습니다.`;
+                const abilityContent = document.getElementById('ability-content');
+                if (abilityContent) {
+                    const p = document.createElement('p');
+                    p.style.cssText = 'color:#86efac;font-size:.88em;background:rgba(134,239,172,.1);padding:6px 10px;border-radius:6px;margin-top:8px;';
+                    p.textContent = logMsg;
+                    abilityContent.appendChild(p);
+                }
+            }
         });
 
         socket.on('nightSelectionUpdate', (data) => {
@@ -1814,6 +1843,14 @@
                                 btn.disabled = true;
                                 if (btn.dataset.targetId === targetId) btn.classList.add('pre-selected');
                             });
+                            // 접종 완료 로컬 피드백
+                            const doctorFeedback = document.querySelector('#ability-content h4');
+                            if (doctorFeedback) {
+                                const fb = document.createElement('p');
+                                fb.style.cssText = 'color:#86efac;font-size:.9em;margin-top:8px;';
+                                fb.textContent = '✅ 백신 접종 완료. 다른 의사들의 선택을 기다립니다...';
+                                doctorFeedback.after(fb);
+                            }
                             break;
                     }
                 }

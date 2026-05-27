@@ -128,6 +128,16 @@ app.get('/situation-board.html', (req, res) => {
 
 
 // --- 게임 로직 함수들 (생략 - 기존 코드와 동일) ---
+// ── 로그 추가 헬퍼 (중복 방지) ──
+function addLog(room, text, type = 'log') {
+  if (!room.gameLog) room.gameLog = [];
+  // 직전 로그와 동일한 텍스트면 중복 추가 방지
+  const last = room.gameLog[0];
+  const lastText = typeof last === 'string' ? last : last?.text;
+  if (lastText === text) return;
+  room.gameLog.unshift({ text, type });
+}
+
 function endGame(roomCode, endingKey, detailLog = '') {
   const room = gameRooms[roomCode];
   if (!room || room.status === 'game_over') return;
@@ -510,10 +520,11 @@ function eliminatePlayer(roomCode, playerId, cause = 'unknown', broadcast = true
       'soldier_shot': `[군인]이 ${targetName}님을 사살했습니다.`,
       'psychic_fail': `[초능력자]의 능력이 폭주하여 ${targetName}님이 휘말렸습니다.`,
       'egg_contamination': `[에일리언 알]이 오염되어 ${targetName}님이 사망했습니다.`,
-      'ejected_minigame': `[방출 미니게임] 결과, ${targetName}님이 함선 외부로 방출되었습니다.`
+      'ejected_minigame': `[방출 미니게임] 결과, ${targetName}님이 함선 외부로 방출되었습니다.`,
+      'vaccine_overdose': `⚠️ [과다 투약] ${targetName}님이 백신 과다 투약으로 사망했습니다.`
     };
-    if (causeMap[cause] && room.gameLog) {
-      room.gameLog.unshift({ text: causeMap[cause], type: 'log' });
+    if (causeMap[cause]) {
+      addLog(room, causeMap[cause], 'log');
     }
 
     const gameEndedByElimination = checkWinConditions(roomCode);
@@ -556,14 +567,17 @@ function resolveNightActionsInternal(roomCode) {
         targetsToEliminate.add(selection);
       }
     }
-    // Q3: 의사 보호 대상 제거
+    // 수정 3-나: 백신 2회 누적 기반 포식 저지
     if (room.medicalProtectionTarget && targetsToEliminate.has(room.medicalProtectionTarget)) {
       const immunePlayer = room.players.find(p => p.id === room.medicalProtectionTarget);
       targetsToEliminate.delete(room.medicalProtectionTarget);
-      // Q1: 면역 성공 로그 + 주효 플레이 기록
+      // 백신 2회 소비
+      if (room.vaccineCount && room.vaccineCount[room.medicalProtectionTarget] >= 2) {
+        room.vaccineCount[room.medicalProtectionTarget] -= 2;
+      }
       if (immunePlayer) {
-        if (room.gameLog) room.gameLog.unshift({ text: '[의료진] ' + immunePlayer.name + '님이 에일리언의 바이러스 공격으로부터 면역되어 생존하였습니다.', type: 'log' });
-        if (room.notablePlays) room.notablePlays.push({ type: 'best', text: '의사팀의 백신으로 ' + immunePlayer.name + '(' + immunePlayer.role + ')님이 에일리언 포식에서 생존했습니다.' });
+        if (room.gameLog) room.gameLog.unshift({ text: `💉 [의사 백신] ${immunePlayer.name}님이 에일리언 포식을 백신으로 저지하여 생존했습니다.`, type: 'log' });
+        if (room.notablePlays) room.notablePlays.push({ type: 'best', text: `의사팀의 백신으로 ${immunePlayer.name}(${immunePlayer.role})님이 에일리언 포식에서 생존했습니다.` });
       }
     }
     delete room.medicalProtectionTarget;
@@ -701,11 +715,10 @@ function startCrewActionPhase(roomCode) {
   const livingPlayers = room.players.filter(p => p.status === 'alive');
 
   // 각 역할에 맞는 능력 사용 이벤트를 명시적으로 전송합니다.
-  // 의사 능력: 지목 대상 선택 화면 전송
-  room.doctorProtections = {};
+  // 의사 능력: 의사 1명이어도 접종 가능 (백신 누적 시스템)
+  room.doctorProtections = {}; // 이번 밤 접종 기록 초기화 (vaccineCount는 누적 유지)
   const aliveDoctors = livingPlayers.filter(p => p.role === '의사');
-  if (aliveDoctors.length >= 2) {
-    // 2명 이상 의사가 있어야 능력 발동 가능 (서로 합의 필요)
+  if (aliveDoctors.length >= 1) {
     aliveDoctors.forEach(doc => {
       io.to(doc.id).emit('doctorAction', { targets: livingPlayers.map(p => ({ id: p.id, name: p.name })) });
     });
@@ -891,6 +904,7 @@ io.on('connection', (socket) => {
     room.day = 1;
     room.initialDoctorCount = room.players.filter(p => p.role === '의사').length;
     room.doctorProtections = {}; // {targetId: [doctorId, ...]}
+    room.vaccineCount = {}; // {targetId: 누적 접종 횟수} — 수정 3-나
     room.needsGroupSelection = true;
 
     broadcastUpdates(code);
@@ -1217,9 +1231,34 @@ io.on('connection', (socket) => {
   socket.on('startEjectionMinigame', (data) => {
     const { code } = data;
     const room = gameRooms[code];
-    if (!room || room.ejectionState !== 'minigame_pending') return;
+    // ★ 수정1: nominating 상태에서도 강제 시작 허용 (비상 버튼 지원)
+    if (!room || !['minigame_pending', 'nominating'].includes(room.ejectionState)) return;
 
-    const candidates = Object.values(room.ejectionNominations);
+    // nominating 상태에서 강제 시작 시 현재 투표 최다득표자를 후보로 추출
+    if (room.ejectionState === 'nominating') {
+      const votes = room.ejectionVotes || {};
+      const tally = {};
+      Object.values(votes).forEach(targetId => { tally[targetId] = (tally[targetId] || 0) + 1; });
+      if (Object.keys(tally).length === 0) {
+        // 투표 없으면 무작위 1명 후보
+        const alive = room.players.filter(p => p.status === 'alive');
+        if (alive.length > 0) tally[alive[Math.floor(Math.random() * alive.length)].id] = 1;
+      }
+      const maxVotes = Math.max(...Object.values(tally));
+      const topIds = Object.keys(tally).filter(id => tally[id] === maxVotes);
+      if (!room.ejectionNominations) room.ejectionNominations = {};
+      topIds.forEach(id => {
+        const p = room.players.find(p => p.id === id);
+        if (p) room.ejectionNominations[id] = id;
+      });
+      if (room.gameLog) room.gameLog.unshift({ text: `[강제 시작] 현재 투표 결과로 후보 확정: ${topIds.map(id => room.players.find(p => p.id === id)?.name).join(', ')}`, type: 'phase_change' });
+    }
+
+    const candidates = Object.values(room.ejectionNominations || {});
+    if (candidates.length === 0) {
+      console.log(`[${code}] startEjectionMinigame: 후보 없음`);
+      return;
+    }
     const cardCount = candidates.length;
     let cards = new Array(cardCount).fill({ content: '생존' });
     const ejectionCardIndex = Math.floor(Math.random() * cardCount);
@@ -1228,7 +1267,7 @@ io.on('connection', (socket) => {
     room.ejectionMinigame = {
       candidates: candidates,
       cards: shuffle(cards.map((card, index) => ({ id: index, content: card.content }))),
-      selections: {}, // { candidateId: cardId }
+      selections: {},
       results: null
     };
 
@@ -1446,6 +1485,7 @@ io.on('connection', (socket) => {
       delete room.alienActionsConfirmed;
       delete room.selections;
       delete room.bodyguardProtection;
+      // ★ medicalProtectionTarget은 탐사대 활동 중 새로 설정되므로 초기화
       delete room.medicalProtectionTarget;
       delete room.doctorProtections;
       delete room.shamanBlockedPlayers;
@@ -1647,6 +1687,20 @@ io.on('connection', (socket) => {
     const uniqueTargets = [...new Set(queenSelection)];
 
     uniqueTargets.forEach(targetId => {
+      // 수정 3: 여왕의 만찬에도 백신 2회 누적 보호 적용
+      if (room.medicalProtectionTarget === targetId) {
+        const immunePlayer = room.players.find(p => p.id === targetId);
+        // 백신 2회 소비
+        if (room.vaccineCount && room.vaccineCount[targetId] >= 2) {
+          room.vaccineCount[targetId] -= 2;
+        }
+        if (immunePlayer) {
+          if (room.gameLog) room.gameLog.unshift({ text: `💉 [의사 백신] ${immunePlayer.name}님이 여왕의 만찬에서 백신으로 생존했습니다.`, type: 'log' });
+          if (room.notablePlays) room.notablePlays.push({ type: 'best', text: `의사팀의 백신으로 ${immunePlayer.name}(${immunePlayer.role})님이 여왕의 만찬에서 생존했습니다.` });
+        }
+        delete room.medicalProtectionTarget;
+        return; // 이 대상은 사망 처리하지 않음
+      }
       eliminatePlayer(code, targetId, 'queen_rampage');
     });
 
@@ -2108,7 +2162,7 @@ io.on('connection', (socket) => {
     }
   });
 
-  // 의사 능력: 탐사대 활동 시 보호 대상 선택
+  // 의사 능력: 백신 누적 시스템 (수정 3-나, 3-다)
   socket.on('useDoctorAbility', (data) => {
     const { targetId } = data;
     const selectorId = socket.id;
@@ -2120,23 +2174,58 @@ io.on('connection', (socket) => {
     const room = gameRooms[roomCode];
     const doctor = room.players.find(p => p.id === selectorId);
     if (!doctor || doctor.role !== '의사' || doctor.status !== 'alive') return;
-    // Q4: 이미 이번 밤 백신을 사용한 의사는 재사용 불가
+
+    // 이번 밤 이미 접종한 의사는 재사용 불가
     if (!room.doctorProtections) room.doctorProtections = {};
     const alreadyUsed = Object.values(room.doctorProtections).some(arr => Array.isArray(arr) && arr.includes(selectorId));
     if (alreadyUsed) { io.to(selectorId).emit('actionConfirmed'); return; }
+
+    // doctorProtections: { targetId: [doctorId, ...] } — 이번 밤 접종 기록
     if (!room.doctorProtections[targetId]) room.doctorProtections[targetId] = [];
     if (!room.doctorProtections[targetId].includes(selectorId)) {
       room.doctorProtections[targetId].push(selectorId);
     }
-    io.to(selectorId).emit('actionConfirmed');
-    // 2명 이상 같은 대상 지목 시 보호 확정
-    const aliveDoctorCount = room.players.filter(p => p.role === '의사' && p.status === 'alive').length;
-    if (aliveDoctorCount >= 2 && room.doctorProtections[targetId].length >= 2) {
-      room.medicalProtectionTarget = targetId;
-      const pp = room.players.find(p => p.id === targetId);
-      // Q4: 보호 확정 로그 미표시 (에일리언 전략 노출 방지)
-      if (room.notablePlays) room.notablePlays.push({ type: 'best', text: '의사팀이 ' + (pp ? pp.name : '???') + '님을 의학적으로 보호했습니다.' });
+
+    // ── 백신 누적 카운트 (수정 3-나) ──
+    if (!room.vaccineCount) room.vaccineCount = {};
+    const prevCount = room.vaccineCount[targetId] || 0;
+    room.vaccineCount[targetId] = prevCount + 1;
+    const newCount = room.vaccineCount[targetId];
+    const targetPlayer = room.players.find(p => p.id === targetId);
+    const targetName = targetPlayer ? targetPlayer.name : '???';
+
+    console.log(`[${roomCode}] 의사 ${doctor.name} → ${targetName} 백신 접종 (누적 ${newCount}회)`);
+
+    // ── 3-1: 같은 대상에 2명 이상 접종 시 로그 (대상 이름 비공개) ──
+    const sameTargetDoctors = room.doctorProtections[targetId].length;
+    if (sameTargetDoctors >= 2) {
+      // ★ 수정4: 대상 이름 미공개 — "탐사대원 중 한 명이..." 형식
+      const logText = `💉 탐사대원 중 한 명이 ${sameTargetDoctors}명의 의사에게 백신 ${newCount}회 접종을 받았습니다.`;
+      if (room.gameLog) room.gameLog.unshift({ text: logText, type: 'log' });
+      io.to(roomCode).emit('doctorVaccineUpdate', {
+        targetName: null, // ★ 수정4: 클라이언트에 이름 전달 안 함
+        count: newCount,
+        doubleVaccinated: true
+      });
     }
+
+    // ── 포식 저지 조건: 백신 2회 누적 시 medicalProtectionTarget 설정 ──
+    if (newCount >= 2 && !room.medicalProtectionTarget) {
+      room.medicalProtectionTarget = targetId;
+      if (room.notablePlays) room.notablePlays.push({ type: 'best', text: `의사팀의 백신으로 ${targetName}님이 포식에서 보호됩니다.` });
+    }
+
+    // ── 수정 3-다: 백신 3회 누적 시 과다 투약 사망 (에일리언 팀 면역) ──
+    const ALIEN_ROLES = ['에일리언 여왕', '에일리언', '에일리언 알', '에일리언 주술사'];
+    if (newCount >= 3 && targetPlayer && !ALIEN_ROLES.includes(targetPlayer.role)) {
+      console.log(`[${roomCode}] 백신 과다 투약: ${targetName} 사망 처리`);
+      if (room.gameLog) room.gameLog.unshift({ text: `⚠️ [과다 투약] ${targetName}님이 백신 ${newCount}회 접종으로 인한 과다 투약으로 사망했습니다.`, type: 'log' });
+      // 과다 투약은 medicalProtection 초기화 후 사망
+      if (room.medicalProtectionTarget === targetId) delete room.medicalProtectionTarget;
+      eliminatePlayer(roomCode, targetId, 'vaccine_overdose');
+    }
+
+    io.to(selectorId).emit('actionConfirmed');
     broadcastUpdates(roomCode);
   });
 
@@ -2362,13 +2451,25 @@ io.on('connection', (socket) => {
       delete room.pendingAction;
       broadcastUpdates(roomCode);
     } else {
-      // ★★★ 수정: 여기에 로그 추가 ★★★
       if (room.gameLog) {
-        room.gameLog.unshift({ text: '엔지니어가 [계속 싸운다]를 선택했습니다. 여왕의 만찬이 시작됩니다.', type: 'phase_change' });
+        room.gameLog.unshift({ text: '엔지니어가 [계속 싸운다]를 선택했습니다. 여왕의 만찬 전 탐사대 활동을 먼저 진행합니다.', type: 'phase_change' });
       }
-      console.log(`[${roomCode}] 엔지니어가 싸움을 선택했습니다. 여왕의 만찬을 준비합니다.`);
+      console.log(`[${roomCode}] 엔지니어가 싸움을 선택했습니다. 탐사대 활동 후 여왕의 만찬을 준비합니다.`);
+
+      // ★ 수정5 핵심: pendingAction을 queen_rampage로 예약하되, 페이즈는 night_crew_action으로 먼저 전환
       room.pendingAction = 'queen_rampage';
+      room.phase = 'night_crew_action';
+      room.crewActionTriggered = false;
+      delete room.alienActionTriggered;
+      delete room.alienActionsConfirmed;
+      delete room.selections;
+      delete room.doctorProtections;
+      delete room.shamanBlockedPlayers;
+
+      // feastAnnounced는 클라이언트가 pendingAction을 보고 판단하므로 emit
       io.to(roomCode).emit('feastAnnounced');
+      // 탐사대 활동 시작
+      startCrewActionPhase(roomCode);
       broadcastUpdates(roomCode);
     }
   });
@@ -2448,20 +2549,28 @@ io.on('connection', (socket) => {
       } else { // [오염] 발생 시
         console.log(`[${roomCode}] Alien Egg CONTAMINATED the group.`);
         if (alienEgg.group) {
-          // ★★★ 핵심 수정: 자기 자신을 제외하는 조건을 삭제하여 '알'도 사망자에 포함시킵니다. ★★★
-          const playersToEliminate = room.players.filter(p =>
+          // 수정 3-가: 같은 모둠에 살아있는 의사가 있으면 오염 저지 (패시브)
+          const doctorInGroup = room.players.find(p =>
             p.status === 'alive' &&
             p.group === alienEgg.group &&
-            p.role !== '에일리언' &&
-            p.role !== '에일리언 여왕'
-            // p.id !== alienEgg.id  <- 이 줄이 삭제되었습니다.
+            p.role === '의사'
           );
-
-          const deadNames = playersToEliminate.map(p => p.name).join(', ');
-          if (room.gameLog) room.gameLog.unshift(`[에일리언 알]이 오염되었습니다. ${deadNames} 사망.`);
-          playersToEliminate.forEach(player => {
-            eliminatePlayer(roomCode, player.id, 'egg_contamination');
-          });
+          if (doctorInGroup) {
+            console.log(`[${roomCode}] Doctor passive: egg contamination blocked by ${doctorInGroup.name}`);
+            if (room.gameLog) room.gameLog.unshift({ text: `🛡️ [의사 패시브] ${doctorInGroup.name}님이 에일리언 알 오염을 저지했습니다! 모둠원 전원 생존.`, type: 'log' });
+          } else {
+            const playersToEliminate = room.players.filter(p =>
+              p.status === 'alive' &&
+              p.group === alienEgg.group &&
+              p.role !== '에일리언' &&
+              p.role !== '에일리언 여왕'
+            );
+            const deadNames = playersToEliminate.map(p => p.name).join(', ');
+            if (room.gameLog) room.gameLog.unshift(`[에일리언 알]이 오염되었습니다. ${deadNames} 사망.`);
+            playersToEliminate.forEach(player => {
+              eliminatePlayer(roomCode, player.id, 'egg_contamination');
+            });
+          }
         }
       }
       broadcastUpdates(roomCode);
@@ -2620,11 +2729,11 @@ io.on('connection', (socket) => {
     if (room.phase === 'night_crew_action') {
       room.phase = 'night_alien_action';
       room.alienActionTriggered = false;
-      room.alienActionsConfirmed = []; // BUG2 FIX: delete 대신 초기화
-      room.selections = {};            // BUG2 FIX: delete 대신 빈 객체
+      room.alienActionsConfirmed = [];
+      room.selections = {};
       delete room.crewActionTriggered;
       delete room.bodyguardProtection;
-      delete room.medicalProtectionTarget;
+      // ★ 수정5: medicalProtectionTarget은 여기서 삭제하지 않음 (resolveNightActionsInternal에서 소비)
       delete room.doctorProtections;
       broadcastUpdates(code);
       return;

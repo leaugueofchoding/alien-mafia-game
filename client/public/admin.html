@@ -880,6 +880,34 @@
         }
       }
       renderAll();
+
+      // 대기실 상태인 방에 대해 자동 배정 인풋 및 역할 수치 갱신
+      for (const code in gameRoomsState) {
+        const rd = gameRoomsState[code];
+        if (rd.status !== 'waiting') continue;
+        const total = rd.players.length;
+        const aaInp = document.getElementById('auto-assign-inp-' + code);
+        if (aaInp) {
+          aaInp.value = total;
+          // 자동 배정 로직 실행하여 역할 인원도 갱신
+          if (total >= 4) {
+            const assigned = autoAssignRoles(total);
+            if (assigned) {
+              const card = document.querySelector('.room-card[data-code="' + code + '"]');
+              if (card) {
+                let t = 0;
+                card.querySelectorAll('.role-row input').forEach(i => {
+                  const v = assigned[i.dataset.role] || 0;
+                  i.value = v;
+                  t += v;
+                });
+                const ts = document.getElementById('total-roles-' + code);
+                if (ts) ts.textContent = '총원: ' + t;
+              }
+            }
+          }
+        }
+      }
     });
     socket.on('confirmForceEject', data => {
       const roomDiv = document.querySelector('.room-card');
@@ -1065,12 +1093,39 @@
         inp.addEventListener('input', () => {
           let t = 0;
           colR.querySelectorAll('.role-row input').forEach(i => t += parseInt(i.value) || 0);
-          aaTotalSpan.textContent = '총원: ' + t;
+          // ★ 수정2: 총원 표시 항상 보이게 + 인원 불일치 경고
+          const totalDisplay = document.getElementById('role-total-display-' + code);
+          const connected = rd.players.length;
+          if (totalDisplay) {
+            totalDisplay.textContent = '역할 합계: ' + t + '명 / 접속: ' + connected + '명';
+            totalDisplay.style.color = (t === connected) ? '#86efac' : '#fca5a5';
+          }
+          // 게임시작 버튼에도 경고 반영
+          const startBtn2 = colG.querySelector('.start-game-btn');
+          if (startBtn2) {
+            if (t > 0 && t !== connected) {
+              startBtn2.style.opacity = '0.5';
+              startBtn2.title = '역할 합계(' + t + ')와 접속 인원(' + connected + ')이 다릅니다.';
+            } else {
+              startBtn2.style.opacity = '1';
+              startBtn2.title = '';
+            }
+          }
         });
         row.appendChild(lbl); row.appendChild(inp);
         roleList.appendChild(row);
       });
       colR.appendChild(roleList);
+
+      // ★ 수정2: 역할 합계 상시 표시 div
+      const totalDisplay = mk('div', 'total-count');
+      totalDisplay.id = 'role-total-display-' + code;
+      totalDisplay.style.cssText = 'font-size:.8rem;margin-top:6px;font-weight:600;';
+      const initTotal = Object.values(currentCounts).reduce((a, v) => a + (parseInt(v) || 0), 0);
+      const connected = rd.players.length;
+      totalDisplay.textContent = '역할 합계: ' + initTotal + '명 / 접속: ' + connected + '명';
+      totalDisplay.style.color = (initTotal === 0 || initTotal === connected) ? '#94a3b8' : '#fca5a5';
+      colR.appendChild(totalDisplay);
 
       body.appendChild(colP);
       body.appendChild(colG);
@@ -1258,6 +1313,11 @@
         }
         if (rd.pendingAction === 'queen_rampage') {
           const qBtn = mk('button', 'btn btn-night-red btn-full trigger-rampage-btn'); qBtn.textContent = '👑 여왕의 만찬 시작'; actions.appendChild(qBtn);
+          // 만찬 시작 후 비활성화 처리는 rampageTriggered 상태로 판단
+          if (rd.rampageTriggered) {
+            qBtn.disabled = true;
+            qBtn.textContent = '👑 만찬 진행 중...';
+          }
           const qrBtn = mk('button', 'btn btn-ghost btn-full'); qrBtn.id = 'resolve-rampage-btn'; qrBtn.textContent = '만찬 종료 → 탐사대 활동'; actions.appendChild(qrBtn);
         } else if (rd.alienActionTriggered) {
           if (rd.autoMode) {
@@ -1290,11 +1350,17 @@
       panel.appendChild(logHdr);
 
       const logBox = mk('div', 'game-log');
+      const seenLogTexts = new Set();
       logBox.innerHTML = (rd.gameLog || []).map(e => {
         const text = typeof e === 'string' ? e : e.text;
         const type = typeof e === 'string' ? 'log' : (e.type || 'log');
+        // 의사 보호 관련 로그 중복 방지
+        if (text && (text.includes('의학적으로') || text.includes('백신') || text.includes('보호'))) {
+          if (seenLogTexts.has(text)) return '';
+          seenLogTexts.add(text);
+        }
         return '<p class="log-' + type + '">' + esc(text) + '</p>';
-      }).join('');
+      }).filter(Boolean).join('');
       panel.appendChild(logBox);
 
       /* 진행 가이드 */
@@ -1472,13 +1538,16 @@
         if (ts) ts.textContent = '총원: ' + t;
       } else if (cl.contains('start-game-btn')) {
         const players = gameRoomsState[roomCode].players;
-        if (players.length < 4) { alert('최소 4명'); return; }
+        if (players.length < 4) { alert('최소 4명이 필요합니다.'); return; }
         const roleSettings = {};
         let totalRoles = 0;
         card.querySelectorAll('.role-row input').forEach(i => {
           const cnt = parseInt(i.value); if (cnt > 0) roleSettings[i.dataset.role] = cnt; totalRoles += cnt || 0;
         });
-        if (totalRoles > 0 && totalRoles !== players.length) { alert('역할 합계가 인원수와 다릅니다.'); return; }
+        if (totalRoles > 0 && totalRoles !== players.length) {
+          alert(`⚠️ 역할 합계(${totalRoles}명)와 접속 인원(${players.length}명)이 일치하지 않습니다.\n게임을 시작할 수 없습니다.`);
+          return;
+        }
         const gc = document.getElementById('group-count-' + roomCode);
         const ps = document.getElementById('mission-preset-select-' + roomCode);
         const ej = document.getElementById('ejection-minigame-toggle-' + roomCode);
@@ -1513,6 +1582,8 @@
       } else if (cl.contains('resolve-ejection-minigame-btn')) {
         if (confirm('결과를 공개하고 방출자를 확정하시겠습니까?')) socket.emit('resolveEjectionMinigame', { code: roomCode });
       } else if (cl.contains('trigger-rampage-btn')) {
+        target.disabled = true;
+        target.textContent = '👑 만찬 진행 중...';
         socket.emit('triggerQueenRampage', { code: roomCode });
       } else if (target.id === 'resolve-rampage-btn') {
         socket.emit('resolveQueenRampage', { code: roomCode });
