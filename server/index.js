@@ -183,17 +183,38 @@ function autoAssignGroups(room, roomCode) {
   const plan = getGroupPlan(n);
   let shuffled = shuffle([...alive]);
 
-  // ★ 수정4: 신의 사도는 항상 모둠1 고정
-  const apostleIdx = shuffled.findIndex(p => p.role === '신의 사도');
-  if (apostleIdx > 0) {
-    const [apostle] = shuffled.splice(apostleIdx, 1);
-    shuffled.unshift(apostle);
+  // ★ 수정: 신의 사도 첫날 랜덤, 2일차부터 첫날 모둠 고정
+  const apostle = shuffled.find(p => p.role === '신의 사도');
+  let targetApostleGroup = null;
+
+  if (apostle && room.playerGroupHistory[apostle.id] && room.playerGroupHistory[apostle.id].length > 0) {
+    // 이미 첫날 배정받은 모둠이 있다면 그 모둠으로 고정
+    targetApostleGroup = room.playerGroupHistory[apostle.id][0];
+
+    // 만약 생존자 감소로 해당 모둠 번호가 사라졌다면 어쩔 수 없이 랜덤 재배정
+    if (targetApostleGroup > plan.length) {
+      targetApostleGroup = Math.floor(Math.random() * plan.length) + 1;
+    }
+
+    // 셔플 배열에서 사도 제외 (수동 고정 배정을 위해)
+    shuffled = shuffled.filter(p => p.id !== apostle.id);
   }
 
   let cursor = 0;
   plan.forEach((size, gi) => {
     const groupNumber = gi + 1;
-    for (let i = 0; i < size; i++) {
+    let currentSize = size;
+
+    // 이번 차례가 사도가 가야 할 모둠이라면 사도를 먼저 배치
+    if (targetApostleGroup === groupNumber && apostle) {
+      apostle.group = groupNumber;
+      if (room.playerGroupHistory && room.playerGroupHistory[apostle.id] !== undefined) {
+        room.playerGroupHistory[apostle.id].push(groupNumber);
+      }
+      currentSize--; // 남은 자리 1개 감소
+    }
+
+    for (let i = 0; i < currentSize; i++) {
       const player = shuffled[cursor++];
       if (!player) break;
       player.group = groupNumber;
@@ -206,19 +227,13 @@ function autoAssignGroups(room, roomCode) {
   room.needsGroupSelection = false;
   room.groupCount = plan.length;
 
-  const logParts = plan.map((size, gi) => {
-    const members = alive.filter(p => p.group === gi + 1).map(p => p.name).join(', ');
-    return `${gi + 1}선실(${size}명): ${members}`;
-  }).join(' | ');
-  addLog(room, `🎲 선실 자동 배정 완료`, 'phase_change'); // 간소화된 로그만 남김
+  addLog(room, `🎲 선실 자동 배정 완료`, 'phase_change');
 
-  // 모둠 배정 완료 → pending_start 유지 (타이머는 관리자가 직접 시작)
   if (room.settings && room.settings.useEjectionMinigame) {
     room.ejectionState = 'pending_start';
     room.ejectionVotes = room.ejectionVotes || {};
     room.ejectionNominations = room.ejectionNominations || {};
   }
-  // ★ 자동 타이머 시작 제거 — 관리자 "회의 타이머 시작" 버튼으로만 시작
 }
 
 function endGame(roomCode, endingKey, detailLog = '') {
@@ -456,27 +471,7 @@ function checkSpecialVictoryConditions(roomCode) {
   const room = gameRooms[roomCode];
   if (!room || room.status !== 'playing' || room.day < 5) return false;
 
-  // ★★★ 신규 추가: 5일차 에일리언 승리 조건 (최우선) ★★★
-  const alienQueen = room.players.find(p => p.role === '에일리언 여왕');
-  if (alienQueen && alienQueen.status === 'alive') {
-    // 5일차 아침에 여왕이 살아있으면 즉시 에일리언 승리
-    console.log(`[${roomCode}] Alien Queen is alive on Day 5. Alien victory.`);
-    endGame(roomCode, 'alien_win_escape_timeout', '탐사대는 너무 오랜 시간을 허비했습니다. 결국 함선은 에일리언의 차지가 되었습니다.');
-    return true; // 에일리언 승리로 게임 종료
-  }
-
-  // --- 의사 승리 조건 (우선순위 2) ---
-  const initialDoctorCount = room.initialSettings['의사'] || 0;
-  if (initialDoctorCount > 0) {
-    const aliveDoctors = room.players.filter(p => p.role === '의사' && p.status === 'alive').length;
-    if (aliveDoctors === initialDoctorCount) {
-      console.log(`[${roomCode}] Doctor victory condition met.`);
-      endGame(roomCode, 'biochem_weapon_success');
-      return true; // 의사 승리로 게임 종료
-    }
-  }
-
-  // --- 신의 사도 승리 조건 (우선순위 3) ---
+  // 1. 신의 사도 승리 조건 (최우선순위 1)
   const apostle = room.players.find(p => p.role === '신의 사도');
   if (apostle && apostle.status === 'alive') {
     const history = room.playerGroupHistory[apostle.id];
@@ -486,9 +481,28 @@ function checkSpecialVictoryConditions(roomCode) {
       if (isConsistent) {
         console.log(`[${roomCode}] Apostle of God victory condition met.`);
         endGame(roomCode, 'salvation_success');
-        return true; // 신의 사도 승리로 게임 종료
+        return true;
       }
     }
+  }
+
+  // 2. 의사 승리 조건 (우선순위 2)
+  const initialDoctorCount = room.initialSettings['의사'] || 0;
+  if (initialDoctorCount > 0) {
+    const aliveDoctors = room.players.filter(p => p.role === '의사' && p.status === 'alive').length;
+    if (aliveDoctors === initialDoctorCount) {
+      console.log(`[${roomCode}] Doctor victory condition met.`);
+      endGame(roomCode, 'biochem_weapon_success');
+      return true;
+    }
+  }
+
+  // 3. 에일리언 타임아웃 승리 (가장 마지막에 검사)
+  const alienQueen = room.players.find(p => p.role === '에일리언 여왕');
+  if (alienQueen && alienQueen.status === 'alive') {
+    console.log(`[${roomCode}] Alien Queen is alive on Day 5. Alien victory.`);
+    endGame(roomCode, 'alien_win_escape_timeout', '탐사대는 너무 오랜 시간을 허비했습니다. 결국 함선은 에일리언의 차지가 되었습니다.');
+    return true;
   }
 
   return false;
@@ -604,7 +618,7 @@ function eliminatePlayer(roomCode, playerId, cause = 'unknown', broadcast = true
       'psychic_fail': `[초능력자]의 능력이 폭주하여 ${targetName}님이 휘말렸습니다.`,
       'egg_contamination': `[에일리언 알]이 오염되어 ${targetName}님이 사망했습니다.`,
       'ejected_minigame': `[방출 미니게임] 결과, ${targetName}님이 함선 외부로 방출되었습니다.`,
-      'vaccine_overdose': `⚠️ [과다 투약] ${targetName}님이 백신 과다 투약으로 사망했습니다.`
+      'vaccine_overdose': `⚠️ [과다 투약] ${targetName}님이 백신 과다 투약으로 사망했습니다.`,
     };
     if (causeMap[cause]) {
       addLog(room, causeMap[cause], 'log');
@@ -811,7 +825,9 @@ function startCrewActionPhase(roomCode) {
   const aliveDoctors = livingPlayers.filter(p => p.role === '의사' && !blocked.includes(p.id));
   if (aliveDoctors.length >= 1) {
     aliveDoctors.forEach(doc => {
-      io.to(doc.id).emit('doctorAction', { targets: livingPlayers.map(p => ({ id: p.id, name: p.name })) });
+      // ★ 수정: 의사 본인은 타겟 목록에서 제외
+      const targets = livingPlayers.filter(p => p.id !== doc.id).map(p => ({ id: p.id, name: p.name }));
+      io.to(doc.id).emit('doctorAction', { targets });
     });
   }
 
@@ -2498,7 +2514,8 @@ io.on('connection', (socket) => {
     const room = gameRooms[roomCode];
     const alienEgg = room.players.find(p => p.id === selectorId);
 
-    if (!alienEgg || alienEgg.role !== '에일리언 알' || room.day !== 2 || alienEgg.abilityUsed) return;
+    // ★ 수정: room.day !== 2 에서 room.day < 2 로 변경하여 3일, 4일차에도 사용 가능하게 함
+    if (!alienEgg || alienEgg.role !== '에일리언 알' || room.day < 2 || alienEgg.abilityUsed) return;
 
     alienEgg.abilityUsed = true;
     const isHatch = Math.random() < 0.5;
@@ -2520,18 +2537,19 @@ io.on('connection', (socket) => {
       if (isHatch) {
         alienEgg.role = '에일리언';
         alienEgg.description = ROLE_DESCRIPTIONS['에일리언'];
-        // ★ 단순 문자열 대신 addLog 사용
         addLog(room, `[에일리언 알]이 부화했습니다. 우리 중에 에일리언이 하나 더 있습니다.`, 'log');
       } else {
         if (alienEgg.group) {
           const doctorInGroup = room.players.find(p => p.status === 'alive' && p.group === alienEgg.group && p.role === '의사');
           if (doctorInGroup) {
-            // ★ addLog 사용
-            addLog(room, `🛡️ [의사 패시브] ${doctorInGroup.name}님이 에일리언 알 오염을 저지했습니다! 모둠원 전원 생존.`, 'log');
+            // ★ 수정: 의사가 막아냈을 때 대기실에 의사 정체 공개 및 알 파괴(사망)
+            doctorInGroup.revealedRole = '의사';
+            doctorInGroup.revealedBy = 'egg_passive';
+            addLog(room, `🛡️ [의사 패시브] ${doctorInGroup.name}(의사)님이 정체를 드러내고 에일리언 알 오염을 저지했습니다! 에일리언 알은 파괴되었습니다.`, 'log');
+            eliminatePlayer(roomCode, alienEgg.id, 'egg_blocked'); // 알 사망 처리
           } else {
             const playersToEliminate = room.players.filter(p => p.status === 'alive' && p.group === alienEgg.group && p.role !== '에일리언' && p.role !== '에일리언 여왕');
             const deadNames = playersToEliminate.map(p => p.name).join(', ');
-            // ★ 단순 문자열 대신 addLog 사용
             addLog(room, `[에일리언 알]이 오염되었습니다. ${deadNames} 사망.`, 'log');
             playersToEliminate.forEach(player => {
               eliminatePlayer(roomCode, player.id, 'egg_contamination');

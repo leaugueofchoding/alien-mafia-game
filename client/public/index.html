@@ -186,7 +186,10 @@
             const targetContainer = container || playerContainer;
             const { showGroup = true } = options;
 
-            const playerList = room.players.map(player => {
+            // ★ 수정: 플레이어 목록을 이름 기준 오름차순(가나다순)으로 정렬
+            const sortedPlayers = [...room.players].sort((a, b) => a.name.localeCompare(b.name, 'ko-KR'));
+
+            const playerList = sortedPlayers.map(player => {
                 let revealedClass = '';
                 if (player.revealedRole) {
                     revealedClass = player.revealedBy === 'psychic' ? 'role-revealed-psychic' : 'role-revealed';
@@ -204,8 +207,8 @@
         <h2>참가자 목록</h2>
         <ul class="player-grid-list">${playerList}</ul>
     `;
-        }
 
+        }
         function showRoleScreen(role, description) {
             clearContainer();
             playerContainer.innerHTML = `
@@ -807,18 +810,19 @@
             } else if (me.role === '에일리언 알') {
                 const eggFlavor = '<div style="background:rgba(0,0,0,.3);border:1px solid #333;border-radius:8px;padding:12px;margin-bottom:14px;font-size:.82em;color:#94a3b8;line-height:1.6;">'
                     + '<b style="color:#a3e635;">🥚 에일리언 알 — 부화 대기</b><br><br>'
-                    + '⏳ <b style="color:#7dd3fc;">[대기]</b> 2일차 밤이 되면 부화 능력이 활성화됩니다.<br><br>'
+                    + '⏳ <b style="color:#7dd3fc;">[대기]</b> 2일차 밤부터 부화 능력이 활성화됩니다.<br><br>'
                     + '✅ <b style="color:#86efac;">[부화]</b> 에일리언으로 각성해 팀에 합류합니다.<br>'
                     + '☠️ <b style="color:#fca5a5;">[오염]</b> 같은 선실 탐사대원 전체를 오염시켜 제거합니다. (같은 선실에 의사가 있으면 저지됨)<br><br>'
                     + '<b style="color:#fbbf24;">결과는 룰렛으로 결정됩니다. 아직은 기다리세요.</b>'
                     + '</div>';
-                if (room.day === 2 && !me.abilityUsed) {
+                // ★ 수정: room.day >= 2 로 변경
+                if (room.day >= 2 && !me.abilityUsed) {
                     abilityContent = eggFlavor
                         + '<button id="start-hatch-btn" class="target-btn" style="width:100%;background-color:#6f42c1;margin-top:4px;">🌀 부화 시작</button>';
                 } else if (me.abilityUsed) {
                     abilityContent = eggFlavor + '<p style="color:#86efac;">✅ 이미 부화를 완료했습니다.</p>';
                 } else {
-                    abilityContent = eggFlavor + `<p style="color:#94a3b8;">⏳ 현재 ${room.day}일차입니다. 2일차 밤에 부화가 가능합니다.</p>`;
+                    abilityContent = eggFlavor + `<p style="color:#94a3b8;">⏳ 현재 ${room.day}일차입니다. 2일차 밤부터 부화가 가능합니다.</p>`;
                 }
                 hasAbility = true;
 
@@ -826,11 +830,11 @@
                 const dp = room.doctorProtections || {};
                 const alreadyPicked = Object.values(dp).some(function (arr) { return Array.isArray(arr) && arr.includes(socket.id); });
                 const validTargets = room.players.filter(function (p) {
-                    return p.status === 'alive' && !p.revealedRole;
+                    return p.status === 'alive' && !p.revealedRole && p.id !== me.id;
                 });
                 const flavorText = '<div style="background:rgba(0,0,0,.3);border:1px solid #333;border-radius:8px;padding:12px;margin-bottom:14px;font-size:.82em;color:#94a3b8;line-height:1.6;">'
                     + '<b style="color:#7dd3fc;">탐사대 의료진 행동 원칙</b><br><br>'
-                    + '🛡️ <b style="color:#86efac;">[패시브]</b> 의사가 있는 모둠은 에일리언 알 오염으로 사망하지 않습니다.<br><br>'
+                    + '🛡️ <b style="color:#86efac;">[패시브]</b> 의사가 있는 선실은 에일리언 알 오염으로 사망하지 않습니다.<br><br>'
                     + '💉 <b style="color:#7dd3fc;">[액티브]</b> 대상에게 백신을 접종합니다. <b style="color:#fbbf24;">2회 누적 접종</b> 시 포식 면역 상태가 됩니다. (포식 이벤트 발생 전까지 유지)<br>'
                     + '<span style="font-size:.9em;color:#64748b;">(면역 발동 후 1회 추가 = 총 3회 → 과다 투약 사망)</span><br><br>'
                     + '⚠️ <b style="color:#fca5a5;">[주의]</b> 백신 3회 누적 시 과다 투약으로 사망 처리됩니다. <span style="font-size:.9em;color:#64748b;">(에일리언 팀은 면역)</span><br><br>'
@@ -936,17 +940,42 @@
         }
 
 
-        // ★ 2. showCrewActionScreen 수정 (화면 갱신 시 대기실 내용도 업데이트 되도록 수정)
         function showCrewActionScreen(room) {
             const me = room.players.find(p => p.id === socket.id);
             if (!me) return;
             const isAlienTeam = me.role.includes('에일리언');
 
-            // 탭 구조 이미 있으면 내용만 교체 (탭 상태 유지)
             const abilityEl = document.getElementById('ability-content');
             const situationEl = document.getElementById('situation-content');
-            const lobbyEl = document.getElementById('lobby-content'); // ★ 로비 탭 요소 추가
+            const lobbyEl = document.getElementById('lobby-content');
+            const missionEl = document.getElementById('mission-content'); // ★ 미션 탭 엘리먼트 
 
+            let missionContent = '';
+            if (room.missionBoard) {
+                const progressPercent = Math.round(room.missionBoard.progress * 100);
+                const problemsHtml = room.missionBoard.problems.map((p, index) => {
+                    let content = `<strong>${index + 1}</strong>`;
+                    let solvedName = '';
+                    if (p.status === 'solved') {
+                        solvedName = `<span class="mission-solver-name">${p.solvedBy} 해결!</span>`;
+                    } else if (p.status === 'failed') {
+                        solvedName = `<span class="mission-solver-name">${p.failedBy} 실패</span>`;
+                    }
+                    return `<div class="mission-item ${p.status}" data-problem-index="${index}">${content}${solvedName}</div>`;
+                }).join('');
+
+                missionContent = `
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+            <h3>미션 보드 (단계별 혜택 적용)</h3>
+            <h3 style="color: #00d1ff;">진행률: ${progressPercent}%</h3>
+        </div>
+        <div class="mission-board-grid">${problemsHtml}</div>
+    `;
+            } else {
+                missionContent = '<h4>이번 게임에는 미션 보드가 활성화되지 않았습니다.</h4>';
+            }
+
+            // ★ 탭 구조가 이미 존재하면 DOM만 부분 교체
             if (abilityEl) {
                 if (!room.crewActionTriggered) {
                     const msg = isAlienTeam
@@ -966,7 +995,8 @@
                     }
                 }
                 if (situationEl) situationEl.innerHTML = buildSituationHtml(room);
-                if (lobbyEl) showLobby(room, lobbyEl, { showGroup: false }); // ★ 여기서 대기실 내용 갱신!
+                if (lobbyEl) showLobby(room, lobbyEl, { showGroup: false });
+                if (missionEl) missionEl.innerHTML = missionContent; // ★ 누락되었던 미션 갱신 반영!
                 return;
             }
 
@@ -987,32 +1017,6 @@
                 abilityContent = renderAbilityContent(room, me);
             }
 
-            let missionContent = '';
-            if (room.missionBoard) {
-                const progressPercent = Math.round(room.missionBoard.progress * 100);
-                const problemsHtml = room.missionBoard.problems.map((p, index) => {
-                    let content = `<strong>${index + 1}</strong>`;
-                    let solvedName = '';
-                    if (p.status === 'solved') {
-                        solvedName = `<span class="mission-solver-name">${p.solvedBy} 해결!</span>`;
-                    } else if (p.status === 'failed') {
-                        solvedName = `<span class="mission-solver-name">${p.failedBy} 실패</span>`;
-                    }
-                    return `<div class="mission-item ${p.status}" data-problem-index="${index}">${content}${solvedName}</div>`;
-                }).join('');
-
-                missionContent = `
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-            <h3>미션 보드 (단계별 혜택 적용)</h3>
-            <h3 style="color: #00d1ff;">진행률: ${progressPercent}%</h3>
-        </div>
-        <div class="mission-board-grid">${problemsHtml}</div>
-    `;
-            } else {
-                missionContent = '<h4>이번 게임에는 미션 보드가 활성화되지 않았습니다.</h4>';
-            }
-
-            // 위장 화면 생성 (실제 능력과 동일한 UI)
             const camouflageList = [
                 { title: '경호할 대상을 선택하세요.', desc: '(선택한 대상은 다음 날 아침까지 모든 공격에서 1회 보호됩니다.)', ability: 'fake_bodyguard' },
                 { title: '정체를 꿰뚫어볼 대상을 선택하세요.', desc: '(대상 수에 따라 성공 확률이 달라지며, 실패 시 큰 위험이 따릅니다.)', ability: 'fake_psychic' },
@@ -1057,133 +1061,6 @@
             });
 
             showLobby(room, playerContainer.querySelector('#lobby-content'), { showGroup: false });
-
-            setTimeout(() => {
-                document.querySelector('.tab-link[data-tab="situation"]')?.click();
-            }, 0);
-        }
-
-        function showCrewActionScreen(room) {
-            const me = room.players.find(p => p.id === socket.id);
-            if (!me) return;
-            const isAlienTeam = me.role.includes('에일리언');
-
-            // ★ 탭 구조 이미 있으면 내용만 교체 (탭 상태 유지)
-            const abilityEl = document.getElementById('ability-content');
-            const situationEl = document.getElementById('situation-content');
-            if (abilityEl) {
-                if (!room.crewActionTriggered) {
-                    const msg = isAlienTeam
-                        ? '탐사대가 혼란에 빠진 틈을 타 미션을 방해하고 생존자들을 처리하세요.'
-                        : '밤이 깊었습니다. 동료들과 협력하여 미션을 해결하고 능력을 사용하세요!';
-                    abilityEl.innerHTML = `<div style="padding:20px;"><h4>활동 대기중...</h4><p style="font-size:1.1em;margin-top:15px;">${msg}</p><p style="margin-top:10px;">관리자가 활동을 시작하기를 기다립니다.</p></div>`;
-                } else if (room.shamanBlockedPlayers && room.shamanBlockedPlayers.includes(me.id)) {
-                    abilityEl.innerHTML = '<div style="padding:20px;text-align:center;">'
-                        + '<p style="font-size:1.3em;color:#8b5cf6;margin-bottom:12px;">🧿 능력이 봉인되었습니다</p>'
-                        + '<p style="font-size:.88em;color:#64748b;">에일리언 주술사의 저주로 인해<br>이번 밤 능력을 사용할 수 없습니다.</p>'
-                        + '</div>';
-                } else {
-                    const alreadyDone = abilityEl.innerHTML.includes('행동 완료') || abilityEl.innerHTML.includes('✅');
-                    if (!alreadyDone) {
-                        const newAbility = renderAbilityContent(room, me);
-                        if (newAbility) abilityEl.innerHTML = newAbility;
-                    }
-                }
-                if (situationEl) situationEl.innerHTML = buildSituationHtml(room);
-                return;
-            }
-
-            // ★ 최초 렌더링
-            clearContainer();
-            let abilityContent = '';
-            if (!room.crewActionTriggered) {
-                const msg = isAlienTeam
-                    ? '탐사대가 혼란에 빠진 틈을 타 미션을 방해하고 생존자들을 처리하세요.'
-                    : '밤이 깊었습니다. 동료들과 협력하여 미션을 해결하고 능력을 사용하세요!';
-                abilityContent = `<div style="padding:20px;"><h4>활동 대기중...</h4><p style="font-size:1.1em;margin-top:15px;">${msg}</p><p style="margin-top:10px;">관리자가 활동을 시작하기를 기다립니다.</p></div>`;
-            } else if (room.shamanBlockedPlayers && room.shamanBlockedPlayers.includes(me.id)) {
-                abilityContent = '<div style="padding:20px;text-align:center;">'
-                    + '<p style="font-size:1.3em;color:#8b5cf6;margin-bottom:12px;">🧿 능력이 봉인되었습니다</p>'
-                    + '<p style="font-size:.88em;color:#64748b;">에일리언 주술사의 저주로 인해<br>이번 밤 능력을 사용할 수 없습니다.</p>'
-                    + '</div>';
-            } else {
-                abilityContent = renderAbilityContent(room, me);
-            }
-
-            let missionContent = '';
-            if (room.missionBoard) {
-                const progressPercent = Math.round(room.missionBoard.progress * 100);
-                const problemsHtml = room.missionBoard.problems.map((p, index) => {
-                    let content = `<strong>${index + 1}</strong>`;
-                    let solvedName = '';
-                    if (p.status === 'solved') {
-                        solvedName = `<span class="mission-solver-name">${p.solvedBy} 해결!</span>`;
-                    } else if (p.status === 'failed') {
-                        solvedName = `<span class="mission-solver-name">${p.failedBy} 실패</span>`;
-                    }
-                    return `<div class="mission-item ${p.status}" data-problem-index="${index}">${content}${solvedName}</div>`;
-                }).join('');
-
-                missionContent = `
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-            <h3>미션 보드 (단계별 혜택 적용)</h3>
-            <h3 style="color: #00d1ff;">진행률: ${progressPercent}%</h3>
-        </div>
-        <div class="mission-board-grid">${problemsHtml}</div>
-    `;
-            } else {
-                missionContent = '<h4>이번 게임에는 미션 보드가 활성화되지 않았습니다.</h4>';
-            }
-
-            // 위장 화면 생성 (실제 능력과 동일한 UI)
-            const camouflageList = [
-                { title: '경호할 대상을 선택하세요.', desc: '(선택한 대상은 다음 날 아침까지 모든 공격에서 1회 보호됩니다.)', ability: 'fake_bodyguard' },
-                { title: '정체를 꿰뚫어볼 대상을 선택하세요.', desc: '(대상 수에 따라 성공 확률이 달라지며, 실패 시 큰 위험이 따릅니다.)', ability: 'fake_psychic' },
-                { title: '역할을 폭로할 대상을 선택하세요.', desc: '(선택된 대상의 역할은 모두에게 익명으로 공개됩니다.)', ability: 'fake_chatter' },
-                { title: '저격할 대상을 선택하세요.', desc: '(총알: 1발 남음 / 에일리언을 맞히면 즉시 제거됩니다.)', ability: 'fake_soldier' },
-                { title: '보호할 대상을 선택하세요.', desc: '(의사팀과 협력하여 오늘 밤 에일리언 공격으로부터 보호합니다.)', ability: 'fake_doctor' }
-            ];
-            const camouFake = camouflageList[Math.floor(Math.random() * camouflageList.length)];
-            const camoTargets = room.players.filter(function (p) { return p.status === 'alive' && p.id !== socket.id; });
-            const camoBtns = camoTargets.map(function (t) {
-                return '<li><button class="target-btn" data-ability="' + camouFake.ability + '" data-target-id="' + t.id + '">' + t.name + '</button></li>';
-            }).join('');
-            const camouflageContent = '<h4>' + camouFake.title + '</h4>'
-                + '<p>' + camouFake.desc + '</p>'
-                + '<ul class="player-grid-list">' + camoBtns + '</ul>';
-
-            playerContainer.innerHTML = '<h2>' + room.day + '일차 밤: 탐사대 활동</h2>'
-                + '<div class="tab-container">'
-                + '<button class="tab-link active" data-tab="ability">내 능력</button>'
-                + '<button class="tab-link" data-tab="lobby">대기실</button>'
-                + '<button class="tab-link" data-tab="situation">상황판</button>'
-                + '<button class="tab-link" data-tab="mission">내 미션</button>'
-                + '<button class="tab-link" data-tab="camouflage">위장 화면</button>'
-                + '</div>'
-                + '<div class="content-container">'
-                + '<div id="ability-content" class="tab-content active">' + abilityContent + '</div>'
-                + '<div id="lobby-content" class="tab-content"></div>'
-                + '<div id="situation-content" class="tab-content">' + buildSituationHtml(room) + '</div>'
-                + '<div id="mission-content" class="tab-content">' + missionContent + '</div>'
-                + '<div id="camouflage-content" class="tab-content">' + camouflageContent + '</div>'
-                + '</div>';
-
-            document.querySelectorAll('.tab-link').forEach(button => {
-                button.addEventListener('click', () => {
-                    const selectedTab = button.dataset.tab;
-                    currentTab = selectedTab;
-                    document.querySelectorAll('.tab-link').forEach(btn => btn.classList.remove('active'));
-                    document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
-                    button.classList.add('active');
-                    document.getElementById(`${selectedTab}-content`).classList.add('active');
-                });
-            });
-
-            showLobby(room, playerContainer.querySelector('#lobby-content'), { showGroup: false });
-
-            setTimeout(() => {
-                document.querySelector('.tab-link[data-tab="situation"]')?.click();
-            }, 0);
         }
 
 
