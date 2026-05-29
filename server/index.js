@@ -138,6 +138,89 @@ function addLog(room, text, type = 'log') {
   room.gameLog.unshift({ text, type });
 }
 
+// ── 수정3: 인원수별 모둠 배정 테이블 ──
+function getGroupPlan(n) {
+  const plans = {
+    2: [2],
+    3: [3],
+    4: [4],
+    5: [5],
+    6: [3, 3],
+    7: [3, 4],
+    8: [4, 4],
+    9: [3, 3, 3],
+    10: [3, 3, 4],
+    11: [3, 4, 4],
+    12: [3, 3, 3, 3],
+    13: [3, 3, 3, 4],
+    14: [3, 3, 4, 4],
+    15: [3, 4, 4, 4],
+    16: [4, 4, 4, 4],
+    17: [3, 4, 4, 3, 3],
+    18: [3, 3, 4, 4, 4],
+    19: [4, 4, 4, 4, 3],
+    20: [4, 4, 4, 4, 4],
+    21: [3, 3, 4, 4, 4, 3],
+    22: [3, 3, 4, 4, 4, 4],
+    23: [4, 4, 4, 4, 4, 3],
+    24: [4, 4, 4, 4, 4, 4],
+  };
+  if (plans[n]) return plans[n];
+  // 24명 초과: 4명씩 나누고 나머지 앞에서부터 +1
+  const base = Math.floor(n / 4);
+  const rem = n % 4;
+  const arr = new Array(base).fill(4);
+  for (let i = 0; i < rem; i++) arr[i]++;
+  return arr;
+}
+
+// ── 수정3+4: 랜덤 모둠 자동 배정 (신의 사도 첫 모둠 고정) ──
+function autoAssignGroups(room, roomCode) {
+  const alive = room.players.filter(p => p.status === 'alive');
+  const n = alive.length;
+  if (n < 2) return;
+
+  const plan = getGroupPlan(n);
+  let shuffled = shuffle([...alive]);
+
+  // ★ 수정4: 신의 사도는 항상 모둠1 고정
+  const apostleIdx = shuffled.findIndex(p => p.role === '신의 사도');
+  if (apostleIdx > 0) {
+    const [apostle] = shuffled.splice(apostleIdx, 1);
+    shuffled.unshift(apostle);
+  }
+
+  let cursor = 0;
+  plan.forEach((size, gi) => {
+    const groupNumber = gi + 1;
+    for (let i = 0; i < size; i++) {
+      const player = shuffled[cursor++];
+      if (!player) break;
+      player.group = groupNumber;
+      if (room.playerGroupHistory && room.playerGroupHistory[player.id] !== undefined) {
+        room.playerGroupHistory[player.id].push(groupNumber);
+      }
+    }
+  });
+
+  room.needsGroupSelection = false;
+  room.groupCount = plan.length;
+
+  const logParts = plan.map((size, gi) => {
+    const members = alive.filter(p => p.group === gi + 1).map(p => p.name).join(', ');
+    return `${gi + 1}선실(${size}명): ${members}`;
+  }).join(' | ');
+  addLog(room, `🎲 선실 자동 배정 완료`, 'phase_change'); // 간소화된 로그만 남김
+
+  // 모둠 배정 완료 → pending_start 유지 (타이머는 관리자가 직접 시작)
+  if (room.settings && room.settings.useEjectionMinigame) {
+    room.ejectionState = 'pending_start';
+    room.ejectionVotes = room.ejectionVotes || {};
+    room.ejectionNominations = room.ejectionNominations || {};
+  }
+  // ★ 자동 타이머 시작 제거 — 관리자 "회의 타이머 시작" 버튼으로만 시작
+}
+
 function endGame(roomCode, endingKey, detailLog = '') {
   const room = gameRooms[roomCode];
   if (!room || room.status === 'game_over') return;
@@ -236,9 +319,9 @@ function transitionToNightPhase(roomCode) {
   delete room.alienActionsConfirmed;
   delete room.selections;
   delete room.bodyguardProtection;
-  delete room.medicalProtectionTarget;
+  // ★ medicalProtectionTarget은 포식 이벤트 발생 시에만 소비 → 여기서 삭제하지 않음
   delete room.doctorProtections;
-  delete room.shamanBlockedPlayers;
+  // ★ shamanBlockedPlayers는 goToMorning에서 이미 정리됨. 여기서 삭제하면 이전 에일리언 단계 차단이 사라짐 → 삭제 금지
 
   if (room.gameLog) room.gameLog.unshift({ text: '[' + room.day + '일차 밤 1단계] 탐사대 활동 시작', type: 'phase_change' });
 
@@ -567,20 +650,21 @@ function resolveNightActionsInternal(roomCode) {
         targetsToEliminate.add(selection);
       }
     }
-    // 수정 3-나: 백신 2회 누적 기반 포식 저지
-    if (room.medicalProtectionTarget && targetsToEliminate.has(room.medicalProtectionTarget)) {
-      const immunePlayer = room.players.find(p => p.id === room.medicalProtectionTarget);
-      targetsToEliminate.delete(room.medicalProtectionTarget);
-      // 백신 2회 소비
-      if (room.vaccineCount && room.vaccineCount[room.medicalProtectionTarget] >= 2) {
-        room.vaccineCount[room.medicalProtectionTarget] -= 2;
-      }
-      if (immunePlayer) {
-        if (room.gameLog) room.gameLog.unshift({ text: `💉 [의사 백신] ${immunePlayer.name}님이 에일리언 포식을 백신으로 저지하여 생존했습니다.`, type: 'log' });
-        if (room.notablePlays) room.notablePlays.push({ type: 'best', text: `의사팀의 백신으로 ${immunePlayer.name}(${immunePlayer.role})님이 에일리언 포식에서 생존했습니다.` });
-      }
+    // 수정2: 백신 면역 (다수 가능) - 포식 대상 중 면역자 제거
+    if (room.medicalProtectionTargets && room.medicalProtectionTargets.length > 0) {
+      room.medicalProtectionTargets.forEach(immuneId => {
+        if (targetsToEliminate.has(immuneId)) {
+          const immunePlayer = room.players.find(p => p.id === immuneId);
+          targetsToEliminate.delete(immuneId);
+          if (immunePlayer) {
+            addLog(room, `💉 [의사 백신] ${immunePlayer.name}님이 에일리언 포식을 백신으로 저지하여 생존했습니다.`, 'log');
+            if (room.notablePlays) room.notablePlays.push({ type: 'best', text: `의사의 백신으로 ${immunePlayer.name}(${immunePlayer.role})님이 에일리언 포식에서 생존했습니다.` });
+          }
+          // 면역 소비 - 해당 대상만 목록에서 제거
+          room.medicalProtectionTargets = room.medicalProtectionTargets.filter(id => id !== immuneId);
+        }
+      });
     }
-    delete room.medicalProtectionTarget;
     const uniqueTargets = Array.from(targetsToEliminate);
     const protectionTargetId = room.bodyguardProtection;
 
@@ -683,17 +767,22 @@ function goToMorning(roomCode) {
   delete room.alienActionsConfirmed;
   delete room.queenRampageStarted;
   delete room.selections;
+  delete room.bodyguardProtection;
+  // ★ medicalProtectionTarget: 포식 이벤트 발생 시까지 유지 → 여기서 삭제하지 않음
+  // (resolveNightActionsInternal과 resolveQueenRampage에서 소비됨)
+  // ★ 수정6: shamanBlockedPlayers는 에일리언 단계에서 설정 → 다음날 탐사대 단계에서 소비
+  // goToMorning에서 삭제하면 안 됨! (endNightAndStartMeeting 탐사대→에일리언 전환 시 삭제됨)
   if (room.gameLog) room.gameLog.unshift({ text: '[' + room.day + '일차 회의 시작]', type: 'phase_change' });
-  // 1인 모둠 자동지목 초기화
+  // ★ 수정3: 다음 날도 자동 랜덤 모둠 배정
   room.players.forEach(p => { if (p.status === 'alive') delete p.group; });
-  room.needsGroupSelection = true;
+  autoAssignGroups(room, roomCode);
   room.dailyMissionSolves = {};
-  delete room.shamanBlockedPlayers;
-  // 이전 타이머 정리
+  // 이전 타이머 정리 + timeLeft 리셋 (관리자 버튼 "작동 중" 고착 방지)
   const mk = roomCode + '_meeting';
   if (timerIntervals[mk]) { clearInterval(timerIntervals[mk]); delete timerIntervals[mk]; }
   const ak = roomCode + '_alien';
   if (timerIntervals[ak]) { clearInterval(timerIntervals[ak]); delete timerIntervals[ak]; }
+  room.timeLeft = 0;
   const gameEnded = checkSpecialVictoryConditions(roomCode);
   if (gameEnded) return;
   broadcastUpdates(roomCode);
@@ -704,8 +793,10 @@ function startCrewActionPhase(roomCode) {
   const room = gameRooms[roomCode];
   if (!room) return;
 
-  // ★★★ 핵심 수정: 이 시점에서 이전 턴의 보호 효과를 초기화합니다. ★★★
+  // ★★★ 핵심 수정: 새 탐사대 활동 시작 시 이번 라운드 보호 초기화 ★★★
   delete room.bodyguardProtection;
+  // medicalProtectionTarget은 포식 이벤트 발생 시에만 초기화 → 여기서 삭제하지 않음
+  room.players.forEach(p => { delete p.abilityUsedThisTurn; });
 
   room.crewActionTriggered = true;
   if (room.gameLog) {
@@ -713,30 +804,30 @@ function startCrewActionPhase(roomCode) {
   }
 
   const livingPlayers = room.players.filter(p => p.status === 'alive');
+  const blocked = room.shamanBlockedPlayers || [];
 
-  // 각 역할에 맞는 능력 사용 이벤트를 명시적으로 전송합니다.
-  // 의사 능력: 의사 1명이어도 접종 가능 (백신 누적 시스템)
-  room.doctorProtections = {}; // 이번 밤 접종 기록 초기화 (vaccineCount는 누적 유지)
-  const aliveDoctors = livingPlayers.filter(p => p.role === '의사');
+  // 의사 능력: 주술사 차단 체크
+  room.doctorProtections = {};
+  const aliveDoctors = livingPlayers.filter(p => p.role === '의사' && !blocked.includes(p.id));
   if (aliveDoctors.length >= 1) {
     aliveDoctors.forEach(doc => {
       io.to(doc.id).emit('doctorAction', { targets: livingPlayers.map(p => ({ id: p.id, name: p.name })) });
     });
   }
 
-  const bodyguard = livingPlayers.find(p => p.role === '경호원');
+  const bodyguard = livingPlayers.find(p => p.role === '경호원' && !blocked.includes(p.id));
   if (bodyguard) {
     const targets = livingPlayers.filter(p => p.id !== bodyguard.id);
     io.to(bodyguard.id).emit('bodyguardAction', { targets });
   }
 
-  const soldier = livingPlayers.find(p => p.role === '군인' && p.bullets > 0);
+  const soldier = livingPlayers.find(p => p.role === '군인' && p.bullets > 0 && !blocked.includes(p.id));
   if (soldier) {
     const targets = livingPlayers.filter(p => p.id !== soldier.id);
     io.to(soldier.id).emit('soldierAction', { targets, bulletsLeft: soldier.bullets });
   }
 
-  const captain = livingPlayers.find(p => p.role === '함장' && p.bullets > 0);
+  const captain = livingPlayers.find(p => p.role === '함장' && p.bullets > 0 && !blocked.includes(p.id));
   if (captain) {
     const targets = livingPlayers.filter(p => p.id !== captain.id);
     io.to(captain.id).emit('captainAction', { targets, bulletsLeft: captain.bullets });
@@ -903,9 +994,11 @@ io.on('connection', (socket) => {
     room.phase = 'role_reveal';
     room.day = 1;
     room.initialDoctorCount = room.players.filter(p => p.role === '의사').length;
-    room.doctorProtections = {}; // {targetId: [doctorId, ...]}
-    room.vaccineCount = {}; // {targetId: 누적 접종 횟수} — 수정 3-나
-    room.needsGroupSelection = true;
+    room.doctorProtections = {};
+    room.vaccineCount = {};
+    room.medicalProtectionTargets = []; // 수정2: 다수 면역 지원
+    // ★ 수정3: 시작 즉시 랜덤 모둠 자동 배정
+    autoAssignGroups(room, code);
 
     broadcastUpdates(code);
   });
@@ -1079,73 +1172,7 @@ io.on('connection', (socket) => {
         }
       }
 
-      // ── AUTO MODE: 모두 모둠 선택 완료 시 타이머 자동 시작 (1일차/2일차 통일) ──
-      if (room.autoMode && room.settings.useEjectionMinigame) {
-        const allAlive = room.players.filter(p => p.status === 'alive');
-        const allSelected = allAlive.every(p => !!p.group);
-        const timerKey = roomCode + '_meeting';
-        // BUG1 FIX: 다인 모둠이 있으면 타이머 시작 (1인 자동지목으로 partial nominations된 경우 포함)
-        const hasMultiMemberGroup = [...new Set(room.players.filter(p => p.status === 'alive').map(p => p.group))]
-          .some(gn => room.players.filter(p => p.status === 'alive' && p.group === gn).length > 1);
-        const canStartTimer = allSelected && !timerIntervals[timerKey] &&
-          !['minigame_active', 'minigame_all_selected'].includes(room.ejectionState) &&
-          (room.ejectionState !== 'minigame_pending' || hasMultiMemberGroup);
-        if (canStartTimer) {
-          let autoLeft = room.autoMeetingTime || 90;
-          room.timeLeft = autoLeft;
-          io.to(roomCode).emit('timerUpdate', { roomCode, timeLeft: autoLeft });
-          io.to(ADMIN_ROOM).emit('timerUpdate', { roomCode, timeLeft: autoLeft });
-          console.log('[' + roomCode + '] AUTO: day ' + room.day + ' meeting timer started after all groups selected');
-          broadcastUpdates(roomCode); // Q2: 타이머 시작 즉시 상태 갱신
-          timerIntervals[timerKey] = setInterval(() => {
-            autoLeft--;
-            room.timeLeft = autoLeft;
-            io.to(roomCode).emit('timerUpdate', { roomCode, timeLeft: autoLeft });
-            io.to(ADMIN_ROOM).emit('timerUpdate', { roomCode, timeLeft: autoLeft });
-            if (autoLeft === 30) {
-              if (room.ejectionState === 'pending_start') {
-                room.ejectionState = 'nominating';
-              }
-              broadcastUpdates(roomCode);
-              // BUG3 FIX: 추가 broadcast로 클라이언트 확실히 갱신
-              setTimeout(() => {
-                if (gameRooms[roomCode]) broadcastUpdates(roomCode);
-              }, 300);
-            }
-            if (autoLeft < 0) {
-              clearInterval(timerIntervals[timerKey]);
-              delete timerIntervals[timerKey];
-              room.timeLeft = 0;
-              if (room.ejectionState === 'nominating' || room.ejectionState === 'pending_start') {
-                const alive = room.players.filter(p => p.status === 'alive' && p.group);
-                const groups = [...new Set(alive.map(p => p.group))];
-                groups.forEach(gn => {
-                  if (room.ejectionNominations[gn]) return;
-                  const members = alive.filter(p => p.group === gn);
-                  if (members.length <= 1) return;
-                  const votes = (room.ejectionVotes || {})[gn] || {};
-                  const nonVoters = members.filter(p => !votes[p.id]);
-                  if (nonVoters.length > 0) {
-                    const penalty = nonVoters[Math.floor(Math.random() * nonVoters.length)];
-                    room.ejectionNominations[gn] = penalty.id;
-                    if (room.gameLog) room.gameLog.unshift({ text: '[자동진행] ' + penalty.name + '님이 미투표 페널티로 방출 후보에 올랐습니다.', type: 'log' });
-                  } else {
-                    const tally = {};
-                    Object.values(votes).forEach(tid => { tally[tid] = (tally[tid] || 0) + 1; });
-                    const topId = Object.entries(tally).sort((a, b) => b[1] - a[1])[0]?.[0];
-                    if (topId) room.ejectionNominations[gn] = topId;
-                  }
-                });
-                if (Object.keys(room.ejectionNominations).length > 0) {
-                  room.ejectionState = 'minigame_pending';
-                  broadcastUpdates(roomCode);
-                  setTimeout(() => { autoStartMinigame(roomCode); }, 800);
-                }
-              }
-            }
-          }, 1000);
-        }
-      }
+      // ── AUTO MODE: 모둠 자동 배정 시 타이머는 autoAssignGroups에서 처리 ──
 
       broadcastUpdates(roomCode);
     }
@@ -1370,7 +1397,7 @@ io.on('connection', (socket) => {
         : '없음';
 
       if (room.gameLog) {
-        room.gameLog.unshift({ text: `[방출 미니게임] 결과, ${ejectedNames}님이 방출되었습니다.`, type: 'log' });
+        // ★ 수정5: 중복 방출 로그 제거 — eliminatePlayer의 causeMap에서 단일 출력
       }
 
       io.to(code).emit('revealEjectionResult', {
@@ -1386,7 +1413,7 @@ io.on('connection', (socket) => {
         if (gameRooms[code]?.status !== 'game_over') {
           transitionToNightPhase(code);
         }
-      }, 5000);
+      }, 4500); // ★ 수정1: 3초(타이핑) + 6초 추가 = 총 9초 대기
     }
   });
 
@@ -1433,7 +1460,7 @@ io.on('connection', (socket) => {
       // ★★★ 핵심 수정: 상태를 직접 변경하는 대신, 통합된 함수를 호출합니다. ★★★
       transitionToNightPhase(roomCode);
 
-    }, 5000);
+    }, 2500);
   });
 
   socket.on('disconnect', () => {
@@ -1485,10 +1512,10 @@ io.on('connection', (socket) => {
       delete room.alienActionsConfirmed;
       delete room.selections;
       delete room.bodyguardProtection;
-      // ★ medicalProtectionTarget은 탐사대 활동 중 새로 설정되므로 초기화
-      delete room.medicalProtectionTarget;
+      // ★ medicalProtectionTarget은 포식 이벤트 발생 시에만 소비 → 여기서 삭제하지 않음
       delete room.doctorProtections;
-      delete room.shamanBlockedPlayers;
+      // ★ shamanBlockedPlayers는 에일리언 활동에서 설정되어 다음 날 탐사대 활동 시 유효 → 여기서 삭제하지 않음
+      // (goToMorning에서 삭제됨)
       if (room.gameLog) room.gameLog.unshift({ text: '[' + room.day + '일차 밤 1단계] 탐사대 활동 시작', type: 'phase_change' });
       startCrewActionPhase(code);
       broadcastUpdates(code);
@@ -1540,11 +1567,10 @@ io.on('connection', (socket) => {
           room.ejectionNominations = {};
           room.ejectionMinigame = {};
         }
-        // 타이머 키도 초기화 (이전 라운드 타이머 잔존 방지)
+        // 타이머 키도 초기화 + timeLeft 리셋
         const prevTimerKey = code + '_meeting';
         if (timerIntervals[prevTimerKey]) { clearInterval(timerIntervals[prevTimerKey]); delete timerIntervals[prevTimerKey]; }
-        // AUTO MODE: 타이머는 selectGroup에서 모두 선택 완료 시 시작 (1일차/2일차 통일)
-        // nextPhase에서는 타이머 시작하지 않음
+        room.timeLeft = 0;
       }
     }
 
@@ -1687,19 +1713,15 @@ io.on('connection', (socket) => {
     const uniqueTargets = [...new Set(queenSelection)];
 
     uniqueTargets.forEach(targetId => {
-      // 수정 3: 여왕의 만찬에도 백신 2회 누적 보호 적용
-      if (room.medicalProtectionTarget === targetId) {
+      // 수정2: 여왕의 만찬 백신 면역 (다수 가능)
+      if (room.medicalProtectionTargets && room.medicalProtectionTargets.includes(targetId)) {
         const immunePlayer = room.players.find(p => p.id === targetId);
-        // 백신 2회 소비
-        if (room.vaccineCount && room.vaccineCount[targetId] >= 2) {
-          room.vaccineCount[targetId] -= 2;
-        }
         if (immunePlayer) {
-          if (room.gameLog) room.gameLog.unshift({ text: `💉 [의사 백신] ${immunePlayer.name}님이 여왕의 만찬에서 백신으로 생존했습니다.`, type: 'log' });
-          if (room.notablePlays) room.notablePlays.push({ type: 'best', text: `의사팀의 백신으로 ${immunePlayer.name}(${immunePlayer.role})님이 여왕의 만찬에서 생존했습니다.` });
+          addLog(room, `💉 [의사 백신] ${immunePlayer.name}님이 여왕의 만찬에서 백신으로 생존했습니다.`, 'log');
+          if (room.notablePlays) room.notablePlays.push({ type: 'best', text: `의사의 백신으로 ${immunePlayer.name}(${immunePlayer.role})님이 여왕의 만찬에서 생존했습니다.` });
         }
-        delete room.medicalProtectionTarget;
-        return; // 이 대상은 사망 처리하지 않음
+        room.medicalProtectionTargets = room.medicalProtectionTargets.filter(id => id !== targetId);
+        return;
       }
       eliminatePlayer(code, targetId, 'queen_rampage');
     });
@@ -1730,40 +1752,7 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('startMeetingTimer', (roomCode) => {
-    console.log(`[${roomCode}] Received startMeetingTimer event.`); // 디버깅 로그 추가
-
-    if (!gameRooms[roomCode]) {
-      console.error(`[${roomCode}] Error: Room not found.`);
-      return;
-    }
-    if (timerIntervals[roomCode]) {
-      console.warn(`[${roomCode}] Warning: Timer is already running.`);
-      return;
-    }
-
-    const room = gameRooms[roomCode];
-    room.timeLeft = 90; // 
-
-    // 즉시 첫 업데이트를 전송하여 '02:00'이 바로 표시되도록 함
-    const initialPayload = { roomCode: roomCode, timeLeft: room.timeLeft };
-    io.to(roomCode).emit('timerUpdate', initialPayload);
-    io.to(ADMIN_ROOM).emit('timerUpdate', initialPayload);
-    console.log(`[${roomCode}] Timer started. Initial time: ${room.timeLeft}s`);
-
-    timerIntervals[roomCode] = setInterval(() => {
-      room.timeLeft--;
-      const payload = { roomCode: roomCode, timeLeft: room.timeLeft };
-      io.to(roomCode).emit('timerUpdate', payload);
-      io.to(ADMIN_ROOM).emit('timerUpdate', payload);
-
-      if (room.timeLeft < 0) {
-        clearInterval(timerIntervals[roomCode]);
-        delete timerIntervals[roomCode];
-        console.log(`[${roomCode}] Timer finished and cleared.`);
-      }
-    }, 1000);
-  });
+  // startMeetingTimer: 관리자 "회의 타이머 시작" 버튼 → 아래 핸들러에서 처리
 
   socket.on('nightAction', (data) => {
     const { targetId } = data;
@@ -2175,18 +2164,15 @@ io.on('connection', (socket) => {
     const doctor = room.players.find(p => p.id === selectorId);
     if (!doctor || doctor.role !== '의사' || doctor.status !== 'alive') return;
 
-    // 이번 밤 이미 접종한 의사는 재사용 불가
     if (!room.doctorProtections) room.doctorProtections = {};
     const alreadyUsed = Object.values(room.doctorProtections).some(arr => Array.isArray(arr) && arr.includes(selectorId));
     if (alreadyUsed) { io.to(selectorId).emit('actionConfirmed'); return; }
 
-    // doctorProtections: { targetId: [doctorId, ...] } — 이번 밤 접종 기록
     if (!room.doctorProtections[targetId]) room.doctorProtections[targetId] = [];
     if (!room.doctorProtections[targetId].includes(selectorId)) {
       room.doctorProtections[targetId].push(selectorId);
     }
 
-    // ── 백신 누적 카운트 (수정 3-나) ──
     if (!room.vaccineCount) room.vaccineCount = {};
     const prevCount = room.vaccineCount[targetId] || 0;
     room.vaccineCount[targetId] = prevCount + 1;
@@ -2194,34 +2180,25 @@ io.on('connection', (socket) => {
     const targetPlayer = room.players.find(p => p.id === targetId);
     const targetName = targetPlayer ? targetPlayer.name : '???';
 
-    console.log(`[${roomCode}] 의사 ${doctor.name} → ${targetName} 백신 접종 (누적 ${newCount}회)`);
-
-    // ── 3-1: 같은 대상에 2명 이상 접종 시 로그 (대상 이름 비공개) ──
     const sameTargetDoctors = room.doctorProtections[targetId].length;
     if (sameTargetDoctors >= 2) {
-      // ★ 수정4: 대상 이름 미공개 — "탐사대원 중 한 명이..." 형식
-      const logText = `💉 탐사대원 중 한 명이 ${sameTargetDoctors}명의 의사에게 백신 ${newCount}회 접종을 받았습니다.`;
-      if (room.gameLog) room.gameLog.unshift({ text: logText, type: 'log' });
-      io.to(roomCode).emit('doctorVaccineUpdate', {
-        targetName: null, // ★ 수정4: 클라이언트에 이름 전달 안 함
-        count: newCount,
-        doubleVaccinated: true
-      });
+      addLog(room, `💉 탐사대원 중 한 명이 ${sameTargetDoctors}명의 의사에게 백신 ${newCount}회 접종을 받았습니다.`, 'log');
+      io.to(roomCode).emit('doctorVaccineUpdate', { targetName: null, count: newCount, doubleVaccinated: true });
     }
 
-    // ── 포식 저지 조건: 백신 2회 누적 시 medicalProtectionTarget 설정 ──
-    if (newCount >= 2 && !room.medicalProtectionTarget) {
-      room.medicalProtectionTarget = targetId;
-      if (room.notablePlays) room.notablePlays.push({ type: 'best', text: `의사팀의 백신으로 ${targetName}님이 포식에서 보호됩니다.` });
+    if (newCount >= 2) {
+      if (!room.medicalProtectionTargets) room.medicalProtectionTargets = [];
+      if (!room.medicalProtectionTargets.includes(targetId)) {
+        room.medicalProtectionTargets.push(targetId);
+        // ★★★ 수정됨: 여기서 면역 상태 달성 시의 '주효한 플레이' 추가 코드를 삭제했습니다. ★★★
+      }
     }
 
-    // ── 수정 3-다: 백신 3회 누적 시 과다 투약 사망 (에일리언 팀 면역) ──
     const ALIEN_ROLES = ['에일리언 여왕', '에일리언', '에일리언 알', '에일리언 주술사'];
     if (newCount >= 3 && targetPlayer && !ALIEN_ROLES.includes(targetPlayer.role)) {
-      console.log(`[${roomCode}] 백신 과다 투약: ${targetName} 사망 처리`);
-      if (room.gameLog) room.gameLog.unshift({ text: `⚠️ [과다 투약] ${targetName}님이 백신 ${newCount}회 접종으로 인한 과다 투약으로 사망했습니다.`, type: 'log' });
-      // 과다 투약은 medicalProtection 초기화 후 사망
-      if (room.medicalProtectionTarget === targetId) delete room.medicalProtectionTarget;
+      if (room.medicalProtectionTargets) {
+        room.medicalProtectionTargets = room.medicalProtectionTargets.filter(id => id !== targetId);
+      }
       eliminatePlayer(roomCode, targetId, 'vaccine_overdose');
     }
 
@@ -2421,7 +2398,7 @@ io.on('connection', (socket) => {
 
         if (room.gameLog) {
           const targetNames = targetIds.map(id => room.players.find(p => p.id === id)?.name).join(', ');
-          room.gameLog.unshift({ text: `[시스템] 에일리언 여왕이 [사냥] 능력으로 ${targetNames}을(를) 선택했습니다.`, type: 'log' });
+          // ★ 수정5: 여왕 사냥 선택 로그 삭제 (결과 로그만 남김)
         }
 
         // 여왕에게만 행동 완료 피드백을 보내고, 턴 종료는 확인하지 않습니다.
@@ -2521,9 +2498,7 @@ io.on('connection', (socket) => {
     const room = gameRooms[roomCode];
     const alienEgg = room.players.find(p => p.id === selectorId);
 
-    if (!alienEgg || alienEgg.role !== '에일리언 알' || room.day !== 2 || alienEgg.abilityUsed) {
-      return;
-    }
+    if (!alienEgg || alienEgg.role !== '에일리언 알' || room.day !== 2 || alienEgg.abilityUsed) return;
 
     alienEgg.abilityUsed = true;
     const isHatch = Math.random() < 0.5;
@@ -2541,32 +2516,23 @@ io.on('connection', (socket) => {
     }, ROULETTE_DURATION);
 
     setTimeout(() => {
+      io.to(roomCode).emit('hideRoulette');
       if (isHatch) {
-        console.log(`[${roomCode}] Alien Egg hatched successfully.`);
         alienEgg.role = '에일리언';
         alienEgg.description = ROLE_DESCRIPTIONS['에일리언'];
-        if (room.gameLog) room.gameLog.unshift(`[에일리언 알]이 부화했습니다. 우리 중에 에일리언이 하나 더 있습니다.`);
-      } else { // [오염] 발생 시
-        console.log(`[${roomCode}] Alien Egg CONTAMINATED the group.`);
+        // ★ 단순 문자열 대신 addLog 사용
+        addLog(room, `[에일리언 알]이 부화했습니다. 우리 중에 에일리언이 하나 더 있습니다.`, 'log');
+      } else {
         if (alienEgg.group) {
-          // 수정 3-가: 같은 모둠에 살아있는 의사가 있으면 오염 저지 (패시브)
-          const doctorInGroup = room.players.find(p =>
-            p.status === 'alive' &&
-            p.group === alienEgg.group &&
-            p.role === '의사'
-          );
+          const doctorInGroup = room.players.find(p => p.status === 'alive' && p.group === alienEgg.group && p.role === '의사');
           if (doctorInGroup) {
-            console.log(`[${roomCode}] Doctor passive: egg contamination blocked by ${doctorInGroup.name}`);
-            if (room.gameLog) room.gameLog.unshift({ text: `🛡️ [의사 패시브] ${doctorInGroup.name}님이 에일리언 알 오염을 저지했습니다! 모둠원 전원 생존.`, type: 'log' });
+            // ★ addLog 사용
+            addLog(room, `🛡️ [의사 패시브] ${doctorInGroup.name}님이 에일리언 알 오염을 저지했습니다! 모둠원 전원 생존.`, 'log');
           } else {
-            const playersToEliminate = room.players.filter(p =>
-              p.status === 'alive' &&
-              p.group === alienEgg.group &&
-              p.role !== '에일리언' &&
-              p.role !== '에일리언 여왕'
-            );
+            const playersToEliminate = room.players.filter(p => p.status === 'alive' && p.group === alienEgg.group && p.role !== '에일리언' && p.role !== '에일리언 여왕');
             const deadNames = playersToEliminate.map(p => p.name).join(', ');
-            if (room.gameLog) room.gameLog.unshift(`[에일리언 알]이 오염되었습니다. ${deadNames} 사망.`);
+            // ★ 단순 문자열 대신 addLog 사용
+            addLog(room, `[에일리언 알]이 오염되었습니다. ${deadNames} 사망.`, 'log');
             playersToEliminate.forEach(player => {
               eliminatePlayer(roomCode, player.id, 'egg_contamination');
             });
@@ -2584,7 +2550,6 @@ io.on('connection', (socket) => {
     for (const code in gameRooms) { if (gameRooms[code].players.some(p => p.id === selectorId)) { roomCode = code; break; } }
     if (roomCode) {
       const room = gameRooms[roomCode];
-      // ★★★ 주술사 차단 확인 로직 추가 ★★★
       if (room.shamanBlockedPlayers && room.shamanBlockedPlayers.includes(selectorId)) {
         return io.to(selectorId).emit('abilityError', '누군가의 방해로 능력을 사용할 수 없습니다.');
       }
@@ -2592,23 +2557,20 @@ io.on('connection', (socket) => {
       const target = room.players.find(p => p.id === targetId);
       if (chatterbox && chatterbox.role === '수다쟁이' && target && chatterbox.abilityUsedDay !== room.day) {
         chatterbox.abilityUsedDay = room.day;
+
         target.revealedRole = target.role;
-        if (room.gameLog) room.gameLog.unshift('[수다쟁이]가 ' + target.name + '님의 정체를 폭로했습니다!');
+        target.revealedBy = 'chatterbox'; // ★ 대기실 스타일 적용을 위해 추가
+
+        // ★ 단순 문자열 대신 addLog 함수(객체 형태) 사용
+        addLog(room, `[수다쟁이]가 ${target.name}님의 정체를 폭로했습니다!`, 'log');
+
         if (room.notablePlays) {
           const isAlienCh = target.role && target.role.includes('에일리언');
           if (isAlienCh) {
-            // 수다쟁이: 에일리언 폭로 성공 → best만 기재
-            room.notablePlays.push({
-              type: 'best',
-              text: chatterbox.name + '(수다쟁이)님이 ' + target.name + '(' + target.role + ')의 정체를 폭로했습니다.'
-            });
+            room.notablePlays.push({ type: 'best', text: `${chatterbox.name}(수다쟁이)님이 ${target.name}(${target.role})의 정체를 폭로했습니다.` });
           } else {
-            // 수다쟁이: 탐사대 핵심 인물 정보 누설 → worst만 기재
             if (['함장', '엔지니어'].includes(target.role)) {
-              room.notablePlays.push({
-                type: 'worst',
-                text: chatterbox.name + '(수다쟁이)님이 아군 ' + target.name + '(' + target.role + ')의 정보를 누설했습니다.'
-              });
+              room.notablePlays.push({ type: 'worst', text: `${chatterbox.name}(수다쟁이)님이 아군 ${target.name}(${target.role})의 정보를 누설했습니다.` });
             }
           }
         }
@@ -2625,36 +2587,27 @@ io.on('connection', (socket) => {
     for (const code in gameRooms) { if (gameRooms[code].players.some(p => p.id === selectorId)) { roomCode = code; break; } }
     if (!roomCode) return;
     const room = gameRooms[roomCode];
-    // ★★★ 주술사 차단 확인 로직 추가 ★★★
     if (room.shamanBlockedPlayers && room.shamanBlockedPlayers.includes(selectorId)) {
       return io.to(selectorId).emit('abilityError', '누군가의 방해로 능력을 사용할 수 없습니다.');
     }
     const psychic = room.players.find(p => p.id === selectorId);
 
-    if (!Array.isArray(targetIds) || targetIds.length < 1 || targetIds.length > 4) {
-      console.error(`[${roomCode}] Invalid psychic target count: ${targetIds.length}`);
-      return;
-    }
-
+    if (!Array.isArray(targetIds) || targetIds.length < 1 || targetIds.length > 4) return;
     if (!psychic || psychic.role !== '초능력자' || psychic.abilityUsed) return;
     if (!psychic.group) return io.to(selectorId).emit('abilityError', '모둠을 먼저 선택해야 능력을 사용할 수 있습니다.');
 
     psychic.abilityUsed = true;
 
-    // ★★★ 수정: 선택한 대상 수에 따라 성공 확률을 다르게 설정 ★★★
     let successRate = 0;
     switch (targetIds.length) {
-      case 1: successRate = 1.0; break; // 100%
-      case 2: successRate = 0.8; break; // 80%
-      case 3: successRate = 0.6; break; // 60%
-      case 4: successRate = 0.5; break; // 50%
+      case 1: successRate = 1.0; break;
+      case 2: successRate = 0.8; break;
+      case 3: successRate = 0.6; break;
+      case 4: successRate = 0.5; break;
     }
 
-    if (room.missionBoard && room.missionBoard.progress >= 0.5) {
-      successRate += 0.15;
-    }
+    if (room.missionBoard && room.missionBoard.progress >= 0.5) successRate += 0.15;
     const isSuccess = Math.random() < successRate;
-    // ★★★ 여기까지 ★★★
 
     const result = isSuccess ? '성공' : '실패';
     const ROULETTE_DURATION = 4000;
@@ -2670,25 +2623,26 @@ io.on('connection', (socket) => {
     }, ROULETTE_DURATION);
 
     setTimeout(() => {
-      // 성공 또는 실패 로직 적용
+      io.to(roomCode).emit('hideRoulette');
       if (isSuccess) {
         const targetNames = targetIds.map(id => {
           const p = room.players.find(p => p.id === id);
           return p ? p.name : '';
         }).filter(Boolean).join(', ');
 
-        // ★★★ 로그 메시지를 이름이 포함되도록 수정 ★★★
-        if (room.gameLog) room.gameLog.unshift('[초능력자]가 ' + targetNames + '님의 정체를 꿰뚫어보는 데 성공했습니다.');
-        // 주효 플레이: 에일리언 탐지 성공 여부로 판단
+        // ★ 단순 문자열 대신 addLog 사용
+        addLog(room, `[초능력자]가 ${targetNames}님의 정체를 꿰뚫어보는 데 성공했습니다.`, 'log');
+
         const psychicPlayer = room.players.find(p => p.id === selectorId);
         if (psychicPlayer && room.notablePlays) {
           const foundAliens = targetIds.filter(tid => { const tp = room.players.find(p => p.id === tid); return tp && tp.role && tp.role.includes('에일리언'); });
           if (foundAliens.length > 0) {
-            const alienNames = foundAliens.map(tid => { const tp = room.players.find(p => p.id === tid); return tp ? tp.name + '(' + tp.role + ')' : '???'; }).join(', ');
-            // 초능력자: 에일리언 정체 밝힘 → best만 기재
-            room.notablePlays.push({ type: 'best', text: psychicPlayer.name + '(초능력자)님이 ' + alienNames + '의 정체를 밝혔습니다.' });
+            const alienNames = foundAliens.map(tid => { const tp = room.players.find(p => p.id === tid); return tp ? `${tp.name}(${tp.role})` : '???'; }).join(', ');
+            room.notablePlays.push({ type: 'best', text: `${psychicPlayer.name}(초능력자)님이 ${alienNames}의 정체를 밝혔습니다.` });
           }
-        } targetIds.forEach(targetId => {
+        }
+
+        targetIds.forEach(targetId => {
           const target = room.players.find(p => p.id === targetId);
           if (target) {
             target.revealedRole = target.role;
@@ -2706,16 +2660,19 @@ io.on('connection', (socket) => {
             playersToEliminate.add(psychicGroup[(psychicIndex + 1) % psychicGroup.length].id);
           }
 
-          // ★★★ 사망자 이름으로 로그를 만들기 위해 아래 코드 추가 ★★★
           const deadNames = Array.from(playersToEliminate).map(id => {
             const p = room.players.find(p => p.id === id);
             return p ? p.name : '';
           }).filter(Boolean).join(', ');
 
-          if (room.gameLog) room.gameLog.unshift(`[초능력자]가 에너지를 제어하지 못하고 폭주하여 ${deadNames}님이 사망했습니다.`);
+          // ★ 단순 문자열 대신 addLog 사용
+          addLog(room, `[초능력자]가 에너지를 제어하지 못하고 폭주하여 ${deadNames}님이 사망했습니다.`, 'log');
           playersToEliminate.forEach(playerId => eliminatePlayer(roomCode, playerId, 'psychic_fail'));
         }
       }
+
+      // ★ 초능력자 본인에게 행동 완료 피드백 전송
+      io.to(selectorId).emit('actionConfirmed');
       broadcastUpdates(roomCode);
     }, ROULETTE_DURATION + VIEW_DURATION);
   });
@@ -2732,8 +2689,10 @@ io.on('connection', (socket) => {
       room.alienActionsConfirmed = [];
       room.selections = {};
       delete room.crewActionTriggered;
-      delete room.bodyguardProtection;
-      // ★ 수정5: medicalProtectionTarget은 여기서 삭제하지 않음 (resolveNightActionsInternal에서 소비)
+      // ★ 수정7: bodyguardProtection은 탐사대 단계에서 설정, 에일리언 단계에서 소비 → 여기서 삭제하지 않음
+      // (resolveNightActionsInternal에서 소비됨)
+      // ★ 수정6: shamanBlockedPlayers는 에일리언 단계에서 설정 → 여기서 삭제 (이전 라운드 것 제거)
+      delete room.shamanBlockedPlayers;
       delete room.doctorProtections;
       broadcastUpdates(code);
       return;
@@ -2748,48 +2707,69 @@ io.on('connection', (socket) => {
     broadcastUpdates(code);
   });
 
-  // ── startMeetingTimer: 수동/강제 타이머 시작 (관리자 비상용 + selectGroup 미완료 대비) ──
+  // ── startMeetingTimer: 관리자 "회의 타이머 시작" 버튼 핸들러 ──
   socket.on('startMeetingTimer', (roomCode) => {
     const room = gameRooms[roomCode];
     if (!room) return;
     const timerKey = roomCode + '_meeting';
     if (timerIntervals[timerKey]) { clearInterval(timerIntervals[timerKey]); delete timerIntervals[timerKey]; }
+
     let autoLeft = room.autoMeetingTime || 90;
     room.timeLeft = autoLeft;
+
+    // 타이머 시작 시 ejectionState를 pending_start로 확실히 설정
+    if (room.settings && room.settings.useEjectionMinigame && room.ejectionState === 'pending_start') {
+      // 그대로 유지 — 30초에 nominating으로 전환
+    }
+
     io.to(roomCode).emit('timerUpdate', { roomCode, timeLeft: autoLeft });
     io.to(ADMIN_ROOM).emit('timerUpdate', { roomCode, timeLeft: autoLeft });
-    console.log('[' + roomCode + '] Meeting timer FORCE started by admin');
+    broadcastUpdates(roomCode);
+    console.log(`[${roomCode}] Meeting timer started by admin. ${autoLeft}s`);
+
     timerIntervals[timerKey] = setInterval(() => {
       autoLeft--;
       room.timeLeft = autoLeft;
       io.to(roomCode).emit('timerUpdate', { roomCode, timeLeft: autoLeft });
       io.to(ADMIN_ROOM).emit('timerUpdate', { roomCode, timeLeft: autoLeft });
+
+      // ★ 30초 남은 시점 → 후보 지목 투표 화면으로 전환 (미니게임 설정 무관)
       if (autoLeft === 30) {
         if (room.ejectionState === 'pending_start') {
           room.ejectionState = 'nominating';
+          room.ejectionVotes = {};
+          room.ejectionNominations = {};
+          addLog(room, `[회의] 30초 남았습니다. 선실 내 방출 후보를 지목하세요.`, 'phase_change');
+          broadcastUpdates(roomCode);
+          setTimeout(() => { if (gameRooms[roomCode]) broadcastUpdates(roomCode); }, 300);
         }
-        broadcastUpdates(roomCode);
-        setTimeout(() => {
-          if (gameRooms[roomCode]) broadcastUpdates(roomCode);
-        }, 300);
       }
-      if (autoLeft < 0) {
+
+      // 타이머 만료 → 미투표 자동 처리
+      if (autoLeft <= 0) {
         clearInterval(timerIntervals[timerKey]);
         delete timerIntervals[timerKey];
         room.timeLeft = 0;
+        io.to(roomCode).emit('timerUpdate', { roomCode, timeLeft: 0 });
+
         if (room.ejectionState === 'nominating' || room.ejectionState === 'pending_start') {
-          const alive = room.players.filter(p => p.status === 'alive' && p.group);
-          const groups = [...new Set(alive.map(p => p.group))];
+          const aliveNow = room.players.filter(p => p.status === 'alive' && p.group);
+          const groups = [...new Set(aliveNow.map(p => p.group))];
+          if (!room.ejectionNominations) room.ejectionNominations = {};
+          const penaltyNames = [];
           groups.forEach(gn => {
             if (room.ejectionNominations[gn]) return;
-            const members = alive.filter(p => p.group === gn);
-            if (members.length <= 1) return;
+            const members = aliveNow.filter(p => p.group === gn);
+            if (members.length <= 1) {
+              if (members[0]) room.ejectionNominations[gn] = members[0].id;
+              return;
+            }
             const votes = (room.ejectionVotes || {})[gn] || {};
             const nonVoters = members.filter(p => !votes[p.id]);
             if (nonVoters.length > 0) {
               const penalty = nonVoters[Math.floor(Math.random() * nonVoters.length)];
               room.ejectionNominations[gn] = penalty.id;
-              if (room.gameLog) room.gameLog.unshift({ text: '[자동진행] ' + penalty.name + '님이 미투표 페널티로 방출 후보에 올랐습니다.', type: 'log' });
+              penaltyNames.push(penalty.name); // ★ 수정5: 한 줄에 모아서 출력
             } else {
               const tally = {};
               Object.values(votes).forEach(tid => { tally[tid] = (tally[tid] || 0) + 1; });
@@ -2797,9 +2777,14 @@ io.on('connection', (socket) => {
               if (topId) room.ejectionNominations[gn] = topId;
             }
           });
+          // ★ 수정5: 페널티 대상 한 줄로 모아서 출력
+          if (penaltyNames.length > 0) {
+            addLog(room, `[자동진행] ${penaltyNames.join(', ')}님이 미투표 페널티로 방출 후보에 올랐습니다.`, 'log');
+          }
           if (Object.keys(room.ejectionNominations).length > 0) {
             room.ejectionState = 'minigame_pending';
             broadcastUpdates(roomCode);
+            setTimeout(() => { autoStartMinigame(roomCode); }, 800);
           }
         }
       }

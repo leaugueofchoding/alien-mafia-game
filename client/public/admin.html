@@ -1053,10 +1053,10 @@
           + missionPresetsState.map(n => '<option>' + esc(n) + '</option>').join('') + '</select>';
       } else { psHtml = '<span style="color:var(--text3);font-size:.8rem;">없음</span>'; }
       settGrid.innerHTML = '<div class="setting-item"><label>미션 프리셋</label>' + psHtml + '</div>'
-        + '<div class="setting-item"><label>모둠 수</label><input type="number" id="group-count-' + code + '" value="' + (rd.groupCount || 6) + '" min="2" style="width:70px;"></div>'
         + '<div class="setting-item full"><label style="display:flex;align-items:center;justify-content:space-between;">방출 미니게임 사용'
         + '<label class="toggle-switch" style="width:38px;"><input type="checkbox" class="ejection-minigame-toggle" id="ejection-minigame-toggle-' + code + '" checked><span class="toggle-slider"></span></label>'
-        + '</label></div>';
+        + '</label></div>'
+        + '<div class="setting-item full" style="font-size:.78rem;color:var(--text3);">선실 배정은 인원수에 따라 자동으로 이루어집니다.</div>';
       colG.appendChild(settGrid);
 
       const startBtn = mk('button', 'btn btn-success btn-full start-game-btn');
@@ -1263,36 +1263,32 @@
       }
       /* 낮: 회의 */
       else if (rd.phase === 'meeting') {
-        /* 타이머 버튼 (항상 표시 — 자동이면 비상용) */
+        /* 타이머 버튼 — 관리자가 눌러야 타이머·지목 투표 시작 */
         const tBtn = mk('button', 'btn btn-full meeting-timer-btn');
         const tl = rd.timeLeft || 0;
         if (tl > 0) {
-          tBtn.textContent = '⏱ 타이머 작동 중...'; tBtn.disabled = true;
-          tBtn.className = 'btn btn-ghost btn-full meeting-timer-btn';
-        } else if (rd.autoMode) {
-          tBtn.textContent = '⚙ 타이머 강제 시작 (비상용)';
+          tBtn.textContent = '⏱ 회의 타이머 작동 중...'; tBtn.disabled = true;
           tBtn.className = 'btn btn-ghost btn-full meeting-timer-btn';
         } else {
-          tBtn.textContent = '⏱ 타이머 작동'; tBtn.className = 'btn btn-warning btn-full meeting-timer-btn';
+          tBtn.textContent = '▶️ 회의 시작 (타이머 가동)';
+          tBtn.className = 'btn btn-warning btn-full meeting-timer-btn';
+          tBtn.style.fontWeight = '700';
         }
         actions.appendChild(tBtn);
 
         if (rd.settings.useEjectionMinigame) {
-          if (rd.ejectionState === 'pending_start') {
-            if (!rd.autoMode) {
-              const snBtn = mk('button', 'btn btn-warning btn-full start-nomination-btn');
-              snBtn.textContent = '🗳 1차 후보 지목 시작'; actions.appendChild(snBtn);
-            } else {
-              const an = mk('p', ''); an.textContent = '⚡ 자동진행: 30초 전 지목 자동 시작'; an.style.cssText = 'font-size:.78rem;color:var(--green);margin:4px 0;'; actions.appendChild(an);
-            }
-          } else if (rd.ejectionState === 'nominating') {
+          if (rd.ejectionState === 'pending_start' || rd.ejectionState === 'nominating') {
             const ip = mk('p', ''); ip.textContent = '🗳 지목 투표 진행 중... (모니터링 열 확인)'; ip.style.cssText = 'font-size:.82rem;color:var(--yellow);font-weight:700;margin:4px 0;'; actions.appendChild(ip);
-            const emergNom = mk('button', 'btn btn-ghost btn-full btn-sm'); emergNom.textContent = '⚙ 비상: 방출 미니게임 강제 시작';
-            emergNom.style.cssText = 'margin-top:4px;font-size:.78rem;'; emergNom.className = 'btn btn-ghost btn-full start-ejection-minigame-btn'; actions.appendChild(emergNom);
+            const emergNom = mk('button', 'btn btn-warning btn-full start-ejection-minigame-btn');
+            emergNom.textContent = '🗳 방출 미니게임 강제 시작';
+            emergNom.style.cssText = 'margin-top:4px;';
+            actions.appendChild(emergNom);
           } else if (rd.ejectionState === 'minigame_pending') {
-            // Q3: 자동 시작됨 - 안내만 표시
-            const autoMg = mk('p', ''); autoMg.textContent = '⚡ 방출 미니게임 자동 시작 중...';
-            autoMg.style.cssText = 'color:var(--purple);font-weight:700;font-size:.88rem;margin:6px 0;'; actions.appendChild(autoMg);
+            const pendingInfo = mk('p', ''); pendingInfo.textContent = '⏳ 최종 후보 확정 — 미니게임 시작 대기 중';
+            pendingInfo.style.cssText = 'color:var(--purple);font-weight:700;font-size:.88rem;margin:6px 0;'; actions.appendChild(pendingInfo);
+            const forceStart = mk('button', 'btn btn-danger btn-full start-ejection-minigame-btn');
+            forceStart.textContent = '🚀 방출 미니게임 시작';
+            actions.appendChild(forceStart);
           } else if (['minigame_active', 'minigame_all_selected'].includes(rd.ejectionState)) {
             const resBtn = mk('button', 'btn btn-danger btn-full resolve-ejection-minigame-btn');
             const done = rd.ejectionState === 'minigame_all_selected';
