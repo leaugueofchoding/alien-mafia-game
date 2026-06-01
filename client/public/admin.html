@@ -793,29 +793,85 @@
       background: var(--border);
       border-radius: 3px;
     }
+
+    /* 인증 모달 */
+    .auth-modal {
+      position: fixed;
+      inset: 0;
+      background: var(--bg);
+      z-index: 9999;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      flex-direction: column;
+    }
+
+    .auth-box {
+      background: var(--surface);
+      padding: 30px;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      text-align: center;
+      width: 320px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+    }
   </style>
 </head>
 
 <body>
 
-  <!-- 최상단 헤더 -->
-  <div
-    style="background:var(--surface);border-bottom:1px solid var(--border);padding:10px 16px;display:flex;align-items:center;justify-content:space-between;width:100%;box-sizing:border-box;">
-    <h1 style="margin:0;font-size:1rem;font-weight:700;color:var(--accent);">🛸 에일리언 마피아 — 관리자</h1>
-    <div style="display:flex;gap:8px;align-items:center;">
-      <input type="text" id="new-room-code-input" placeholder="게임방 코드"
-        style="width:140px;padding:6px 10px;border:1px solid var(--border);border-radius:6px;background:var(--surface2);color:var(--text);font-size:.88rem;">
-      <button id="create-room-btn" class="btn btn-primary btn-sm">🚀 방 생성</button>
-      <div style="width:1px;height:20px;background:var(--border);margin:0 4px;"></div>
-      <button id="reset-server-btn" class="btn btn-danger btn-sm">🗑 초기화</button>
+  <!-- 비밀번호 인증 모달 -->
+  <div id="admin-auth-modal" class="auth-modal">
+    <div class="auth-box">
+      <h2 style="margin-top: 0; color: var(--accent);">🔒 관리자 인증</h2>
+      <p style="font-size: 0.85rem; color: var(--text2); margin-bottom: 20px;">접근을 위해 비밀번호를 입력하세요.</p>
+      <input type="password" id="admin-pw-input"
+        style="width: 100%; padding: 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface2); color: var(--text); margin-bottom: 15px; text-align: center; font-size: 1.2rem; letter-spacing: 0.2em;">
+      <button id="admin-pw-submit" class="btn btn-primary btn-full" style="padding: 10px;">접속</button>
     </div>
   </div>
 
-  <!-- 방 목록 -->
-  <div id="game-rooms-container"></div>
+  <div id="admin-content-wrapper" style="display: none;">
+    <!-- 최상단 헤더 -->
+    <div
+      style="background:var(--surface);border-bottom:1px solid var(--border);padding:10px 16px;display:flex;align-items:center;justify-content:space-between;width:100%;box-sizing:border-box;">
+      <h1 style="margin:0;font-size:1rem;font-weight:700;color:var(--accent);">🛸 에일리언 마피아 — 관리자</h1>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <input type="text" id="new-room-code-input" placeholder="게임방 코드"
+          style="width:140px;padding:6px 10px;border:1px solid var(--border);border-radius:6px;background:var(--surface2);color:var(--text);font-size:.88rem;">
+        <button id="create-room-btn" class="btn btn-primary btn-sm">🚀 방 생성</button>
+        <div style="width:1px;height:20px;background:var(--border);margin:0 4px;"></div>
+        <button id="reset-server-btn" class="btn btn-danger btn-sm">🗑 초기화</button>
+      </div>
+    </div>
 
-  <!-- 서버 초기화는 헤더로 이동 -->
+    <!-- 방 목록 -->
+    <div id="game-rooms-container"></div>
+  </div>
+
   <script>
+    /* ── 비밀번호 인증 로직 ── */
+    const authModal = document.getElementById('admin-auth-modal');
+    const authWrapper = document.getElementById('admin-content-wrapper');
+    const pwInput = document.getElementById('admin-pw-input');
+    const pwSubmit = document.getElementById('admin-pw-submit');
+
+    function checkPassword() {
+      if (pwInput.value === '0314') {
+        authModal.style.display = 'none';
+        authWrapper.style.display = 'block';
+      } else {
+        alert('비밀번호가 틀렸습니다.');
+        pwInput.value = '';
+        pwInput.focus();
+      }
+    }
+
+    pwSubmit.addEventListener('click', checkPassword);
+    pwInput.addEventListener('keypress', function (e) {
+      if (e.key === 'Enter') checkPassword();
+    });
+
     const socket = io();
     const roomsContainer = document.getElementById('game-rooms-container');
 
@@ -835,7 +891,7 @@
     const SPECIAL_CREW = ['의사', '경호원', '초능력자', '수다쟁이', '군인', '신의 사도'];
 
     let gameRoomsState = {};
-    let playerCountMap = {}; // BUG1 FIX: 대기실 총원 별도 저장
+    let playerCountMap = {};
     let missionPresetsState = [];
 
     /* ── 자동 역할 배정 ── */
@@ -872,7 +928,6 @@
       gameRoomsState = data.rooms;
       missionPresetsState = data.missionPresets || [];
 
-      // BUG1 FIX: 별도 Map에 총원 저장 (updateAdmin 때 gameRoomsState 교체돼도 유지)
       for (const code in gameRoomsState) {
         const rd = gameRoomsState[code];
         if (rd.status === 'waiting') {
@@ -881,7 +936,6 @@
       }
       renderAll();
 
-      // 대기실 상태인 방에 대해 자동 배정 인풋 및 역할 수치 갱신
       for (const code in gameRoomsState) {
         const rd = gameRoomsState[code];
         if (rd.status !== 'waiting') continue;
@@ -889,7 +943,6 @@
         const aaInp = document.getElementById('auto-assign-inp-' + code);
         if (aaInp) {
           aaInp.value = total;
-          // 자동 배정 로직 실행하여 역할 인원도 갱신
           if (total >= 4) {
             const assigned = autoAssignRoles(total);
             if (assigned) {
@@ -1016,7 +1069,10 @@
       const colP = mk('div', 'col col-players');
       colP.innerHTML = '<div class="col-header">참가자 목록</div>';
       const ul = mk('ul', 'waiting-grid');
-      rd.players.forEach(p => {
+
+      const sortedWaitingPlayers = [...rd.players].sort((a, b) => a.name.localeCompare(b.name, 'ko-KR'));
+
+      sortedWaitingPlayers.forEach(p => {
         const li = mk('li', '');
         li.innerHTML = '<div class="name">' + esc(p.name) + '</div>';
         const kb = mk('button', 'kick-btn'); kb.textContent = '퇴장';
@@ -1046,7 +1102,6 @@
 
       /* 기타 설정 */
       const settGrid = mk('div', 'settings-grid');
-      /* 미션 프리셋 */
       let psHtml = '';
       if (missionPresetsState.length > 0) {
         psHtml = '<select id="mission-preset-select-' + code + '" style="width:100%;padding:6px;border:1px solid var(--border);border-radius:5px;background:var(--bg);color:var(--text);font-size:.83rem;">'
@@ -1068,10 +1123,9 @@
       const colR = mk('div', 'col col-monitor');
       colR.innerHTML = '<div class="col-header">역할 인원 설정</div>';
 
-      /* 자동 배정 */
       const aaPanel = mk('div', 'role-assign-panel');
       const aaTotalSpan = mk('span', ''); aaTotalSpan.id = 'total-roles-' + code;
-      aaTotalSpan.style.display = 'none'; // Q1: 중복 제거 - 자동배정 버튼 옆 숫자 입력칸으로 충분
+      aaTotalSpan.style.display = 'none';
       const currentCounts = (rd.settings && Object.keys(rd.settings).length > 1) ? rd.settings : {};
       aaPanel.innerHTML = '<h5>🎲 총원 → 자동 배정</h5>';
       const aaRow = mk('div', 'quick-assign-row');
@@ -1093,14 +1147,12 @@
         inp.addEventListener('input', () => {
           let t = 0;
           colR.querySelectorAll('.role-row input').forEach(i => t += parseInt(i.value) || 0);
-          // ★ 수정2: 총원 표시 항상 보이게 + 인원 불일치 경고
           const totalDisplay = document.getElementById('role-total-display-' + code);
           const connected = rd.players.length;
           if (totalDisplay) {
             totalDisplay.textContent = '역할 합계: ' + t + '명 / 접속: ' + connected + '명';
             totalDisplay.style.color = (t === connected) ? '#86efac' : '#fca5a5';
           }
-          // 게임시작 버튼에도 경고 반영
           const startBtn2 = colG.querySelector('.start-game-btn');
           if (startBtn2) {
             if (t > 0 && t !== connected) {
@@ -1117,7 +1169,6 @@
       });
       colR.appendChild(roleList);
 
-      // ★ 수정2: 역할 합계 상시 표시 div
       const totalDisplay = mk('div', 'total-count');
       totalDisplay.id = 'role-total-display-' + code;
       totalDisplay.style.cssText = 'font-size:.8rem;margin-top:6px;font-weight:600;';
@@ -1155,8 +1206,13 @@
 
       const sorted = [...rd.players].sort((a, b) => {
         const sc = r => ALIENS.includes(r) ? 3 : CORE_CREW.includes(r) ? 2 : SPECIAL_CREW.includes(r) ? 1 : 0;
-        return sc(b.role) - sc(a.role);
+        const scoreDiff = sc(b.role) - sc(a.role);
+
+        if (scoreDiff !== 0) return scoreDiff;
+
+        return a.name.localeCompare(b.name, 'ko-KR');
       });
+
       const grid = mk('ul', 'player-grid');
       sorted.forEach(p => {
         const li = mk('li', 'player-card');
@@ -1195,8 +1251,7 @@
     function renderColGame(panel, code, rd) {
       panel.innerHTML = '<div class="col-header">🎮 게임 진행</div>';
 
-      /* 페이즈 뱃지 */
-      panel.appendChild(mkPhaseBadge(rd));
+      panel.appendChild(mkPhaseTracker(rd));
 
       const actions = mk('div', 'action-stack');
 
@@ -1263,7 +1318,6 @@
       }
       /* 낮: 회의 */
       else if (rd.phase === 'meeting') {
-        /* 타이머 버튼 — 관리자가 눌러야 타이머·지목 투표 시작 */
         const tBtn = mk('button', 'btn btn-full meeting-timer-btn');
         const tl = rd.timeLeft || 0;
         if (tl > 0) {
@@ -1309,7 +1363,6 @@
         }
         if (rd.pendingAction === 'queen_rampage') {
           const qBtn = mk('button', 'btn btn-night-red btn-full trigger-rampage-btn'); qBtn.textContent = '👑 여왕의 만찬 시작'; actions.appendChild(qBtn);
-          // 만찬 시작 후 비활성화 처리는 rampageTriggered 상태로 판단
           if (rd.rampageTriggered) {
             qBtn.disabled = true;
             qBtn.textContent = '👑 만찬 진행 중...';
@@ -1322,7 +1375,6 @@
           } else {
             const rnBtn = mk('button', 'btn btn-warning btn-full resolve-night-btn'); rnBtn.textContent = '✅ 결과 반영 및 탐사대 활동 시작'; actions.appendChild(rnBtn);
           }
-          // Q3: 비상용 버튼 (항상 표시)
           const emergRn = mk('button', 'btn btn-ghost btn-full btn-sm'); emergRn.textContent = '⚙ 비상: 결과 강제 반영';
           emergRn.style.cssText = 'margin-top:4px;font-size:.78rem;color:var(--text3);'; emergRn.className = 'btn btn-ghost btn-full resolve-night-btn';
           actions.appendChild(emergRn);
@@ -1350,7 +1402,6 @@
       logBox.innerHTML = (rd.gameLog || []).map(e => {
         const text = typeof e === 'string' ? e : e.text;
         const type = typeof e === 'string' ? 'log' : (e.type || 'log');
-        // 의사 보호 관련 로그 중복 방지
         if (text && (text.includes('의학적으로') || text.includes('백신') || text.includes('보호'))) {
           if (seenLogTexts.has(text)) return '';
           seenLogTexts.add(text);
@@ -1363,6 +1414,57 @@
       const guide = mk('div', 'guide-box');
       guide.innerHTML = mkGuideText(rd);
       panel.appendChild(guide);
+    }
+
+    function mkPhaseTracker(rd) {
+      const wrapper = mk('div', '');
+      wrapper.style.cssText = 'background:var(--surface2); border:1px solid var(--border); border-radius:8px; padding:10px; margin-bottom:12px;';
+
+      let currentText = '';
+      let nextText = '';
+      let currentClass = 'day';
+
+      if (rd.status === 'game_over') {
+        currentText = '🏁 게임 종료 — ' + rd.winner + ' 승리';
+        nextText = '게임이 종료되었습니다.';
+        currentClass = 'special';
+      } else if (rd.phase === 'role_reveal') {
+        currentText = '☀️ ' + rd.day + '일차 — 역할 확인';
+        nextText = '☀️ 역할 확인 -> 1일차 회의 시작';
+        currentClass = 'day';
+      } else if (rd.phase === 'meeting') {
+        const sub = { pending_start: '자기소개', nominating: '후보 지목 중', minigame_pending: '미니게임 대기', minigame_active: '미니게임 진행', minigame_all_selected: '결과 공개 대기' };
+        currentText = '☀️ ' + rd.day + '일차 회의 — ' + (sub[rd.ejectionState] || rd.ejectionState || '');
+        nextText = '☀️ 회의 -> 🌙 탐사대 활동 시작 (밤으로 이동)';
+        currentClass = 'day';
+      } else if (rd.phase === 'night_crew_action') {
+        currentText = '🌙 ' + rd.day + '일차 밤 1단계 — 🟡 탐사대 활동';
+        nextText = '🟡 탐사대 활동 -> 🔴 에일리언 활동 시작';
+        currentClass = 'night-crew';
+      } else if (rd.phase === 'night_alien_action') {
+        currentText = '🌙 ' + rd.day + '일차 밤 2단계 — 🔴 에일리언 활동';
+        if (rd.pendingAction === 'queen_rampage') currentText += ' / 👑 여왕의 만찬';
+        nextText = '🔴 에일리언 활동 -> ☀️ ' + (rd.day + 1) + '일차 아침(회의)';
+        currentClass = 'night-alien';
+      } else if (rd.phase === 'escape_sequence') {
+        currentText = '🚀 비상탈출 시퀀스 — 관문 ' + ((rd.escapeStep || 0) + 1);
+        nextText = '비상탈출 다음 관문 또는 결과 확인';
+        currentClass = 'special';
+      } else {
+        currentText = rd.day + '일차 ' + rd.phase;
+        nextText = '진행 중...';
+      }
+
+      wrapper.innerHTML = `
+          <div style="font-size:0.8rem; color:var(--text3); font-weight:700; margin-bottom:6px;">[현재]</div>
+          <div class="phase-badge ${currentClass}" style="margin-bottom:12px; display:inline-flex;">${currentText}</div>
+          
+          <div style="font-size:0.8rem; color:var(--text3); font-weight:700; margin-bottom:6px;">[다음]</div>
+          <div style="font-size:0.85rem; color:var(--accent); font-weight:600; background:rgba(91, 141, 238, 0.1); padding:8px 12px; border-radius:6px;">
+              ⏩ ${nextText}
+          </div>
+      `;
+      return wrapper;
     }
 
     function mkGuideText(rd) {
@@ -1481,27 +1583,6 @@
       }
     }
 
-    /* ── 페이즈 뱃지 생성 ── */
-    function mkPhaseBadge(rd) {
-      const el = mk('div', 'phase-badge');
-      if (rd.status === 'game_over') { el.classList.add('special'); el.textContent = '🏁 게임 종료 — ' + rd.winner + ' 승리'; }
-      else if (rd.phase === 'role_reveal') { el.classList.add('day'); el.textContent = '☀️ ' + rd.day + '일차 — 역할 확인'; }
-      else if (rd.phase === 'meeting') {
-        el.classList.add('day');
-        const sub = { pending_start: '자기소개', nominating: '후보 지목 중', minigame_pending: '미니게임 대기', minigame_active: '미니게임 진행', minigame_all_selected: '결과 공개 대기' };
-        el.textContent = '☀️ ' + rd.day + '일차 회의 — ' + (sub[rd.ejectionState] || rd.ejectionState || '');
-      }
-      else if (rd.phase === 'night_alien_action') {
-        el.classList.add('night-alien');
-        el.textContent = '🌙 ' + rd.day + '일차 밤 — 🔴 에일리언 활동';
-        if (rd.pendingAction === 'queen_rampage') el.textContent += ' / 👑 여왕의 만찬';
-      }
-      else if (rd.phase === 'night_crew_action') { el.classList.add('night-crew'); el.textContent = '🌙 ' + rd.day + '일차 밤 1단계 — 🟡 탐사대 활동'; }
-      else if (rd.phase === 'escape_sequence') { el.classList.add('special'); el.textContent = '🚀 비상탈출 시퀀스 — 관문 ' + ((rd.escapeStep || 0) + 1); }
-      else { el.classList.add('day'); el.textContent = rd.day + '일차 ' + rd.phase; }
-      return el;
-    }
-
     /* ── 유틸 ── */
     function mk(tag, cls) { const el = document.createElement(tag); if (cls) el.className = cls; return el; }
     function esc(s) { return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
@@ -1550,7 +1631,7 @@
         const autoChk = document.getElementById('auto-chk-' + roomCode);
         const autoMt = document.getElementById('auto-mt-' + roomCode);
         const autoAt = document.getElementById('auto-at-' + roomCode);
-        /* Q3: 게임 시작 시 자동진행 설정 자동 적용 (별도 저장 버튼 불필요) */
+
         socket.emit('setAutoMode', {
           roomCode,
           autoMode: autoChk ? autoChk.checked : true,
